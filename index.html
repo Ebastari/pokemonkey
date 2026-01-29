@@ -1,0 +1,179 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POKEMONKEY RPG</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --pk-blue: #225599;
+            --pk-border: #ffffff;
+            --pk-shadow: #112244;
+            --pk-red: #ff0000;
+        }
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            image-rendering: pixelated;
+        }
+        .retro-box {
+            background: var(--pk-blue);
+            border: 4px solid var(--pk-border);
+            box-shadow: 4px 4px 0px var(--pk-shadow);
+            padding: 10px;
+            position: relative;
+        }
+        .retro-box::after {
+            content: '';
+            position: absolute;
+            inset: 2px;
+            border: 2px solid rgba(255,255,255,0.3);
+            pointer-events: none;
+        }
+        
+        /* Intense Stamina Burn Animation */
+        @keyframes stamina-burn {
+            0% { background-position: 0% 50%; filter: brightness(1) contrast(1); }
+            25% { filter: brightness(1.3) contrast(1.1); }
+            50% { background-position: 100% 50%; filter: brightness(1.1) contrast(1); }
+            75% { filter: brightness(1.4) contrast(1.2); }
+            100% { background-position: 0% 50%; filter: brightness(1) contrast(1); }
+        }
+        
+        @keyframes flame-flicker {
+            0%, 100% { box-shadow: 0 0 15px #ff4d00, 0 0 5px #ffae00; }
+            50% { box-shadow: 0 0 25px #ffae00, 0 0 10px #ffffff; }
+        }
+
+        .stamina-bar-fill {
+            background: linear-gradient(270deg, #ff0000, #ff4d00, #ffae00, #ff4d00, #ff0000);
+            background-size: 300% 300%;
+            animation: stamina-burn 1.5s infinite linear, flame-flicker 0.2s infinite ease-in-out;
+            border-right: 4px solid #fff;
+            position: relative;
+        }
+
+        .stamina-bar-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 10px;
+            height: 100%;
+            background: white;
+            filter: blur(4px);
+            opacity: 0.6;
+        }
+
+        /* Idle Animations */
+        @keyframes monkey-jump {
+            0%, 100% { transform: translateY(0) scaleX(1) rotate(0); }
+            50% { transform: translateY(-30px) scaleX(1.05) rotate(3deg); }
+        }
+        @keyframes monkey-breathe-heavy {
+            0%, 100% { transform: translateY(0) scaleY(1); }
+            50% { transform: translateY(3px) scaleY(0.95); }
+        }
+        @keyframes distressed-shake {
+            0%, 100% { transform: translate(0, 0); }
+            25% { transform: translate(-2px, 1px); }
+            50% { transform: translate(2px, -1px); }
+            75% { transform: translate(-1px, -1px); }
+        }
+        
+        /* Movement Animations */
+        @keyframes walk-energetic {
+            0% { transform: translateY(0) rotate(-12deg); }
+            25% { transform: translateY(-25px) rotate(0deg) scaleY(1.1); }
+            50% { transform: translateY(0) rotate(12deg); }
+            75% { transform: translateY(-25px) rotate(0deg) scaleY(1.1); }
+            100% { transform: translateY(0) rotate(-12deg); }
+        }
+        @keyframes walk-sluggish {
+            0% { transform: translateY(0) rotate(-4deg); }
+            50% { transform: translateY(8px) rotate(4deg); }
+            100% { transform: translateY(0) rotate(-4deg); }
+        }
+        @keyframes walk-crawl {
+            0% { transform: translate(0, 4px) rotate(-1deg); }
+            25% { transform: translate(-3px, 6px) rotate(1deg); }
+            50% { transform: translate(0, 5px) rotate(-1deg); }
+            75% { transform: translate(3px, 6px) rotate(1deg); }
+            100% { transform: translate(0, 4px) rotate(-1deg); }
+        }
+        
+        .animate-monkey-happy { animation: monkey-jump 0.6s infinite ease-in-out; }
+        .animate-monkey-tired { animation: monkey-breathe-heavy 1.5s infinite ease-in-out; }
+        .animate-monkey-distressed { animation: distressed-shake 0.2s infinite; }
+        
+        .animate-walk-fast { animation: walk-energetic 0.4s infinite ease-in-out; }
+        .animate-walk-slow { animation: walk-sluggish 1.2s infinite ease-in-out; }
+        .animate-walk-crawl { animation: walk-crawl 0.8s infinite linear; }
+        
+        .leg-fast { animation: leg-swing-fast 0.2s infinite alternate; }
+        .leg-slow { animation: leg-swing-slow 0.6s infinite alternate; }
+
+        .garden-bg {
+            background-color: #4ade80;
+            background-image: 
+                radial-gradient(#22c55e 2px, transparent 2px),
+                radial-gradient(#16a34a 2px, transparent 2px);
+            background-size: 32px 32px;
+            background-position: 0 0, 16px 16px;
+            position: relative;
+            border: 8px solid #3f6212;
+        }
+
+        .pixel-bubble {
+            background: white;
+            color: black;
+            border: 4px solid black;
+            padding: 12px;
+            position: relative;
+            max-width: 200px;
+            font-size: 8px;
+            line-height: 1.5;
+            box-shadow: 4px 4px 0 rgba(0,0,0,0.2);
+        }
+        .pixel-bubble:after {
+            content: '';
+            position: absolute;
+            bottom: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 12px 12px 0;
+            border-style: solid;
+            border-color: white transparent transparent;
+        }
+        
+        .text-r-xs { font-size: 8px; }
+        .text-r-sm { font-size: 10px; }
+        .text-r-md { font-size: 12px; }
+        
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #fff; border: 2px solid #000; }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>
