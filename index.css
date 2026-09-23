@@ -1,0 +1,764 @@
+/*
+ * Sistem desain POKEMONKEY
+ *
+ * Dua huruf, dua peran:
+ *   - Pixelify Sans   : seluruh isi. Huruf piksel era 2000-an yang dirancang
+ *                       agar terbaca, dipakai 12–16 px.
+ *   - Press Start 2P  : hanya logo, judul layar, dan angka skor — dosis kecil
+ *                       supaya nostalgianya terasa tanpa melelahkan mata.
+ *
+ * Gaya kustom diletakkan SEBELUM @tailwind utilities agar kelas utilitas
+ * (mis. p-8) tetap menang atas .retro-box { padding }.
+ */
+
+@tailwind base;
+
+:root {
+  --pk-blue: #225599;
+  --pk-blue-deep: #17407a;
+  --pk-border: #ffffff;
+  --pk-shadow: #112244;
+  --pk-red: #ff0000;
+  --pk-ink: #eef2f5;
+  --pk-muted: #a3b0ba;
+}
+
+html {
+  font-size: 14px;
+}
+
+body {
+  font-family: 'Pixelify Sans', 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.35;
+  background: #000;
+  color: var(--pk-ink);
+  overflow: hidden;
+  image-rendering: pixelated;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Kontrol bawaan browser ikut bergaya piksel. */
+input, select, textarea, button {
+  font-family: inherit;
+  font-size: inherit;
+}
+input[type='date'], input[type='time'] {
+  color-scheme: dark;
+}
+
+@tailwind components;
+
+@layer components {
+  .font-title {
+    font-family: 'Press Start 2P', monospace;
+  }
+
+  .retro-box {
+    background: var(--pk-blue);
+    border: 4px solid var(--pk-border);
+    box-shadow: 4px 4px 0px var(--pk-shadow);
+    padding: 10px;
+    position: relative;
+  }
+  .retro-box::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    pointer-events: none;
+  }
+
+  /* Judul layar: satu-satunya tempat Press Start 2P tampil di dalam layar. */
+  .judul-layar {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    line-height: 1.4;
+  }
+  @screen md {
+    .judul-layar { font-size: 13px; }
+  }
+
+  /* Tombol retro: border tebal, bayangan keras, terasa ditekan. */
+  .btn-retro {
+    @apply inline-flex items-center justify-center gap-1.5 font-bold uppercase tracking-wide text-[13px] leading-none px-3 py-2 border-[3px] border-white text-white select-none transition-transform;
+    box-shadow: 3px 3px 0 #000;
+  }
+  .btn-retro:active {
+    transform: translate(2px, 2px);
+    box-shadow: 0 0 0 #000;
+  }
+  .btn-retro:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn-retro-sm {
+    @apply text-[12px] px-2 py-1.5 border-2;
+    box-shadow: 2px 2px 0 #000;
+  }
+  .btn-ikon {
+    @apply inline-flex items-center justify-center border-[3px] border-white text-white w-9 h-9 transition-transform;
+    box-shadow: 3px 3px 0 #000;
+  }
+  .btn-ikon:active {
+    transform: translate(2px, 2px);
+    box-shadow: 0 0 0 #000;
+  }
+
+  .input-retro {
+    @apply w-full bg-black border-[3px] border-white/30 px-3 py-2 text-[14px] text-white outline-none placeholder:text-zinc-500 focus:border-yellow-400 transition-colors;
+  }
+  .label-retro {
+    @apply block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1;
+  }
+  .chip-retro {
+    @apply inline-flex items-center gap-1 text-[11px] font-bold uppercase leading-none px-1.5 py-1 border whitespace-nowrap;
+  }
+  .panel-retro {
+    @apply bg-black/70 border-[3px] border-white/20 p-3;
+  }
+
+  /* Tulisan di atas latar warna pekat (tab terpilih): putih di mode gelap
+     maupun terang, karena latarnya tidak ikut dibalik. */
+  .teks-atas-warna { color: #ffffff; }
+
+  .text-r-xs { font-size: 12px; }
+  .text-r-sm { font-size: 14px; }
+  .text-r-md { font-size: 16px; }
+}
+
+/* ---------- Animasi ---------- */
+
+@keyframes stamina-burn {
+  0% { background-position: 0% 50%; filter: brightness(1) contrast(1); }
+  25% { filter: brightness(1.3) contrast(1.1); }
+  50% { background-position: 100% 50%; filter: brightness(1.1) contrast(1); }
+  75% { filter: brightness(1.4) contrast(1.2); }
+  100% { background-position: 0% 50%; filter: brightness(1) contrast(1); }
+}
+@keyframes flame-flicker {
+  0%, 100% { box-shadow: 0 0 15px #ff4d00, 0 0 5px #ffae00; }
+  50% { box-shadow: 0 0 25px #ffae00, 0 0 10px #ffffff; }
+}
+.stamina-bar-fill {
+  background: linear-gradient(270deg, #ff0000, #ff4d00, #ffae00, #ff4d00, #ff0000);
+  background-size: 300% 300%;
+  animation: stamina-burn 1.5s infinite linear, flame-flicker 0.2s infinite ease-in-out;
+  border-right: 4px solid #fff;
+  position: relative;
+}
+.stamina-bar-fill::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 10px; height: 100%;
+  background: white;
+  filter: blur(4px);
+  opacity: 0.6;
+}
+
+@keyframes monkey-jump {
+  0%, 100% { transform: translateY(0) scaleX(1) rotate(0); }
+  50% { transform: translateY(-30px) scaleX(1.05) rotate(3deg); }
+}
+@keyframes monkey-breathe-heavy {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  50% { transform: translateY(3px) scaleY(0.95); }
+}
+@keyframes distressed-shake {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(-2px, 1px); }
+  50% { transform: translate(2px, -1px); }
+  75% { transform: translate(-1px, -1px); }
+}
+@keyframes monkey-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes monkey-idle {
+  0%, 92%, 100% { transform: translateY(0) rotate(0); }
+  94% { transform: translateY(-2px) rotate(-4deg); }
+  97% { transform: translateY(0) rotate(4deg); }
+}
+@keyframes sparkle {
+  0%, 100% { opacity: 0; transform: scale(0.4); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@keyframes aura-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.animate-monkey-happy { animation: monkey-jump 0.6s infinite ease-in-out; }
+.animate-monkey-tired { animation: monkey-breathe-heavy 1.5s infinite ease-in-out; }
+.animate-monkey-distressed { animation: distressed-shake 0.2s infinite; }
+.animate-monkey-walk { animation: monkey-bob 0.32s infinite ease-in-out; }
+.animate-monkey-idle { animation: monkey-idle 5s infinite ease-in-out; }
+.animate-sparkle { animation: sparkle 1.2s infinite ease-in-out; }
+.animate-aura { animation: aura-pulse 2.2s infinite ease-in-out; }
+
+@keyframes xp-naik {
+  from { opacity: 1; transform: translate(-50%, -50%); }
+  to   { opacity: 0; transform: translate(-50%, -170%); }
+}
+.animate-pisang { animation: monkey-bob 1.8s infinite ease-in-out; }
+.animate-xp-naik { animation: xp-naik 1.1s ease-out forwards; }
+/* Hujan di KEBUN: tiap tetes adalah kolom setinggi kebun dengan garis air di ujung atasnya;
+   kolomnya digeser 0 → 100% tingginya sendiri, jadi tetes jatuh dari atas ke bawah. */
+.tetes-hujan {
+  position: absolute; top: 0; height: 100%; width: 2px;
+  background-image: linear-gradient(to bottom, rgb(191 219 254 / 0), rgb(219 234 254 / 0.95));
+  background-repeat: no-repeat; background-position: top;
+  animation-name: hujan-jatuh; animation-timing-function: linear; animation-iteration-count: infinite;
+  will-change: transform;
+}
+@keyframes hujan-jatuh { from { transform: translateY(-14%); } to { transform: translateY(100%); } }
+.kilat-petir { background: #fff; opacity: 0; animation: kilat-petir 7s infinite; }
+@keyframes kilat-petir { 0%, 88%, 100% { opacity: 0; } 89% { opacity: 0.55; } 90% { opacity: 0.05; } 91.5% { opacity: 0.4; } 93% { opacity: 0; } }
+/* Pisang yang sedang dituju monyet: berkedip supaya jelas mana yang akan dimakan. */
+.pisang-diincar { filter: drop-shadow(0 0 0 #fff) drop-shadow(0 0 3px #fde047); animation: pisang-kedip 0.5s steps(2) infinite; }
+@keyframes pisang-kedip { 50% { opacity: 0.55; } }
+
+.garden-bg {
+  background-color: #4ade80;
+  background-image:
+    radial-gradient(#22c55e 2px, transparent 2px),
+    radial-gradient(#16a34a 2px, transparent 2px);
+  background-size: 32px 32px;
+  background-position: 0 0, 16px 16px;
+  position: relative;
+  border: 8px solid #3f6212;
+}
+
+.pixel-bubble {
+  background: white;
+  color: black;
+  border: 3px solid black;
+  padding: 8px 10px;
+  position: relative;
+  max-width: 220px;
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.25);
+}
+/* Balon status anggota lain: lebih kecil agar kebun tidak penuh tulisan. */
+.pixel-bubble-kecil { font-size: 11px; padding: 4px 7px; border-width: 2px; }
+/* Balon yang diratakan ke tepi: ekornya tetap menunjuk kepala monyet. */
+.pixel-bubble-kiri:after { left: 30px; }
+.pixel-bubble-kanan:after { left: auto; right: 30px; transform: translateX(50%); }
+.pixel-bubble:after {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 10px 10px 0;
+  border-style: solid;
+  border-color: white transparent transparent;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #111; }
+::-webkit-scrollbar-thumb { background: #fff; border: 2px solid #000; }
+
+@tailwind utilities;
+
+@supports (padding: env(safe-area-inset-top)) {
+  #root {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-monkey-happy, .animate-monkey-tired, .animate-monkey-distressed,
+  .animate-monkey-walk, .animate-monkey-idle, .animate-sparkle, .animate-aura,
+  .animate-pisang, .pisang-diincar, .stamina-bar-fill { animation: none !important; }
+  .tetes-hujan, .kilat-petir { display: none; }
+  .animate-xp-naik { animation-duration: 0.01s !important; }
+}
+
+/* ============================================================
+ * Mode terang — untuk dipakai di bawah matahari
+ *
+ * Layar gelap tidak terbaca di lapangan, jadi seluruh permukaan netral
+ * dibalik menjadi terang sementara bingkai tebal, bayangan keras, dan huruf
+ * pikselnya tetap. Ditulis sebagai lapisan penimpa, bukan menulis ulang tiap
+ * komponen: satu kelas Tailwind bisa muncul polos maupun dengan tanda penting,
+ * sehingga keduanya dicocokkan lewat pemilih atribut.
+ *
+ * Dua pengecualian yang disengaja:
+ *   - Tombol dengan latar netral tetap gelap, supaya tulisan putihnya terbaca.
+ *   - bg-black/90 dan bg-black/25 dibiarkan: itu tirai jendela dan bayangan.
+ * ============================================================ */
+
+[data-tema='terang'] {
+  color-scheme: light;
+  --pk-border: #15181c;
+  --pk-shadow: #9aa4ae;
+  --pk-ink: #15181c;
+  --pk-muted: #49525a;
+}
+[data-tema='terang'] body { background: #e6eae3; color: #15181c; }
+[data-tema='terang'] input[type='date'], [data-tema='terang'] input[type='time'] { color-scheme: light; }
+[data-tema='terang'] ::-webkit-scrollbar-track { background: #d3d9cf; }
+[data-tema='terang'] ::-webkit-scrollbar-thumb { background: #15181c; border: 2px solid #e6eae3; }
+
+/* ---- Permukaan netral ---- */
+[data-tema='terang'] [class~="bg-zinc-950"], [data-tema='terang'] [class~="!bg-zinc-950"] { background-color: #e6eae3 !important; }
+[data-tema='terang'] [class~="bg-zinc-900"], [data-tema='terang'] [class~="!bg-zinc-900"] { background-color: #ffffff !important; }
+[data-tema='terang'] [class~="bg-zinc-800"], [data-tema='terang'] [class~="!bg-zinc-800"] { background-color: #e6eae3 !important; }
+[data-tema='terang'] [class~="bg-zinc-700"], [data-tema='terang'] [class~="!bg-zinc-700"] { background-color: #d3d9cf !important; }
+[data-tema='terang'] [class~="bg-zinc-600"], [data-tema='terang'] [class~="!bg-zinc-600"] { background-color: #bfc6bb !important; }
+[data-tema='terang'] [class~="bg-black"], [data-tema='terang'] [class~="!bg-black"] { background-color: #ffffff !important; }
+[data-tema='terang'] [class~="bg-black/85"], [data-tema='terang'] [class~="!bg-black/85"] { background-color: rgb(255 255 255 / 0.94) !important; }
+[data-tema='terang'] [class~="bg-black/80"], [data-tema='terang'] [class~="!bg-black/80"] { background-color: rgb(255 255 255 / 0.94) !important; }
+[data-tema='terang'] [class~="bg-black/70"], [data-tema='terang'] [class~="!bg-black/70"] { background-color: rgb(255 255 255 / 0.92) !important; }
+[data-tema='terang'] [class~="bg-black/60"], [data-tema='terang'] [class~="!bg-black/60"] { background-color: rgb(255 255 255 / 0.9) !important; }
+[data-tema='terang'] [class~="bg-black/50"], [data-tema='terang'] [class~="!bg-black/50"] { background-color: rgb(255 255 255 / 0.88) !important; }
+[data-tema='terang'] [class~="bg-black/45"], [data-tema='terang'] [class~="!bg-black/45"] { background-color: rgb(255 255 255 / 0.86) !important; }
+[data-tema='terang'] [class~="bg-black/40"], [data-tema='terang'] [class~="!bg-black/40"] { background-color: rgb(255 255 255 / 0.85) !important; }
+[data-tema='terang'] [class~="bg-white/10"], [data-tema='terang'] [class~="!bg-white/10"] { background-color: rgb(21 24 28 / 0.1) !important; }
+[data-tema='terang'] [class~="bg-white/5"], [data-tema='terang'] [class~="!bg-white/5"] { background-color: rgb(21 24 28 / 0.06) !important; }
+[data-tema='terang'] [class~="bg-white/[0.04]"], [data-tema='terang'] [class~="!bg-white/[0.04]"] { background-color: rgb(21 24 28 / 0.05) !important; }
+[data-tema='terang'] [class~="bg-white/[0.03]"], [data-tema='terang'] [class~="!bg-white/[0.03]"] { background-color: rgb(21 24 28 / 0.04) !important; }
+
+/* Tombol .btn-retro/.btn-ikon selalu bertulisan putih, jadi latarnya tetap gelap.
+   Kotak lain (mis. pilihan menu bergaya retro-box) ikut terang seperti sekitarnya. */
+[data-tema='terang'] .btn-retro[class~="bg-zinc-800"], [data-tema='terang'] .btn-retro[class~="!bg-zinc-800"],
+[data-tema='terang'] .btn-retro[class~="bg-zinc-700"], [data-tema='terang'] .btn-retro[class~="!bg-zinc-700"],
+[data-tema='terang'] .btn-ikon[class~="bg-zinc-800"], [data-tema='terang'] .btn-ikon[class~="!bg-zinc-800"],
+[data-tema='terang'] .btn-ikon[class~="bg-zinc-700"], [data-tema='terang'] .btn-ikon[class~="!bg-zinc-700"] {
+  background-color: #3a424a !important;
+}
+[data-tema='terang'] .btn-retro[class~="bg-zinc-900"], [data-tema='terang'] .btn-retro[class~="!bg-zinc-900"],
+[data-tema='terang'] .btn-ikon[class~="bg-zinc-900"], [data-tema='terang'] .btn-ikon[class~="!bg-zinc-900"] {
+  background-color: #262c33 !important;
+}
+
+/* ---- Tulisan netral ---- */
+[data-tema='terang'] [class~="text-white"], [data-tema='terang'] [class~="!text-white"] { color: #15181c !important; }
+[data-tema='terang'] [class~="text-zinc-100"], [data-tema='terang'] [class~="!text-zinc-100"] { color: #1b1f24 !important; }
+[data-tema='terang'] [class~="text-zinc-200"], [data-tema='terang'] [class~="!text-zinc-200"] { color: #22272c !important; }
+[data-tema='terang'] [class~="text-zinc-300"], [data-tema='terang'] [class~="!text-zinc-300"] { color: #333a41 !important; }
+[data-tema='terang'] [class~="text-zinc-400"], [data-tema='terang'] [class~="!text-zinc-400"] { color: #49525a !important; }
+[data-tema='terang'] [class~="text-zinc-500"], [data-tema='terang'] [class~="!text-zinc-500"] { color: #5a636b !important; }
+[data-tema='terang'] [class~="text-zinc-600"], [data-tema='terang'] [class~="!text-zinc-600"] { color: #69727a !important; }
+
+/* Tombol berwarna tetap memakai tulisan putih. */
+[data-tema='terang'] .btn-retro[class~="text-white"], [data-tema='terang'] .btn-ikon[class~="text-white"],
+[data-tema='terang'] .btn-retro[class~="!text-white"], [data-tema='terang'] .btn-ikon[class~="!text-white"] { color: #ffffff !important; }
+[data-tema='terang'] .btn-retro,
+[data-tema='terang'] .btn-ikon,
+[data-tema='terang'] .btn-retro [class*="text-zinc-"],
+[data-tema='terang'] .btn-ikon [class*="text-zinc-"],
+[data-tema='terang'] .btn-retro [class*="text-slate-"],
+[data-tema='terang'] .btn-ikon [class*="text-slate-"],
+[data-tema='terang'] .btn-retro [class*="text-red-"],
+[data-tema='terang'] .btn-ikon [class*="text-red-"],
+[data-tema='terang'] .btn-retro[class*="text-zinc-"],
+[data-tema='terang'] .btn-ikon[class*="text-zinc-"],
+[data-tema='terang'] .btn-retro[class*="text-slate-"],
+[data-tema='terang'] .btn-ikon[class*="text-slate-"],
+[data-tema='terang'] .btn-retro[class*="text-red-"],
+[data-tema='terang'] .btn-ikon[class*="text-red-"] {
+  color: #ffffff !important;
+}
+
+/* ---- Bingkai ---- */
+[data-tema='terang'] [class~="border-white"], [data-tema='terang'] [class~="!border-white"] { border-color: #15181c !important; }
+[data-tema='terang'] [class~="border-white/70"], [data-tema='terang'] [class~="!border-white/70"] { border-color: rgb(21 24 28 / 0.5) !important; }
+[data-tema='terang'] [class~="border-white/40"], [data-tema='terang'] [class~="!border-white/40"] { border-color: rgb(21 24 28 / 0.35) !important; }
+[data-tema='terang'] [class~="border-white/30"], [data-tema='terang'] [class~="!border-white/30"] { border-color: rgb(21 24 28 / 0.28) !important; }
+[data-tema='terang'] [class~="border-white/20"], [data-tema='terang'] [class~="!border-white/20"] { border-color: rgb(21 24 28 / 0.2) !important; }
+[data-tema='terang'] [class~="border-white/15"], [data-tema='terang'] [class~="!border-white/15"] { border-color: rgb(21 24 28 / 0.16) !important; }
+[data-tema='terang'] [class~="border-white/10"], [data-tema='terang'] [class~="!border-white/10"] { border-color: rgb(21 24 28 / 0.12) !important; }
+
+/* ---- Warna aksen ---- */
+[data-tema='terang'] [class~="text-red-100"], [data-tema='terang'] [class~="!text-red-100"],
+[data-tema='terang'] [class~="text-red-200"], [data-tema='terang'] [class~="!text-red-200"],
+[data-tema='terang'] [class~="text-red-300"], [data-tema='terang'] [class~="!text-red-300"],
+[data-tema='terang'] [class~="text-red-400"], [data-tema='terang'] [class~="!text-red-400"] { color: #b91c1c !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-red-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-red-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-red-950"] { background-color: #fee2e2 !important; }
+[data-tema='terang'] [class~="border-red-400"], [data-tema='terang'] [class~="!border-red-400"], [data-tema='terang'] [class~="border-red-500"], [data-tema='terang'] [class~="!border-red-500"] { border-color: #b91c1c !important; }
+[data-tema='terang'] [class~="text-orange-100"], [data-tema='terang'] [class~="!text-orange-100"],
+[data-tema='terang'] [class~="text-orange-200"], [data-tema='terang'] [class~="!text-orange-200"],
+[data-tema='terang'] [class~="text-orange-300"], [data-tema='terang'] [class~="!text-orange-300"],
+[data-tema='terang'] [class~="text-orange-400"], [data-tema='terang'] [class~="!text-orange-400"] { color: #c2410c !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-orange-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-orange-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-orange-950"] { background-color: #ffedd5 !important; }
+[data-tema='terang'] [class~="border-orange-400"], [data-tema='terang'] [class~="!border-orange-400"], [data-tema='terang'] [class~="border-orange-500"], [data-tema='terang'] [class~="!border-orange-500"] { border-color: #c2410c !important; }
+[data-tema='terang'] [class~="text-amber-100"], [data-tema='terang'] [class~="!text-amber-100"],
+[data-tema='terang'] [class~="text-amber-200"], [data-tema='terang'] [class~="!text-amber-200"],
+[data-tema='terang'] [class~="text-amber-300"], [data-tema='terang'] [class~="!text-amber-300"],
+[data-tema='terang'] [class~="text-amber-400"], [data-tema='terang'] [class~="!text-amber-400"] { color: #b45309 !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-amber-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-amber-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-amber-950"] { background-color: #fef3c7 !important; }
+[data-tema='terang'] [class~="border-amber-400"], [data-tema='terang'] [class~="!border-amber-400"], [data-tema='terang'] [class~="border-amber-500"], [data-tema='terang'] [class~="!border-amber-500"] { border-color: #b45309 !important; }
+[data-tema='terang'] [class~="text-yellow-100"], [data-tema='terang'] [class~="!text-yellow-100"],
+[data-tema='terang'] [class~="text-yellow-200"], [data-tema='terang'] [class~="!text-yellow-200"],
+[data-tema='terang'] [class~="text-yellow-300"], [data-tema='terang'] [class~="!text-yellow-300"],
+[data-tema='terang'] [class~="text-yellow-400"], [data-tema='terang'] [class~="!text-yellow-400"] { color: #a16207 !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-yellow-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-yellow-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-yellow-950"] { background-color: #fef9c3 !important; }
+[data-tema='terang'] [class~="border-yellow-400"], [data-tema='terang'] [class~="!border-yellow-400"], [data-tema='terang'] [class~="border-yellow-500"], [data-tema='terang'] [class~="!border-yellow-500"] { border-color: #a16207 !important; }
+[data-tema='terang'] [class~="text-lime-100"], [data-tema='terang'] [class~="!text-lime-100"],
+[data-tema='terang'] [class~="text-lime-200"], [data-tema='terang'] [class~="!text-lime-200"],
+[data-tema='terang'] [class~="text-lime-300"], [data-tema='terang'] [class~="!text-lime-300"],
+[data-tema='terang'] [class~="text-lime-400"], [data-tema='terang'] [class~="!text-lime-400"] { color: #4d7c0f !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-lime-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-lime-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-lime-950"] { background-color: #ecfccb !important; }
+[data-tema='terang'] [class~="border-lime-400"], [data-tema='terang'] [class~="!border-lime-400"], [data-tema='terang'] [class~="border-lime-500"], [data-tema='terang'] [class~="!border-lime-500"] { border-color: #4d7c0f !important; }
+[data-tema='terang'] [class~="text-green-100"], [data-tema='terang'] [class~="!text-green-100"],
+[data-tema='terang'] [class~="text-green-200"], [data-tema='terang'] [class~="!text-green-200"],
+[data-tema='terang'] [class~="text-green-300"], [data-tema='terang'] [class~="!text-green-300"],
+[data-tema='terang'] [class~="text-green-400"], [data-tema='terang'] [class~="!text-green-400"] { color: #15803d !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-green-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-green-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-green-950"] { background-color: #dcfce7 !important; }
+[data-tema='terang'] [class~="border-green-400"], [data-tema='terang'] [class~="!border-green-400"], [data-tema='terang'] [class~="border-green-500"], [data-tema='terang'] [class~="!border-green-500"] { border-color: #15803d !important; }
+[data-tema='terang'] [class~="text-emerald-100"], [data-tema='terang'] [class~="!text-emerald-100"],
+[data-tema='terang'] [class~="text-emerald-200"], [data-tema='terang'] [class~="!text-emerald-200"],
+[data-tema='terang'] [class~="text-emerald-300"], [data-tema='terang'] [class~="!text-emerald-300"],
+[data-tema='terang'] [class~="text-emerald-400"], [data-tema='terang'] [class~="!text-emerald-400"] { color: #047857 !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-emerald-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-emerald-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-emerald-950"] { background-color: #d1fae5 !important; }
+[data-tema='terang'] [class~="border-emerald-400"], [data-tema='terang'] [class~="!border-emerald-400"], [data-tema='terang'] [class~="border-emerald-500"], [data-tema='terang'] [class~="!border-emerald-500"] { border-color: #047857 !important; }
+[data-tema='terang'] [class~="text-teal-100"], [data-tema='terang'] [class~="!text-teal-100"],
+[data-tema='terang'] [class~="text-teal-200"], [data-tema='terang'] [class~="!text-teal-200"],
+[data-tema='terang'] [class~="text-teal-300"], [data-tema='terang'] [class~="!text-teal-300"],
+[data-tema='terang'] [class~="text-teal-400"], [data-tema='terang'] [class~="!text-teal-400"] { color: #0f766e !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-teal-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-teal-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-teal-950"] { background-color: #ccfbf1 !important; }
+[data-tema='terang'] [class~="border-teal-400"], [data-tema='terang'] [class~="!border-teal-400"], [data-tema='terang'] [class~="border-teal-500"], [data-tema='terang'] [class~="!border-teal-500"] { border-color: #0f766e !important; }
+[data-tema='terang'] [class~="text-cyan-100"], [data-tema='terang'] [class~="!text-cyan-100"],
+[data-tema='terang'] [class~="text-cyan-200"], [data-tema='terang'] [class~="!text-cyan-200"],
+[data-tema='terang'] [class~="text-cyan-300"], [data-tema='terang'] [class~="!text-cyan-300"],
+[data-tema='terang'] [class~="text-cyan-400"], [data-tema='terang'] [class~="!text-cyan-400"] { color: #0e7490 !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-cyan-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-cyan-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-cyan-950"] { background-color: #cffafe !important; }
+[data-tema='terang'] [class~="border-cyan-400"], [data-tema='terang'] [class~="!border-cyan-400"], [data-tema='terang'] [class~="border-cyan-500"], [data-tema='terang'] [class~="!border-cyan-500"] { border-color: #0e7490 !important; }
+[data-tema='terang'] [class~="text-sky-100"], [data-tema='terang'] [class~="!text-sky-100"],
+[data-tema='terang'] [class~="text-sky-200"], [data-tema='terang'] [class~="!text-sky-200"],
+[data-tema='terang'] [class~="text-sky-300"], [data-tema='terang'] [class~="!text-sky-300"],
+[data-tema='terang'] [class~="text-sky-400"], [data-tema='terang'] [class~="!text-sky-400"] { color: #0369a1 !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-sky-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-sky-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-sky-950"] { background-color: #e0f2fe !important; }
+[data-tema='terang'] [class~="border-sky-400"], [data-tema='terang'] [class~="!border-sky-400"], [data-tema='terang'] [class~="border-sky-500"], [data-tema='terang'] [class~="!border-sky-500"] { border-color: #0369a1 !important; }
+[data-tema='terang'] [class~="text-blue-100"], [data-tema='terang'] [class~="!text-blue-100"],
+[data-tema='terang'] [class~="text-blue-200"], [data-tema='terang'] [class~="!text-blue-200"],
+[data-tema='terang'] [class~="text-blue-300"], [data-tema='terang'] [class~="!text-blue-300"],
+[data-tema='terang'] [class~="text-blue-400"], [data-tema='terang'] [class~="!text-blue-400"] { color: #1d4ed8 !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-blue-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-blue-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-blue-950"] { background-color: #dbeafe !important; }
+[data-tema='terang'] [class~="border-blue-400"], [data-tema='terang'] [class~="!border-blue-400"], [data-tema='terang'] [class~="border-blue-500"], [data-tema='terang'] [class~="!border-blue-500"] { border-color: #1d4ed8 !important; }
+[data-tema='terang'] [class~="text-indigo-100"], [data-tema='terang'] [class~="!text-indigo-100"],
+[data-tema='terang'] [class~="text-indigo-200"], [data-tema='terang'] [class~="!text-indigo-200"],
+[data-tema='terang'] [class~="text-indigo-300"], [data-tema='terang'] [class~="!text-indigo-300"],
+[data-tema='terang'] [class~="text-indigo-400"], [data-tema='terang'] [class~="!text-indigo-400"] { color: #4338ca !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-indigo-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-indigo-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-indigo-950"] { background-color: #e0e7ff !important; }
+[data-tema='terang'] [class~="border-indigo-400"], [data-tema='terang'] [class~="!border-indigo-400"], [data-tema='terang'] [class~="border-indigo-500"], [data-tema='terang'] [class~="!border-indigo-500"] { border-color: #4338ca !important; }
+[data-tema='terang'] [class~="text-violet-100"], [data-tema='terang'] [class~="!text-violet-100"],
+[data-tema='terang'] [class~="text-violet-200"], [data-tema='terang'] [class~="!text-violet-200"],
+[data-tema='terang'] [class~="text-violet-300"], [data-tema='terang'] [class~="!text-violet-300"],
+[data-tema='terang'] [class~="text-violet-400"], [data-tema='terang'] [class~="!text-violet-400"] { color: #6d28d9 !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-violet-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-violet-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-violet-950"] { background-color: #ede9fe !important; }
+[data-tema='terang'] [class~="border-violet-400"], [data-tema='terang'] [class~="!border-violet-400"], [data-tema='terang'] [class~="border-violet-500"], [data-tema='terang'] [class~="!border-violet-500"] { border-color: #6d28d9 !important; }
+[data-tema='terang'] [class~="text-purple-100"], [data-tema='terang'] [class~="!text-purple-100"],
+[data-tema='terang'] [class~="text-purple-200"], [data-tema='terang'] [class~="!text-purple-200"],
+[data-tema='terang'] [class~="text-purple-300"], [data-tema='terang'] [class~="!text-purple-300"],
+[data-tema='terang'] [class~="text-purple-400"], [data-tema='terang'] [class~="!text-purple-400"] { color: #7e22ce !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-purple-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-purple-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-purple-950"] { background-color: #f3e8ff !important; }
+[data-tema='terang'] [class~="border-purple-400"], [data-tema='terang'] [class~="!border-purple-400"], [data-tema='terang'] [class~="border-purple-500"], [data-tema='terang'] [class~="!border-purple-500"] { border-color: #7e22ce !important; }
+[data-tema='terang'] [class~="text-fuchsia-100"], [data-tema='terang'] [class~="!text-fuchsia-100"],
+[data-tema='terang'] [class~="text-fuchsia-200"], [data-tema='terang'] [class~="!text-fuchsia-200"],
+[data-tema='terang'] [class~="text-fuchsia-300"], [data-tema='terang'] [class~="!text-fuchsia-300"],
+[data-tema='terang'] [class~="text-fuchsia-400"], [data-tema='terang'] [class~="!text-fuchsia-400"] { color: #a21caf !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-fuchsia-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-fuchsia-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-fuchsia-950"] { background-color: #fae8ff !important; }
+[data-tema='terang'] [class~="border-fuchsia-400"], [data-tema='terang'] [class~="!border-fuchsia-400"], [data-tema='terang'] [class~="border-fuchsia-500"], [data-tema='terang'] [class~="!border-fuchsia-500"] { border-color: #a21caf !important; }
+[data-tema='terang'] [class~="text-pink-100"], [data-tema='terang'] [class~="!text-pink-100"],
+[data-tema='terang'] [class~="text-pink-200"], [data-tema='terang'] [class~="!text-pink-200"],
+[data-tema='terang'] [class~="text-pink-300"], [data-tema='terang'] [class~="!text-pink-300"],
+[data-tema='terang'] [class~="text-pink-400"], [data-tema='terang'] [class~="!text-pink-400"] { color: #be185d !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-pink-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-pink-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-pink-950"] { background-color: #fce7f3 !important; }
+[data-tema='terang'] [class~="border-pink-400"], [data-tema='terang'] [class~="!border-pink-400"], [data-tema='terang'] [class~="border-pink-500"], [data-tema='terang'] [class~="!border-pink-500"] { border-color: #be185d !important; }
+[data-tema='terang'] [class~="text-rose-100"], [data-tema='terang'] [class~="!text-rose-100"],
+[data-tema='terang'] [class~="text-rose-200"], [data-tema='terang'] [class~="!text-rose-200"],
+[data-tema='terang'] [class~="text-rose-300"], [data-tema='terang'] [class~="!text-rose-300"],
+[data-tema='terang'] [class~="text-rose-400"], [data-tema='terang'] [class~="!text-rose-400"] { color: #be123c !important; }
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-rose-800"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-rose-900"],
+[data-tema='terang'] :not(.btn-retro):not(.btn-ikon)[class*="bg-rose-950"] { background-color: #ffe4e6 !important; }
+[data-tema='terang'] [class~="border-rose-400"], [data-tema='terang'] [class~="!border-rose-400"], [data-tema='terang'] [class~="border-rose-500"], [data-tema='terang'] [class~="!border-rose-500"] { border-color: #be123c !important; }
+
+/* ---- Komponen bersama ---- */
+[data-tema='terang'] .retro-box::after { border-color: rgb(21 24 28 / 0.18); }
+[data-tema='terang'] .btn-retro, [data-tema='terang'] .btn-ikon { border-color: #15181c; box-shadow: 3px 3px 0 #9aa4ae; }
+[data-tema='terang'] .btn-retro-sm { box-shadow: 2px 2px 0 #9aa4ae; }
+[data-tema='terang'] .btn-retro:active, [data-tema='terang'] .btn-ikon:active { box-shadow: 0 0 0 #9aa4ae; }
+[data-tema='terang'] .input-retro {
+  background-color: #ffffff;
+  color: #15181c;
+  border-color: rgb(21 24 28 / 0.35);
+}
+[data-tema='terang'] .input-retro::placeholder { color: #6b737a; }
+[data-tema='terang'] .panel-retro { background-color: rgb(255 255 255 / 0.92); border-color: rgb(21 24 28 / 0.2); }
+[data-tema='terang'] .label-retro { color: #49525a; }
+[data-tema='terang'] .stamina-bar-fill { border-right-color: #15181c; }
+
+/* Permukaan netral yang memakai transparansi (mis. !bg-zinc-900/80 pada kartu).
+   Nama kelasnya berbeda dari yang polos, jadi dicocokkan dengan pola. */
+[data-tema='terang'] [class*="bg-zinc-950/"] { background-color: rgb(230 234 227 / 0.92) !important; }
+[data-tema='terang'] [class*="bg-zinc-900/"] { background-color: rgb(255 255 255 / 0.94) !important; }
+[data-tema='terang'] [class*="bg-zinc-800/"] { background-color: rgb(230 234 227 / 0.92) !important; }
+[data-tema='terang'] [class~="bg-black/30"], [data-tema='terang'] [class~="!bg-black/30"] { background-color: rgb(255 255 255 / 0.82) !important; }
+
+/* ---- Sinkronisasi lanjutan: kalender, kebun, chip acara ----
+   Aturan di atas memucatkan latar bg-*-800/900/950; tulisan text-*-50 dan
+   text-*-100..400/NN (transparan) di atasnya belum ikut, sehingga chip acara
+   kalender jadi putih di atas pucat. Blok ini menutup celah itu. */
+[data-tema='terang'] [class~="text-red-50"], [data-tema='terang'] [class~="!text-red-50"] { color: #991b1b !important; }
+[data-tema='terang'] [class*="text-red-100/"],
+[data-tema='terang'] [class*="text-red-200/"],
+[data-tema='terang'] [class*="text-red-300/"],
+[data-tema='terang'] [class*="text-red-400/"] { color: #b91c1c !important; }
+[data-tema='terang'] [class~="border-red-200"], [data-tema='terang'] [class~="!border-red-200"],
+[data-tema='terang'] [class~="border-red-300"], [data-tema='terang'] [class~="!border-red-300"] { border-color: #b91c1c !important; }
+[data-tema='terang'] [class~="text-orange-50"], [data-tema='terang'] [class~="!text-orange-50"] { color: #9a3412 !important; }
+[data-tema='terang'] [class*="text-orange-100/"],
+[data-tema='terang'] [class*="text-orange-200/"],
+[data-tema='terang'] [class*="text-orange-300/"],
+[data-tema='terang'] [class*="text-orange-400/"] { color: #c2410c !important; }
+[data-tema='terang'] [class~="border-orange-200"], [data-tema='terang'] [class~="!border-orange-200"],
+[data-tema='terang'] [class~="border-orange-300"], [data-tema='terang'] [class~="!border-orange-300"] { border-color: #c2410c !important; }
+[data-tema='terang'] [class~="text-amber-50"], [data-tema='terang'] [class~="!text-amber-50"] { color: #92400e !important; }
+[data-tema='terang'] [class*="text-amber-100/"],
+[data-tema='terang'] [class*="text-amber-200/"],
+[data-tema='terang'] [class*="text-amber-300/"],
+[data-tema='terang'] [class*="text-amber-400/"] { color: #b45309 !important; }
+[data-tema='terang'] [class~="border-amber-200"], [data-tema='terang'] [class~="!border-amber-200"],
+[data-tema='terang'] [class~="border-amber-300"], [data-tema='terang'] [class~="!border-amber-300"] { border-color: #b45309 !important; }
+[data-tema='terang'] [class~="text-yellow-50"], [data-tema='terang'] [class~="!text-yellow-50"] { color: #854d0e !important; }
+[data-tema='terang'] [class*="text-yellow-100/"],
+[data-tema='terang'] [class*="text-yellow-200/"],
+[data-tema='terang'] [class*="text-yellow-300/"],
+[data-tema='terang'] [class*="text-yellow-400/"] { color: #a16207 !important; }
+[data-tema='terang'] [class~="border-yellow-200"], [data-tema='terang'] [class~="!border-yellow-200"],
+[data-tema='terang'] [class~="border-yellow-300"], [data-tema='terang'] [class~="!border-yellow-300"] { border-color: #a16207 !important; }
+[data-tema='terang'] [class~="text-lime-50"], [data-tema='terang'] [class~="!text-lime-50"] { color: #3f6212 !important; }
+[data-tema='terang'] [class*="text-lime-100/"],
+[data-tema='terang'] [class*="text-lime-200/"],
+[data-tema='terang'] [class*="text-lime-300/"],
+[data-tema='terang'] [class*="text-lime-400/"] { color: #4d7c0f !important; }
+[data-tema='terang'] [class~="border-lime-200"], [data-tema='terang'] [class~="!border-lime-200"],
+[data-tema='terang'] [class~="border-lime-300"], [data-tema='terang'] [class~="!border-lime-300"] { border-color: #4d7c0f !important; }
+[data-tema='terang'] [class~="text-green-50"], [data-tema='terang'] [class~="!text-green-50"] { color: #166534 !important; }
+[data-tema='terang'] [class*="text-green-100/"],
+[data-tema='terang'] [class*="text-green-200/"],
+[data-tema='terang'] [class*="text-green-300/"],
+[data-tema='terang'] [class*="text-green-400/"] { color: #15803d !important; }
+[data-tema='terang'] [class~="border-green-200"], [data-tema='terang'] [class~="!border-green-200"],
+[data-tema='terang'] [class~="border-green-300"], [data-tema='terang'] [class~="!border-green-300"] { border-color: #15803d !important; }
+[data-tema='terang'] [class~="text-emerald-50"], [data-tema='terang'] [class~="!text-emerald-50"] { color: #065f46 !important; }
+[data-tema='terang'] [class*="text-emerald-100/"],
+[data-tema='terang'] [class*="text-emerald-200/"],
+[data-tema='terang'] [class*="text-emerald-300/"],
+[data-tema='terang'] [class*="text-emerald-400/"] { color: #047857 !important; }
+[data-tema='terang'] [class~="border-emerald-200"], [data-tema='terang'] [class~="!border-emerald-200"],
+[data-tema='terang'] [class~="border-emerald-300"], [data-tema='terang'] [class~="!border-emerald-300"] { border-color: #047857 !important; }
+[data-tema='terang'] [class~="text-teal-50"], [data-tema='terang'] [class~="!text-teal-50"] { color: #115e59 !important; }
+[data-tema='terang'] [class*="text-teal-100/"],
+[data-tema='terang'] [class*="text-teal-200/"],
+[data-tema='terang'] [class*="text-teal-300/"],
+[data-tema='terang'] [class*="text-teal-400/"] { color: #0f766e !important; }
+[data-tema='terang'] [class~="border-teal-200"], [data-tema='terang'] [class~="!border-teal-200"],
+[data-tema='terang'] [class~="border-teal-300"], [data-tema='terang'] [class~="!border-teal-300"] { border-color: #0f766e !important; }
+[data-tema='terang'] [class~="text-cyan-50"], [data-tema='terang'] [class~="!text-cyan-50"] { color: #155e75 !important; }
+[data-tema='terang'] [class*="text-cyan-100/"],
+[data-tema='terang'] [class*="text-cyan-200/"],
+[data-tema='terang'] [class*="text-cyan-300/"],
+[data-tema='terang'] [class*="text-cyan-400/"] { color: #0e7490 !important; }
+[data-tema='terang'] [class~="border-cyan-200"], [data-tema='terang'] [class~="!border-cyan-200"],
+[data-tema='terang'] [class~="border-cyan-300"], [data-tema='terang'] [class~="!border-cyan-300"] { border-color: #0e7490 !important; }
+[data-tema='terang'] [class~="text-sky-50"], [data-tema='terang'] [class~="!text-sky-50"] { color: #075985 !important; }
+[data-tema='terang'] [class*="text-sky-100/"],
+[data-tema='terang'] [class*="text-sky-200/"],
+[data-tema='terang'] [class*="text-sky-300/"],
+[data-tema='terang'] [class*="text-sky-400/"] { color: #0369a1 !important; }
+[data-tema='terang'] [class~="border-sky-200"], [data-tema='terang'] [class~="!border-sky-200"],
+[data-tema='terang'] [class~="border-sky-300"], [data-tema='terang'] [class~="!border-sky-300"] { border-color: #0369a1 !important; }
+[data-tema='terang'] [class~="text-blue-50"], [data-tema='terang'] [class~="!text-blue-50"] { color: #1e40af !important; }
+[data-tema='terang'] [class*="text-blue-100/"],
+[data-tema='terang'] [class*="text-blue-200/"],
+[data-tema='terang'] [class*="text-blue-300/"],
+[data-tema='terang'] [class*="text-blue-400/"] { color: #1d4ed8 !important; }
+[data-tema='terang'] [class~="border-blue-200"], [data-tema='terang'] [class~="!border-blue-200"],
+[data-tema='terang'] [class~="border-blue-300"], [data-tema='terang'] [class~="!border-blue-300"] { border-color: #1d4ed8 !important; }
+[data-tema='terang'] [class~="text-indigo-50"], [data-tema='terang'] [class~="!text-indigo-50"] { color: #3730a3 !important; }
+[data-tema='terang'] [class*="text-indigo-100/"],
+[data-tema='terang'] [class*="text-indigo-200/"],
+[data-tema='terang'] [class*="text-indigo-300/"],
+[data-tema='terang'] [class*="text-indigo-400/"] { color: #4338ca !important; }
+[data-tema='terang'] [class~="border-indigo-200"], [data-tema='terang'] [class~="!border-indigo-200"],
+[data-tema='terang'] [class~="border-indigo-300"], [data-tema='terang'] [class~="!border-indigo-300"] { border-color: #4338ca !important; }
+[data-tema='terang'] [class~="text-violet-50"], [data-tema='terang'] [class~="!text-violet-50"] { color: #5b21b6 !important; }
+[data-tema='terang'] [class*="text-violet-100/"],
+[data-tema='terang'] [class*="text-violet-200/"],
+[data-tema='terang'] [class*="text-violet-300/"],
+[data-tema='terang'] [class*="text-violet-400/"] { color: #6d28d9 !important; }
+[data-tema='terang'] [class~="border-violet-200"], [data-tema='terang'] [class~="!border-violet-200"],
+[data-tema='terang'] [class~="border-violet-300"], [data-tema='terang'] [class~="!border-violet-300"] { border-color: #6d28d9 !important; }
+[data-tema='terang'] [class~="text-purple-50"], [data-tema='terang'] [class~="!text-purple-50"] { color: #6b21a8 !important; }
+[data-tema='terang'] [class*="text-purple-100/"],
+[data-tema='terang'] [class*="text-purple-200/"],
+[data-tema='terang'] [class*="text-purple-300/"],
+[data-tema='terang'] [class*="text-purple-400/"] { color: #7e22ce !important; }
+[data-tema='terang'] [class~="border-purple-200"], [data-tema='terang'] [class~="!border-purple-200"],
+[data-tema='terang'] [class~="border-purple-300"], [data-tema='terang'] [class~="!border-purple-300"] { border-color: #7e22ce !important; }
+[data-tema='terang'] [class~="text-fuchsia-50"], [data-tema='terang'] [class~="!text-fuchsia-50"] { color: #86198f !important; }
+[data-tema='terang'] [class*="text-fuchsia-100/"],
+[data-tema='terang'] [class*="text-fuchsia-200/"],
+[data-tema='terang'] [class*="text-fuchsia-300/"],
+[data-tema='terang'] [class*="text-fuchsia-400/"] { color: #a21caf !important; }
+[data-tema='terang'] [class~="border-fuchsia-200"], [data-tema='terang'] [class~="!border-fuchsia-200"],
+[data-tema='terang'] [class~="border-fuchsia-300"], [data-tema='terang'] [class~="!border-fuchsia-300"] { border-color: #a21caf !important; }
+[data-tema='terang'] [class~="text-pink-50"], [data-tema='terang'] [class~="!text-pink-50"] { color: #9d174d !important; }
+[data-tema='terang'] [class*="text-pink-100/"],
+[data-tema='terang'] [class*="text-pink-200/"],
+[data-tema='terang'] [class*="text-pink-300/"],
+[data-tema='terang'] [class*="text-pink-400/"] { color: #be185d !important; }
+[data-tema='terang'] [class~="border-pink-200"], [data-tema='terang'] [class~="!border-pink-200"],
+[data-tema='terang'] [class~="border-pink-300"], [data-tema='terang'] [class~="!border-pink-300"] { border-color: #be185d !important; }
+[data-tema='terang'] [class~="text-rose-50"], [data-tema='terang'] [class~="!text-rose-50"] { color: #9f1239 !important; }
+[data-tema='terang'] [class*="text-rose-100/"],
+[data-tema='terang'] [class*="text-rose-200/"],
+[data-tema='terang'] [class*="text-rose-300/"],
+[data-tema='terang'] [class*="text-rose-400/"] { color: #be123c !important; }
+[data-tema='terang'] [class~="border-rose-200"], [data-tema='terang'] [class~="!border-rose-200"],
+[data-tema='terang'] [class~="border-rose-300"], [data-tema='terang'] [class~="!border-rose-300"] { border-color: #be123c !important; }
+[data-tema='terang'] [class~="text-zinc-50"], [data-tema='terang'] [class~="!text-zinc-50"] { color: #15181c !important; }
+[data-tema='terang'] [class*="text-white/"] { color: rgb(21 24 28 / 0.75) !important; }
+[data-tema='terang'] [class*="text-zinc-300/"], [data-tema='terang'] [class*="text-zinc-400/"] { color: #49525a !important; }
+[data-tema='terang'] [class~="border-white/60"], [data-tema='terang'] [class~="!border-white/60"] { border-color: rgb(21 24 28 / 0.45) !important; }
+[data-tema='terang'] [class~="border-white/50"], [data-tema='terang'] [class~="!border-white/50"] { border-color: rgb(21 24 28 / 0.4) !important; }
+[data-tema='terang'] [class~="border-white/25"], [data-tema='terang'] [class~="!border-white/25"] { border-color: rgb(21 24 28 / 0.22) !important; }
+[data-tema='terang'] [class~="border-white/5"], [data-tema='terang'] [class~="!border-white/5"] { border-color: rgb(21 24 28 / 0.08) !important; }
+[data-tema='terang'] [class~="ring-white"] { --tw-ring-color: #15181c !important; }
+/* Tulisan putih di latar berwarna padat (lencana, chip aktif) tetap putih. */
+[data-tema='terang'] :is([class~="bg-red-500"],[class~="!bg-red-500"],[class~="bg-red-600"],[class~="!bg-red-600"],[class~="bg-red-700"],[class~="!bg-red-700"],[class~="bg-orange-500"],[class~="!bg-orange-500"],[class~="bg-orange-600"],[class~="!bg-orange-600"],[class~="bg-orange-700"],[class~="!bg-orange-700"],[class~="bg-amber-500"],[class~="!bg-amber-500"],[class~="bg-amber-600"],[class~="!bg-amber-600"],[class~="bg-amber-700"],[class~="!bg-amber-700"],[class~="bg-yellow-500"],[class~="!bg-yellow-500"],[class~="bg-yellow-600"],[class~="!bg-yellow-600"],[class~="bg-yellow-700"],[class~="!bg-yellow-700"],[class~="bg-lime-500"],[class~="!bg-lime-500"],[class~="bg-lime-600"],[class~="!bg-lime-600"],[class~="bg-lime-700"],[class~="!bg-lime-700"],[class~="bg-green-500"],[class~="!bg-green-500"],[class~="bg-green-600"],[class~="!bg-green-600"],[class~="bg-green-700"],[class~="!bg-green-700"],[class~="bg-emerald-500"],[class~="!bg-emerald-500"],[class~="bg-emerald-600"],[class~="!bg-emerald-600"],[class~="bg-emerald-700"],[class~="!bg-emerald-700"],[class~="bg-teal-500"],[class~="!bg-teal-500"],[class~="bg-teal-600"],[class~="!bg-teal-600"],[class~="bg-teal-700"],[class~="!bg-teal-700"],[class~="bg-cyan-500"],[class~="!bg-cyan-500"],[class~="bg-cyan-600"],[class~="!bg-cyan-600"],[class~="bg-cyan-700"],[class~="!bg-cyan-700"],[class~="bg-sky-500"],[class~="!bg-sky-500"],[class~="bg-sky-600"],[class~="!bg-sky-600"],[class~="bg-sky-700"],[class~="!bg-sky-700"],[class~="bg-blue-500"],[class~="!bg-blue-500"],[class~="bg-blue-600"],[class~="!bg-blue-600"],[class~="bg-blue-700"],[class~="!bg-blue-700"],[class~="bg-indigo-500"],[class~="!bg-indigo-500"],[class~="bg-indigo-600"],[class~="!bg-indigo-600"],[class~="bg-indigo-700"],[class~="!bg-indigo-700"],[class~="bg-violet-500"],[class~="!bg-violet-500"],[class~="bg-violet-600"],[class~="!bg-violet-600"],[class~="bg-violet-700"],[class~="!bg-violet-700"],[class~="bg-purple-500"],[class~="!bg-purple-500"],[class~="bg-purple-600"],[class~="!bg-purple-600"],[class~="bg-purple-700"],[class~="!bg-purple-700"],[class~="bg-fuchsia-500"],[class~="!bg-fuchsia-500"],[class~="bg-fuchsia-600"],[class~="!bg-fuchsia-600"],[class~="bg-fuchsia-700"],[class~="!bg-fuchsia-700"],[class~="bg-pink-500"],[class~="!bg-pink-500"],[class~="bg-pink-600"],[class~="!bg-pink-600"],[class~="bg-pink-700"],[class~="!bg-pink-700"],[class~="bg-rose-500"],[class~="!bg-rose-500"],[class~="bg-rose-600"],[class~="!bg-rose-600"],[class~="bg-rose-700"],[class~="!bg-rose-700"])[class~="text-white"] { color: #ffffff !important; }
+
+/* Area berlatar warna tetap (header biru HP): isinya tidak ikut dibalik. */
+[data-tema='terang'] .area-warna [class~="text-white"] { color: #ffffff !important; }
+[data-tema='terang'] .area-warna [class~="text-yellow-200"] { color: #fef08a !important; }
+[data-tema='terang'] .area-warna [class~="text-yellow-300"] { color: #fde047 !important; }
+[data-tema='terang'] .area-warna [class~="bg-black/50"] { background-color: rgb(0 0 0 / 0.5) !important; }
+[data-tema='terang'] .area-warna[class~="border-white"] { border-color: #15181c !important; }
+
+/* Tulisan yang memang selalu putih (di atas latar berwarna tetap). Paling akhir agar menang. */
+[data-tema='terang'] .teks-atas-warna, [data-tema='terang'] .teks-atas-warna[class~="text-white"] { color: #ffffff !important; }
+
+/* ---- Dukungan Mode Terang untuk Slate (Modal & Form Memo / MOM) ---- */
+[data-tema='terang'] [class*="bg-slate-950"] { background-color: #f1f5f9 !important; }
+[data-tema='terang'] [class*="bg-slate-900"] { background-color: #ffffff !important; }
+[data-tema='terang'] [class*="bg-slate-800"] { background-color: #f1f5f9 !important; }
+[data-tema='terang'] [class*="border-slate-700"],
+[data-tema='terang'] [class*="border-slate-800"],
+[data-tema='terang'] [class*="border-slate-600"] { border-color: #cbd5e1 !important; }
+[data-tema='terang'] [class*="text-slate-300"],
+[data-tema='terang'] [class*="text-slate-400"] { color: #334155 !important; }
+[data-tema='terang'] [class*="text-slate-950"] { color: #0f172a !important; }
+
+/* ---- Lencana Kategori & Status Khusus Memo, MOM, & Nomor Surat (Kontras Tinggi) ---- */
+.lencana-im {
+  background-color: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  border: 1.5px solid rgba(245, 158, 11, 0.6);
+}
+[data-tema='terang'] .lencana-im {
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+  border-color: #f59e0b !important;
+}
+
+.lencana-sr {
+  background-color: rgba(59, 130, 246, 0.18);
+  color: #60a5fa;
+  border: 1.5px solid rgba(59, 130, 246, 0.6);
+}
+[data-tema='terang'] .lencana-sr {
+  background-color: #dbeafe !important;
+  color: #1e40af !important;
+  border-color: #3b82f6 !important;
+}
+
+.lencana-kk {
+  background-color: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border: 1.5px solid rgba(16, 185, 129, 0.6);
+}
+[data-tema='terang'] .lencana-kk {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+  border-color: #10b981 !important;
+}
+
+.lencana-ba {
+  background-color: rgba(168, 85, 247, 0.18);
+  color: #c084fc;
+  border: 1.5px solid rgba(168, 85, 247, 0.6);
+}
+[data-tema='terang'] .lencana-ba {
+  background-color: #f3e8ff !important;
+  color: #6b21a8 !important;
+  border-color: #a855f7 !important;
+}
+
+.lencana-dokumen {
+  background-color: rgba(132, 204, 22, 0.18);
+  color: #a3e635;
+  border: 1.5px solid rgba(132, 204, 22, 0.6);
+}
+[data-tema='terang'] .lencana-dokumen {
+  background-color: #ecfccb !important;
+  color: #3f6212 !important;
+  border-color: #84cc16 !important;
+}
+
+/* Pemetaan border warna dengan opacity untuk mode terang */
+[data-tema='terang'] [class*="border-amber-700"],
+[data-tema='terang'] [class*="border-amber-800"] { border-color: #f59e0b !important; }
+[data-tema='terang'] [class*="border-blue-700"],
+[data-tema='terang'] [class*="border-blue-800"] { border-color: #3b82f6 !important; }
+[data-tema='terang'] [class*="border-emerald-700"],
+[data-tema='terang'] [class*="border-emerald-800"] { border-color: #10b981 !important; }
+[data-tema='terang'] [class*="border-purple-700"],
+[data-tema='terang'] [class*="border-purple-800"] { border-color: #a855f7 !important; }
+[data-tema='terang'] [class*="border-lime-700"],
+[data-tema='terang'] [class*="border-lime-800"] { border-color: #84cc16 !important; }
+
+/* Unduh gambar (lib/gambar.ts): wadah bergulir dibuka penuh selama pemotretan. */
+.mode-gambar[data-gambar-lepas], .mode-gambar [data-gambar-lepas] { overflow: visible !important; height: auto !important; max-height: none !important; }
+.mode-gambar .sticky { position: static !important; }

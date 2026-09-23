@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">POKEMONKEY</string>
+    <string name="title_activity_main">POKEMONKEY</string>
+    <string name="package_name">id.ebl.pokemonkey</string>
+    <string name="custom_url_scheme">id.ebl.pokemonkey</string>
+    <string name="widget_dashboard_desc">Ringkasan Cuaca, Titik Api, Jadwal, Alarm, dan PICA POKEMONKEY</string>
+    <string name="widget_pica_desc">Daftar tugas PICA yang belum selesai dan telat</string>
+    <string name="widget_jadwal_desc">Agenda rapat dan alarm meeting hari ini</string>
+</resources>

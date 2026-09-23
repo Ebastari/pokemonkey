@@ -1,33 +1,52 @@
-
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  Play, Pause, Heart, HeartOff, User, Edit, Trees, Target, Backpack, 
-  Calendar as CalendarIcon, Gamepad2, Flame, Volume2, Star, X, Save, 
-  ExternalLink, Wifi, WifiOff, Users, ShoppingBag, LogOut, NotebookPen
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  Play, Pause, Heart, HeartOff, User, Trees, Target, Backpack, Calendar as CalendarIcon,
+  Gamepad2, Flame, Star, Wifi, WifiOff, Users, ShoppingBag, LogOut, ClipboardList,
+  CalendarDays, Megaphone, CloudUpload, Menu, X, Maximize2, Minimize2, CalendarRange, NotebookPen, Bell,
+  Sun, Moon, Presentation, Camera,
 } from 'lucide-react';
-import { 
-  GameState, MissionStatus, MissionType, FieldReport, AppTab, WorkPlan 
-} from './types';
+import { GameState, MissionStatus, MissionType, FieldReport, AppTab, Mission } from './types';
 import { INITIAL_TOTAL_AREA, INITIAL_MISSIONS, SKINS } from './constants';
+import {
+  api, GalatApi, ambilToken, hapusToken, demoAktif, matikanDemo,
+  antreOffline, jumlahAntreanOffline, kirimAntreanOffline,
+} from './lib/api';
+import type { Bootstrap, Pengguna, ProfilGame, MisiServer } from './lib/tipe-api';
 
-// Components
 import { Habitat } from './components/Habitat';
 import { MissionsScreen } from './components/MissionsScreen';
 import { ReportsScreen } from './components/ReportsScreen';
 import { CalendarScreen } from './components/CalendarScreen';
-import { MemoScreen } from './components/MemoScreen';
 import { TeamScreen } from './components/TeamScreen';
 import { MarketScreen } from './components/MarketScreen';
 import { AuthScreen } from './components/AuthScreen';
-import { MonkeyRace } from './MonkeyRace';
+import { PicaScreen } from './components/PicaScreen';
+import { KalenderScreen } from './components/KalenderScreen';
+import { PengumumanScreen } from './components/PengumumanScreen';
+import { RosterScreen } from './components/RosterScreen';
+import { MemoScreen } from './components/MemoScreen';
+import { MonkeyRun } from './components/MonkeyRun';
+import { mintaLayarPenuh, keluarLayarPenuh } from './lib/platform';
+import { NotifikasiScreen } from './components/NotifikasiScreen';
+import { ModalAlarm } from './components/ModalAlarm';
+import { PanelAlarm } from './components/PanelAlarm';
+import { ModalMonkeyPoint } from './components/ModalMonkeyPoint';
+import { ModalStamina } from './components/ModalStamina';
+import { ModalProfil } from './components/ModalProfil';
+import { mulaiNotifikasi, hentikanNotifikasi, lupakanSesiNotifikasi, dengarKetukanNotifikasi } from './lib/notifikasi';
+import { daftarAlarmHariIni, periksaAlarmHarusBunyi, bunyikanAlarm, hentikanAlarm, type AlarmItem } from './lib/alarm';
+import type { JadwalItem } from './lib/tipe-api';
+import { bacaTema, pasangTema, type Tema } from './lib/tema';
+import { perbaruiDataWidgetHp, ambilTabDariWidget, dengarKetukanWidget } from './lib/widget';
+import { simpanFotoProfil, hapusFotoProfil } from './lib/dokumen';
+import { urlFoto, lupakanFoto } from './lib/foto';
 
-const SAVE_KEY = 'pokemonkey_cloud_v3_secure'; 
+const SAVE_KEY = 'pokemonkey_game_v5';
 const MAX_LIVES = 5;
 const MAX_STAMINA = 100;
-const DRAIN_DURATION_HOURS = 18; 
+const DRAIN_DURATION_HOURS = 18;
 const STAMINA_DRAIN_PER_SECOND = MAX_STAMINA / (DRAIN_DURATION_HOURS * 3600);
 const WORK_START_HOUR = 7;
-const DEFAULT_CLOUD_URL = 'https://script.google.com/macros/s/AKfycbwqtwhUkmK7x-llaDZJr4eAZoDs-NrUXY54LQo27UKkjtCmPXMwposyHR1djKQ7AlI/exec'; 
 
 const calculateStaminaHybrid = (lastFeeding: number) => {
   const now = new Date();
@@ -35,435 +54,985 @@ const calculateStaminaHybrid = (lastFeeding: number) => {
   if (now.getTime() < today7AM) return MAX_STAMINA;
   const effectiveStartTime = Math.max(lastFeeding, today7AM);
   const elapsedSeconds = (now.getTime() - effectiveStartTime) / 1000;
-  return Math.max(0, MAX_STAMINA - (elapsedSeconds * STAMINA_DRAIN_PER_SECOND));
+  return Math.max(0, MAX_STAMINA - elapsedSeconds * STAMINA_DRAIN_PER_SECOND);
+};
+
+/** Teks di atas kepala monyet bila pemakai belum menulis statusnya sendiri. */
+const STATUS_BAWAAN = 'Siap menghijaukan!';
+
+const gameAwal = (): GameState => ({
+  userId: '', nickname: '', fullName: '', jabatan: 'Forester', statusText: STATUS_BAWAAN, profilePhoto: '',
+  currentDay: 1, currentHour: 0, totalArea: INITIAL_TOTAL_AREA,
+  clearedArea: 0, plantedArea: 0, seedlingsCount: 0, seedlingsTarget: 100,
+  xp: 0, level: 1, missions: INITIAL_MISSIONS, reports: [], memoPlans: [],
+  isPaused: false, timeSpeed: 1, monkeyHealth: 100, stamina: 100,
+  lastFeedingTime: 0, lives: MAX_LIVES, lastReportDay: 1,
+  monkeyPos: { x: Math.random() * 60 + 20, y: Math.random() * 50 + 25, facing: 'right' },
+  isOnline: false, ownedSkins: ['classic'], activeSkinId: 'classic', isLoggedIn: false,
+});
+
+interface LaporanServer {
+  id: string; user_id: string; user_nama: string | null; pica_id: string | null;
+  jenis: string | null; capaian: number | null; satuan: string | null; catatan: string | null;
+  xp: number; dibuat_pada: string; foto?: string | null;
+}
+const petaLaporan = (l: LaporanServer): FieldReport => ({
+  id: l.id,
+  timestamp: Date.parse(l.dibuat_pada),
+  activityType: l.jenis ?? 'Pekerjaan Rutin',
+  durationMinutes: 0,
+  achievedUnit: Number(l.capaian ?? 0),
+  unitType: (l.satuan as FieldReport['unitType']) ?? 'ha',
+  notes: l.catatan ?? '',
+  missionId: l.pica_id ?? '',
+  missionTitle: l.pica_id ?? (l.jenis ?? 'Laporan'),
+  userId: l.user_id,
+  userName: l.user_nama ?? undefined,
+  foto: l.foto ?? null,
+});
+
+const misiKeMission = (m: MisiServer): Mission => ({
+  id: m.id,
+  title: m.judul ?? m.id,
+  type: (Object.values(MissionType) as string[]).includes(m.tipe) ? (m.tipe as MissionType) : MissionType.NURSERY,
+  description: m.deskripsi ?? '',
+  target: Number(m.target),
+  current: Number(m.current),
+  status: (m.status as MissionStatus) ?? MissionStatus.AVAILABLE,
+  rewardXP: Number(m.xp),
+  satuan: m.satuan,
+  capacityPerDay: Number(m.kapasitas) || 1.66,
+});
+
+/** Tab utama di navigasi bawah ponsel; sisanya lewat MENU. */
+const TAB_UTAMA: AppTab[] = ['habitat', 'pica', 'jadwal', 'pengumuman'];
+
+const INFO_TAB: Record<AppTab, { label: string; ikon: React.ReactElement; warna: string; teks: string }> = {
+  habitat:    { label: 'KEBUN',  ikon: <Trees />,         warna: 'bg-green-600',  teks: 'text-green-400' },
+  pica:       { label: 'PICA',   ikon: <ClipboardList />, warna: 'bg-amber-600',  teks: 'text-amber-400' },
+  jadwal:     { label: 'JADWAL', ikon: <CalendarDays />,  warna: 'bg-cyan-600',   teks: 'text-cyan-400' },
+  pengumuman: { label: 'INFO',   ikon: <Megaphone />,     warna: 'bg-pink-600',   teks: 'text-pink-400' },
+  roster:     { label: 'ROSTER', ikon: <CalendarRange />, warna: 'bg-teal-600',   teks: 'text-teal-400' },
+  memo:       { label: 'MEMO',   ikon: <NotebookPen />,   warna: 'bg-lime-600',   teks: 'text-lime-400' },
+  notif:      { label: 'NOTIF',  ikon: <Bell />,          warna: 'bg-rose-600',   teks: 'text-rose-400' },
+  team:       { label: 'TEAM',   ikon: <Users />,         warna: 'bg-indigo-600', teks: 'text-indigo-400' },
+  market:     { label: 'SHOP',   ikon: <ShoppingBag />,   warna: 'bg-yellow-600', teks: 'text-yellow-400' },
+  missions:   { label: 'QUEST',  ikon: <Target />,        warna: 'bg-blue-600',   teks: 'text-blue-400' },
+  reports:    { label: 'FEED',   ikon: <Backpack />,      warna: 'bg-red-600',    teks: 'text-red-400' },
+  calendar:   { label: 'LOG',    ikon: <CalendarIcon />,  warna: 'bg-purple-600', teks: 'text-purple-400' },
+  game:       { label: 'GAME',   ikon: <Gamepad2 />,      warna: 'bg-orange-600', teks: 'text-orange-400' },
+};
+const URUTAN_TAB = Object.keys(INFO_TAB) as AppTab[];
+
+/** Tab dari tautan notifikasi yang diketuk (/?tab=pica). */
+const tabDariUrl = (): AppTab | null => {
+  if (typeof window === 'undefined') return null;
+  const tab = new URLSearchParams(window.location.search).get('tab');
+  return tab && (URUTAN_TAB as string[]).includes(tab) ? (tab as AppTab) : null;
 };
 
 const App: React.FC = () => {
+  const tokenBagi = useMemo(() => {
+    const m = typeof window !== 'undefined' ? window.location.pathname.match(/^\/bagi\/([\w-]+)/) : null;
+    return m ? m[1] : null;
+  }, []);
+
+  const [sesi, setSesi] = useState<{ pengguna: Pengguna; boot: Bootstrap } | null>(null);
+  const [memuatSesi, setMemuatSesi] = useState(() => Boolean(ambilToken()) && !tokenBagi);
+
   const [gameState, setGameState] = useState<GameState>(() => {
-    const saved = localStorage.getItem(SAVE_KEY);
-    if (saved) {
-      try {
+    const awal = gameAwal();
+    try {
+      const saved = localStorage.getItem(SAVE_KEY);
+      if (saved) {
         const parsed = JSON.parse(saved);
-        return { 
-          ...parsed, 
-          stamina: calculateStaminaHybrid(parsed.lastFeedingTime || 0),
-          isLoggedIn: parsed.isLoggedIn || false,
-          isOnline: !!(parsed.cloudUrl || DEFAULT_CLOUD_URL),
-          cloudUrl: parsed.cloudUrl || DEFAULT_CLOUD_URL
-        };
-      } catch (e) { console.error("Load error:", e); }
-    }
-    return {
-      userId: '', nickname: '', fullName: '', jabatan: 'Forester', statusText: 'Siap Menghijaukan!', profilePhoto: '',
-      currentDay: 1, currentHour: 0, totalArea: INITIAL_TOTAL_AREA,
-      clearedArea: 0, plantedArea: 0, seedlingsCount: 0, seedlingsTarget: 100,
-      xp: 0, level: 1, missions: INITIAL_MISSIONS, reports: [], memoPlans: [],
-      isPaused: true, timeSpeed: 1, monkeyHealth: 100, stamina: 100,
-      lastFeedingTime: 0, lives: MAX_LIVES, lastReportDay: 1,
-      monkeyPos: { x: Math.random()*80+10, y: Math.random()*70+15, facing: 'right' },
-      cloudUrl: DEFAULT_CLOUD_URL, isOnline: !!DEFAULT_CLOUD_URL,
-      ownedSkins: ['classic'], activeSkinId: 'classic', isLoggedIn: false
-    };
+        return { ...awal, ...parsed, missions: awal.missions, stamina: calculateStaminaHybrid(parsed.lastFeedingTime || 0), isLoggedIn: false };
+      }
+    } catch (e) { console.error('Load error:', e); }
+    return awal;
   });
 
-  const [activeTab, setActiveTab] = useState<AppTab>('habitat');
+  const [activeTab, setActiveTab] = useState<AppTab>(() => tabDariUrl() ?? 'habitat');
+  const [tema, setTema] = useState<Tema>(bacaTema);
+  const [fokus, setFokus] = useState(false);
+  const [menuBuka, setMenuBuka] = useState(false);
   const [showNotification, setShowNotification] = useState<string | null>(null);
-  const [monkeyDialogue, setMonkeyDialogue] = useState<string>("Uu-aa! Ayo hijaukan tempat ini!");
+  const [monkeyDialogue, setMonkeyDialogue] = useState<string>('Uu-aa! Ayo hijaukan tempat ini!');
   const [syncing, setSyncing] = useState(false);
+  const [antrean, setAntrean] = useState(jumlahAntreanOffline());
+  const [picaTerbuka, setPicaTerbuka] = useState<{ id: string; judul: string; telat?: boolean }[]>([]);
+  const [picaTerpilih, setPicaTerpilih] = useState<string | null>(null);
+  const [pengumumanBaru, setPengumumanBaru] = useState(0);
+  const [semuaJadwal, setSemuaJadwal] = useState<JadwalItem[]>([]);
+  const [alarmAktif, setAlarmAktif] = useState<AlarmItem | null>(null);
+  const [panelAlarmBuka, setPanelAlarmBuka] = useState(false);
+  const [monkeyPointBuka, setMonkeyPointBuka] = useState(false);
+  const [modalStaminaBuka, setModalStaminaBuka] = useState(false);
+  const [modalProfilBuka, setModalProfilBuka] = useState(false);
 
-  // Global Collaborative Missions State
-  const fetchGlobalMissions = useCallback(async () => {
-    if (!gameState.cloudUrl || !gameState.isLoggedIn) return;
-    try {
-      const res = await fetch(`${gameState.cloudUrl}?action=getGlobalMissions`);
-      if (!res.ok) throw new Error("Missions fetch failed");
-      const cloudMissions = await res.json();
-      
-      if (cloudMissions && typeof cloudMissions === 'object') {
-        setGameState(prev => ({
-          ...prev,
-          missions: prev.missions.map(m => {
-            const remote = cloudMissions[m.id];
-            if (remote) {
-              return { ...m, status: remote.status as MissionStatus, current: Number(remote.current) };
-            }
-            return m;
-          })
-        }));
+  const hariIniWita = useMemo(() => new Date(Date.now() + 480 * 60000).toISOString().slice(0, 10), []);
+  const daftarAlarm = useMemo(() => daftarAlarmHariIni(semuaJadwal, hariIniWita), [semuaJadwal, hariIniWita]);
+  const acaraHariIni = useMemo(() => semuaJadwal.filter((j) => (j.tanggal === hariIniWita || j.tanggal_selesai === hariIniWita) && !j.selesai), [semuaJadwal, hariIniWita]);
+
+  const notifyRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const notify = useCallback((msg: string) => {
+    setShowNotification(msg);
+    if (notifyRef.current) clearTimeout(notifyRef.current);
+    notifyRef.current = setTimeout(() => setShowNotification(null), 3000);
+  }, []);
+
+  // Pemeriksa alarm kalender: berbunyi saat waktu target (meeting/agenda) tiba
+  useEffect(() => {
+    if (!sesi || semuaJadwal.length === 0) return;
+    const periksa = () => {
+      const hari = new Date(Date.now() + 480 * 60000).toISOString().slice(0, 10);
+      const harusBunyi = periksaAlarmHarusBunyi(semuaJadwal, hari);
+      if (harusBunyi && (!alarmAktif || alarmAktif.id !== harusBunyi.id)) {
+        setAlarmAktif(harusBunyi);
+        void bunyikanAlarm(harusBunyi);
       }
+    };
+    periksa();
+    const t = setInterval(periksa, 5000);
+    return () => clearInterval(t);
+  }, [sesi, semuaJadwal, alarmAktif]);
+
+  // ---------- Muat data ----------
+
+  const muatMisi = useCallback(async () => {
+    const d = await api<{ misi: MisiServer[] }>('/api/misi');
+    setGameState((p) => ({ ...p, missions: d.misi.length ? d.misi.map(misiKeMission) : p.missions }));
+  }, []);
+
+  const muatGame = useCallback(async () => {
+    const [profil, misi, laporan, pica, pengumuman, dataJadwal] = await Promise.all([
+      api<{ profil: ProfilGame | null }>('/api/profil'),
+      api<{ misi: MisiServer[] }>('/api/misi'),
+      api<{ laporan: LaporanServer[] }>('/api/laporan'),
+      api<{ pica: { id: string; judul: string; status: string; sisa_hari?: number | null; pic_nama?: string | null; due_date?: string | null }[] }>('/api/pica'),
+      api<{ pengumuman: { sudah_baca: number }[] }>('/api/pengumuman').catch(() => ({ pengumuman: [] })),
+      api<{ jadwal: JadwalItem[] }>('/api/jadwal').catch(() => ({ jadwal: [] })),
+    ]);
+
+    const picaOpen = (pica.pica ?? []).filter((p) => p.status !== 'Closed');
+    setPicaTerbuka(picaOpen.map((p) => ({
+      id: p.id,
+      judul: p.judul,
+      telat: typeof p.sisa_hari === 'number' && p.sisa_hari < 0,
+    })));
+    setPengumumanBaru(pengumuman.pengumuman.filter((p) => !p.sudah_baca).length);
+    setSemuaJadwal(dataJadwal.jadwal ?? []);
+
+    const picaTelatCount = picaOpen.filter((p) => typeof p.sisa_hari === 'number' && p.sisa_hari < 0).length;
+    const picaUrut = [...picaOpen].sort((a, b) => (a.sisa_hari ?? 999) - (b.sisa_hari ?? 999));
+    const topPica = picaUrut.slice(0, 3).map((p) => ({
+      id: p.id,
+      judul: p.judul,
+      pic: p.pic_nama || 'Tim EBL',
+      due_date: p.due_date || (typeof p.sisa_hari === 'number' ? (p.sisa_hari < 0 ? `${Math.abs(p.sisa_hari)} hr telat` : `${p.sisa_hari} hr lagi`) : '—'),
+      telat: typeof p.sisa_hari === 'number' && p.sisa_hari < 0,
+    }));
+    const picaIsi = picaTelatCount > 0
+      ? `${picaTelatCount} tugas telat! (${topPica[0]?.judul || ''})`
+      : (topPica.length > 0 ? `${topPica.length} tugas open: ${topPica[0]?.judul}` : 'Semua tugas PICA selesai');
+
+    const hariIni = new Date(Date.now() + 480 * 60000).toISOString().slice(0, 10);
+    const acara = (dataJadwal.jadwal ?? []).filter((j) => (j.tanggal === hariIni || j.tanggal_selesai === hariIni) && !j.selesai);
+    const topAcara = acara.slice(0, 3).map((j) => ({
+      id: j.id,
+      judul: j.judul,
+      jam: j.jam_mulai ? (j.jam_selesai ? `${j.jam_mulai} - ${j.jam_selesai}` : j.jam_mulai) : 'Sepanjang hari',
+      selesai: Boolean(j.selesai),
+    }));
+    const alarms = daftarAlarmHariIni(dataJadwal.jadwal ?? [], hariIni);
+    const alarmStatus = alarms.length > 0 ? `${alarms.length} Alarm Aktif` : 'Alarm Standby';
+    const jadwalIsi = topAcara.length > 0
+      ? `${topAcara[0].jam}: ${topAcara[0].judul}`
+      : 'Tidak ada agenda rapat hari ini';
+
+    void perbaruiDataWidgetHp({
+      picaTotal: picaOpen.length,
+      picaTelat: picaTelatCount,
+      picaIsi,
+      picaItems: topPica,
+      jadwalIsi,
+      jadwalItems: topAcara,
+      alarmStatus,
+    });
+
+    setGameState((prev) => ({
+      ...prev,
+      xp: profil.profil?.xp ?? prev.xp,
+      level: profil.profil?.level ?? prev.level,
+      plantedArea: profil.profil?.luas_tanam ?? prev.plantedArea,
+      ownedSkins: profil.profil?.skin_dimiliki ?? prev.ownedSkins,
+      activeSkinId: profil.profil?.skin_aktif ?? prev.activeSkinId,
+      statusText: profil.profil ? (profil.profil.status_teks || STATUS_BAWAAN) : prev.statusText,
+      reports: laporan.laporan.map(petaLaporan),
+      missions: misi.misi.length ? misi.misi.map(misiKeMission) : prev.missions,
+      isOnline: true,
+    }));
+  }, []);
+
+  const muatSesi = useCallback(async () => {
+    try {
+      const boot = await api<Bootstrap>('/api/bootstrap');
+      setSesi({ pengguna: boot.pengguna, boot });
+      setGameState((prev) => ({
+        ...prev,
+        userId: boot.pengguna.id,
+        fullName: boot.pengguna.nama,
+        nickname: boot.pengguna.nama.split(' ')[0],
+        jabatan: boot.pengguna.jabatan ?? 'Forester',
+        phone: boot.pengguna.wa || prev.phone || '',
+        isLoggedIn: true,
+        isOnline: true,
+      }));
+      await muatGame();
     } catch (e) {
-      console.warn("Global mission sync failed:", e);
+      if (e instanceof GalatApi && e.status === 0) {
+        notify('OFFLINE — MEMAKAI DATA TERSIMPAN');
+        setGameState((p) => ({ ...p, isOnline: false }));
+      } else {
+        hapusToken();
+        setSesi(null);
+      }
+    } finally {
+      setMemuatSesi(false);
     }
-  }, [gameState.cloudUrl, gameState.isLoggedIn]);
+  }, [muatGame, notify]);
+
+  const bootUlang = useCallback(async () => {
+    try {
+      const boot = await api<Bootstrap>('/api/bootstrap');
+      setSesi({ pengguna: boot.pengguna, boot });
+      await muatGame();
+    } catch { /* biarkan boot lama */ }
+  }, [muatGame]);
 
   useEffect(() => {
-    if (gameState.isLoggedIn) {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(gameState));
-    }
-  }, [gameState]);
+    if (tokenBagi) return;
+    if (ambilToken()) muatSesi();
+  }, [tokenBagi, muatSesi]);
 
-  // Periodic Global Sync
+  // Foto profil kini milik server: kalau ponsel ini belum punya salinannya, ambil dari sana.
+  useEffect(() => {
+    const kunci = sesi?.pengguna.foto;
+    if (!kunci || gameState.profilePhoto) return;
+    let hidup = true;
+    urlFoto(kunci).then((u) => { if (hidup && u) setGameState((p) => ({ ...p, profilePhoto: u })); });
+    return () => { hidup = false; };
+  }, [sesi?.pengguna.foto, gameState.profilePhoto]);
+
+  useEffect(() => {
+    const tangani = () => { setSesi(null); notify('SESI BERAKHIR — SILAKAN MASUK LAGI'); };
+    window.addEventListener('pokemonkey:sesi-berakhir', tangani);
+    return () => window.removeEventListener('pokemonkey:sesi-berakhir', tangani);
+  }, [notify]);
+
   useEffect(() => {
     if (!gameState.isLoggedIn) return;
-    
-    fetchGlobalMissions();
-    const timer = setInterval(() => {
-      const newStamina = calculateStaminaHybrid(gameState.lastFeedingTime);
-      setGameState(p => ({ ...p, stamina: newStamina }));
-      
-      // Auto-Sync Heartbeat and Missions
-      if (gameState.cloudUrl) {
-         syncProgressToCloud({ stamina: newStamina });
-         fetchGlobalMissions();
+    const { missions, ...ringan } = gameState;
+    void missions;
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...ringan, reports: ringan.reports.slice(0, 50) })); } catch { /* abaikan */ }
+  }, [gameState]);
+
+  // Alamat /?tab= dari notifikasi sudah dibaca saat awal; bersihkan agar muat ulang tidak membukanya lagi.
+  useEffect(() => {
+    if (window.location.search.includes('tab=')) window.history.replaceState(null, '', window.location.pathname);
+  }, []);
+
+  // Pengingat 07.00/12.00/17.00: titipkan token & jam ke penjadwal HP, atau segarkan langganan Web Push.
+  useEffect(() => {
+    if (!sesi) return;
+    void mulaiNotifikasi(sesi.boot.pengaturan);
+    return () => hentikanNotifikasi();
+  }, [sesi]);
+
+  // Notifikasi diketuk saat aplikasi terbuka atau dari baki notifikasi HP.
+  useEffect(() => dengarKetukanNotifikasi((tab) => {
+    if (!(URUTAN_TAB as string[]).includes(tab)) return;
+    setActiveTab(tab as AppTab);
+    setMenuBuka(false);
+  }), []);
+
+  // Widget layar depan HP diketuk saat aplikasi terbuka atau dari dingin.
+  useEffect(() => {
+    void ambilTabDariWidget().then((tab) => {
+      if (tab && (URUTAN_TAB as string[]).includes(tab)) {
+        setActiveTab(tab as AppTab);
       }
-    }, 60000);
-    return () => clearInterval(timer);
-  }, [gameState.isLoggedIn, gameState.cloudUrl, gameState.lastFeedingTime, fetchGlobalMissions]);
+    });
+    return dengarKetukanWidget((tab) => {
+      if ((URUTAN_TAB as string[]).includes(tab)) {
+        setActiveTab(tab as AppTab);
+        setMenuBuka(false);
+      }
+    });
+  }, []);
 
-  const notify = (msg: string) => {
-    setShowNotification(msg);
-    setTimeout(() => setShowNotification(null), 3000);
-  };
+  // Sinkronisasi data widget layar depan HP setiap kali jadwal atau alarm berubah
+  useEffect(() => {
+    const hariIni = new Date(Date.now() + 480 * 60000).toISOString().slice(0, 10);
+    const acara = semuaJadwal.filter((j) => (j.tanggal === hariIni || j.tanggal_selesai === hariIni) && !j.selesai);
+    const topAcara = acara.slice(0, 3).map((j) => ({
+      id: j.id,
+      judul: j.judul,
+      jam: j.jam_mulai ? (j.jam_selesai ? `${j.jam_mulai} - ${j.jam_selesai}` : j.jam_mulai) : 'Sepanjang hari',
+      selesai: Boolean(j.selesai),
+    }));
+    const alarms = daftarAlarmHariIni(semuaJadwal, hariIni);
+    const alarmStatus = alarmAktif
+      ? `🚨 BUNYI: ${alarmAktif.judul}`
+      : (alarms.length > 0 ? `${alarms.length} Alarm Aktif` : 'Alarm Standby');
+    const jadwalIsi = topAcara.length > 0
+      ? `${topAcara[0].jam}: ${topAcara[0].judul}`
+      : 'Tidak ada agenda rapat hari ini';
 
-  const syncProgressToCloud = async (overrideState?: Partial<GameState>) => {
-    const targetState = { ...gameState, ...overrideState };
-    if (!targetState.cloudUrl || !targetState.userId) return;
-    
+    void perbaruiDataWidgetHp({
+      jadwalIsi,
+      jadwalItems: topAcara,
+      alarmStatus,
+    });
+  }, [semuaJadwal, alarmAktif]);
+
+  // Layar penuh: sembunyikan cangkang + minta fullscreen browser bila ada.
+  useEffect(() => {
+    if (fokus) mintaLayarPenuh();
+    else keluarLayarPenuh();
+  }, [fokus]);
+
+  // ---------- Sinkronisasi ----------
+
+  const simpanProfil = useCallback(async (bagian: Record<string, unknown>) => {
     setSyncing(true);
     try {
-      await fetch(targetState.cloudUrl, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({
-          action: 'updateProgress',
-          userId: targetState.userId,
-          xp: targetState.xp,
-          level: targetState.level,
-          plantedArea: targetState.plantedArea,
-          ownedSkins: targetState.ownedSkins,
-          activeSkinId: targetState.activeSkinId,
-          memoPlans: targetState.memoPlans,
-          stamina: targetState.stamina,
-          posX: targetState.monkeyPos.x,
-          posY: targetState.monkeyPos.y
-        })
-      });
-      setGameState(p => ({ ...p, isOnline: true }));
-    } catch (e) {
-      setGameState(p => ({ ...p, isOnline: false }));
+      await api('/api/profil', { body: bagian });
+      setGameState((p) => ({ ...p, isOnline: true }));
+    } catch {
+      setGameState((p) => ({ ...p, isOnline: false }));
     } finally {
       setSyncing(false);
     }
+  }, []);
+
+  /** Teks di atas kepala monyet; kosong = kembali ke sapaan bawaan. Terlihat anggota lain di KEBUN. */
+  const ubahStatus = useCallback((teks: string) => {
+    const bersih = teks.replace(/\s+/g, ' ').trim().slice(0, 60);
+    setGameState((p) => ({ ...p, statusText: bersih || STATUS_BAWAAN }));
+    setMonkeyDialogue('');
+    simpanProfil({ status_teks: bersih });
+  }, [simpanProfil]);
+
+  useEffect(() => {
+    if (!sesi) return;
+    const timer = setInterval(async () => {
+      const newStamina = calculateStaminaHybrid(gameState.lastFeedingTime);
+      setGameState((p) => ({ ...p, stamina: newStamina }));
+      simpanProfil({ stamina: newStamina, pos_x: gameState.monkeyPos.x, pos_y: gameState.monkeyPos.y });
+
+      const terkirim = await kirimAntreanOffline();
+      setAntrean(jumlahAntreanOffline());
+      if (terkirim > 0) {
+        notify(`${terkirim} LAPORAN OFFLINE TERKIRIM`);
+        muatGame().catch(() => undefined);
+      } else {
+        muatMisi().catch(() => undefined);
+      }
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [sesi, gameState.lastFeedingTime, gameState.monkeyPos.x, gameState.monkeyPos.y, simpanProfil, muatGame, muatMisi, notify]);
+
+  // ---------- Aksi ----------
+
+  const handleMasuk = (pengguna: Pengguna) => {
+    setMemuatSesi(true);
+    notify(`SELAMAT DATANG, ${pengguna.nama.toUpperCase()}!`);
+    muatSesi();
   };
 
-  const handleAuthSuccess = (userData: any, usedCloudUrl: string) => {
-    setGameState(prev => ({
-      ...prev,
-      userId: userData.userId,
-      fullName: userData.fullName,
-      nickname: userData.fullName.split(' ')[0],
-      xp: Number(userData.xp) || 0,
-      level: Number(userData.level) || 1,
-      plantedArea: Number(userData.plantedArea) || 0,
-      ownedSkins: Array.isArray(userData.ownedSkins) ? userData.ownedSkins : ['classic'],
-      activeSkinId: userData.activeSkinId || 'classic',
-      memoPlans: Array.isArray(userData.memoPlans) ? userData.memoPlans : [],
-      cloudUrl: usedCloudUrl,
-      isLoggedIn: true,
-      isOnline: !!usedCloudUrl
-    }));
-    notify(`WELCOME BACK, ${userData.fullName.toUpperCase()}!`);
-    setTimeout(fetchGlobalMissions, 500);
-  };
-
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Sebelum token dihapus: runner & langganan push tidak boleh terus mengirim atas nama akun ini.
+    await lupakanSesiNotifikasi().catch(() => undefined);
+    try { await api('/api/auth/logout', { method: 'POST', body: {} }); } catch { /* token lokal tetap dihapus */ }
+    hapusToken();
+    matikanDemo();
     localStorage.removeItem(SAVE_KEY);
     window.location.reload();
   };
 
   const handleBuySkin = async (skinId: string) => {
-    const skin = SKINS.find(s => s.id === skinId);
+    const skin = SKINS.find((s) => s.id === skinId);
     if (!skin) return;
-    if (gameState.xp < skin.cost) {
-      notify("XP TIDAK CUKUP!");
-      return;
-    }
-    const newState = {
-      ...gameState,
-      xp: gameState.xp - skin.cost,
-      ownedSkins: [...gameState.ownedSkins, skinId],
-      activeSkinId: skinId
-    };
+    if (gameState.xp < skin.cost) { notify('XP TIDAK CUKUP!'); return; }
+    const newState = { ...gameState, xp: gameState.xp - skin.cost, ownedSkins: [...gameState.ownedSkins, skinId], activeSkinId: skinId };
     setGameState(newState);
-    await syncProgressToCloud(newState);
+    await simpanProfil({ xp: newState.xp, skin_dimiliki: newState.ownedSkins, skin_aktif: skinId });
     notify(`${skin.name.toUpperCase()} DIBELI!`);
   };
 
   const handleEquipSkin = async (skinId: string) => {
-    const newState = { ...gameState, activeSkinId: skinId };
-    setGameState(newState);
-    await syncProgressToCloud(newState);
-    notify("SKIN DIPASANG!");
+    setGameState((p) => ({ ...p, activeSkinId: skinId }));
+    await simpanProfil({ skin_aktif: skinId });
+    notify('SKIN DIPASANG!');
   };
 
   const handleMissionStart = async (missionId: string) => {
-    setGameState(prev => ({
+    setGameState((prev) => ({
       ...prev,
-      missions: prev.missions.map(m => m.id === missionId ? { ...m, status: MissionStatus.IN_PROGRESS } : m)
+      missions: prev.missions.map((m) => (m.id === missionId ? { ...m, status: MissionStatus.IN_PROGRESS } : m)),
     }));
-
-    if (gameState.cloudUrl) {
-      setSyncing(true);
-      try {
-        await fetch(gameState.cloudUrl, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({
-            action: 'updateMissionStatus',
-            missionId: missionId,
-            status: MissionStatus.IN_PROGRESS
-          })
-        });
-      } finally {
-        setSyncing(false);
-      }
-    }
+    try { await api(`/api/misi/${missionId}/mulai`, { method: 'POST', body: {} }); }
+    catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMULAI MISI'); }
   };
 
-  const handleReportSubmit = async (report: Omit<FieldReport, 'id' | 'timestamp' | 'missionTitle'>) => {
+  const handleMisiSimpan = async (data: Record<string, unknown>, id?: string) => {
+    try {
+      if (id) await api(`/api/misi/${id}`, { method: 'PATCH', body: data });
+      else await api('/api/misi', { body: data });
+      await muatMisi();
+      notify(id ? 'MISI DIPERBARUI' : 'MISI DITAMBAHKAN');
+    } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENYIMPAN MISI'); }
+  };
+
+  const handleMisiHapus = async (id: string) => {
+    try { await api(`/api/misi/${id}`, { method: 'DELETE' }); await muatMisi(); notify('MISI DIHAPUS'); }
+    catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENGHAPUS MISI'); }
+  };
+
+  const unggahFoto = async (laporanId: string, dataUrl: string) => {
+    const blob = await (await fetch(dataUrl)).blob();
+    const form = new FormData();
+    form.append('berkas', blob, `foto-${laporanId}.jpg`);
+    form.append('entitas', 'laporan');
+    form.append('entitas_id', laporanId);
+    await api('/api/lampiran', { form });
+  };
+
+  const handleReportSubmit = async (report: Omit<FieldReport, 'id' | 'timestamp' | 'missionTitle'> & { picaId?: string; photoData?: string }) => {
     const now = Date.now();
-    const mission = gameState.missions.find(m => m.id === report.missionId);
-    if (!mission) return;
+    const mission = report.missionId ? gameState.missions.find((m) => m.id === report.missionId) : undefined;
 
     let finalValue = report.achievedUnit;
-    const capPerDay = mission.capacityPerDay || 1.66;
-    
-    switch(report.unitType) {
+    const capPerDay = mission?.capacityPerDay || 1.66;
+    switch (report.unitType) {
       case 'jam': finalValue = report.achievedUnit * (capPerDay / 8); break;
       case 'hari': finalValue = report.achievedUnit * capPerDay; break;
-      case 'orang': finalValue = (report.achievedUnit * capPerDay) / 10; break; 
-      case 'meter': finalValue = report.achievedUnit / 10000; break; 
+      case 'orang': finalValue = (report.achievedUnit * capPerDay) / 10; break;
+      case 'meter': finalValue = report.achievedUnit / 10000; break;
     }
 
     const xpGained = 500 + Math.floor(finalValue * 10);
-    const newReport: FieldReport = { 
-      ...report, id: now.toString(), timestamp: now, achievedUnit: finalValue, missionTitle: mission.title, userId: gameState.userId, userName: gameState.fullName
+    const newReport: FieldReport = {
+      ...report, id: now.toString(), timestamp: now, achievedUnit: finalValue,
+      missionTitle: report.picaId || mission?.title || report.activityType, userId: gameState.userId, userName: gameState.fullName,
     };
+    const nextMissionValue = mission ? Math.min(mission.target, mission.current + finalValue) : 0;
+    const nextStatus = mission && nextMissionValue >= mission.target ? MissionStatus.COMPLETED : mission?.status;
+    // Tanpa misi, capaian dalam hektare tetap menumbuhkan kebun di layar KEBUN.
+    const menanam = mission ? mission.type === MissionType.PLANTING : report.unitType === 'ha';
 
-    const nextMissionValue = Math.min(mission.target, mission.current + finalValue);
-    const nextStatus = nextMissionValue >= mission.target ? MissionStatus.COMPLETED : mission.status;
-
-    const newState = {
-      ...gameState,
+    setGameState((prev) => ({
+      ...prev,
       stamina: MAX_STAMINA,
       lastFeedingTime: now,
-      lives: Math.min(MAX_LIVES, Math.floor(gameState.lives) + 1),
-      reports: [newReport, ...gameState.reports],
-      xp: gameState.xp + xpGained,
-      level: Math.floor((gameState.xp + xpGained) / 1000) + 1,
-      clearedArea: mission.type === MissionType.LAND_PREP ? Math.min(gameState.totalArea, gameState.clearedArea + finalValue) : gameState.clearedArea,
-      plantedArea: mission.type === MissionType.PLANTING ? Math.min(gameState.totalArea, gameState.plantedArea + finalValue) : gameState.plantedArea,
-      missions: gameState.missions.map(m => {
-        if (m.id === report.missionId) {
-          return { ...m, current: nextMissionValue, status: nextStatus };
-        }
-        return m;
-      })
-    };
+      lives: Math.min(MAX_LIVES, Math.floor(prev.lives) + 1),
+      reports: [newReport, ...prev.reports],
+      xp: prev.xp + xpGained,
+      level: Math.floor((prev.xp + xpGained) / 1000) + 1,
+      clearedArea: mission?.type === MissionType.LAND_PREP ? Math.min(prev.totalArea, prev.clearedArea + finalValue) : prev.clearedArea,
+      plantedArea: menanam ? Math.min(prev.totalArea, prev.plantedArea + finalValue) : prev.plantedArea,
+      missions: mission ? prev.missions.map((m) => (m.id === mission.id ? { ...m, current: nextMissionValue, status: nextStatus ?? m.status } : m)) : prev.missions,
+    }));
 
-    setGameState(newState);
-    
-    if (gameState.cloudUrl) {
-      setSyncing(true);
-      try {
-        await fetch(gameState.cloudUrl, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({
-            action: 'addReport',
-            userId: gameState.userId,
-            fullName: gameState.fullName,
-            activityType: newReport.activityType,
-            achievedUnit: newReport.achievedUnit,
-            notes: newReport.notes,
-            xpGained: xpGained,
-            xp: newState.xp,
-            level: newState.level,
-            plantedArea: newState.plantedArea,
-            ownedSkins: newState.ownedSkins,
-            activeSkinId: newState.activeSkinId,
-            memoPlans: newState.memoPlans,
-            photoData: report.photoData,
-            stamina: MAX_STAMINA,
-            missionId: report.missionId,
-            missionCurrent: nextMissionValue,
-            missionStatus: nextStatus
-          })
-        });
-        setTimeout(fetchGlobalMissions, 1500);
-      } finally {
-        setSyncing(false);
+    const bodyLaporan = { pica_id: report.picaId || null, jenis: report.activityType, capaian: finalValue, satuan: report.unitType, catatan: report.notes };
+    const bodyMisi = mission
+      ? { nilai: finalValue, target: mission.target, luas: mission.type === MissionType.PLANTING ? finalValue : 0, xp: xpGained }
+      : { nilai: 0, target: 0, luas: menanam ? finalValue : 0, xp: xpGained };
+
+    setSyncing(true);
+    try {
+      const d = await api<{ id: string }>('/api/laporan', { body: bodyLaporan });
+      // Tanpa misi, XP dan luas tanam tetap dicatat lewat jalur profil di simpanProfil.
+      if (mission) await api(`/api/misi/${mission.id}/tambah`, { body: bodyMisi });
+      if (report.photoData) await unggahFoto(d.id, report.photoData).catch(() => notify('FOTO GAGAL TERUNGGAH'));
+      await simpanProfil({ stamina: MAX_STAMINA, xp: gameState.xp + xpGained, level: Math.floor((gameState.xp + xpGained) / 1000) + 1, luas_tanam: menanam ? gameState.plantedArea + finalValue : gameState.plantedArea });
+      setMonkeyDialogue(`Uu-aa! Sync sukses! +${xpGained} XP didapat!`);
+      muatGame().catch(() => undefined);
+    } catch (e) {
+      if (e instanceof GalatApi && e.status === 0) {
+        antreOffline('/api/laporan', bodyLaporan);
+        if (mission) antreOffline(`/api/misi/${mission.id}/tambah`, bodyMisi);
+        setAntrean(jumlahAntreanOffline());
+        setGameState((p) => ({ ...p, isOnline: false }));
+        setMonkeyDialogue('Uu-aa! Sinyal hilang. Laporan disimpan, dikirim otomatis saat online.');
+      } else {
+        notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENYIMPAN LAPORAN');
       }
+    } finally {
+      setSyncing(false);
     }
 
-    setMonkeyDialogue(`Uu-aa! Sync sukses! +${xpGained} XP didapat!`);
     setActiveTab('habitat');
   };
 
-  const totalAchieved = useMemo(() => gameState.reports.reduce((acc, r) => acc + r.achievedUnit, 0), [gameState.reports]);
+  const handleGainXP = (xp: number) => {
+    const newXP = gameState.xp + xp;
+    const newLevel = Math.floor(newXP / 1000) + 1;
+    setGameState((p) => ({ ...p, xp: newXP, level: newLevel }));
+    simpanProfil({ xp: newXP, level: newLevel });
+  };
 
-  if (!gameState.isLoggedIn) {
-    return <AuthScreen onAuthSuccess={handleAuthSuccess} cloudUrl={gameState.cloudUrl} />;
+  const gantiTema = () => {
+    const baru: Tema = tema === 'gelap' ? 'terang' : 'gelap';
+    setTema(baru);
+    pasangTema(baru);
+    notify(baru === 'terang' ? 'MODE TERANG — UNTUK DI LAPANGAN' : 'MODE GELAP');
+  };
+
+  const bukaPica = (id: string) => { setPicaTerpilih(id); setActiveTab('pica'); };
+  const pilihTab = (t: AppTab) => {
+    setActiveTab(t);
+    setMenuBuka(false);
+    if (t === 'pengumuman') setPengumumanBaru(0);
+    if (t === 'habitat') {
+      api<{ jadwal: JadwalItem[] }>('/api/jadwal').then((d) => setSemuaJadwal(d.jadwal ?? [])).catch(() => undefined);
+    }
+  };
+
+  const totalAchieved = useMemo(() => gameState.reports.reduce((acc, r) => acc + r.achievedUnit, 0), [gameState.reports]);
+  const skinAktif = useMemo(() => SKINS.find((s) => s.id === gameState.activeSkinId) ?? SKINS[0], [gameState.activeSkinId]);
+
+  // ---------- Tampilan ----------
+
+  if (tokenBagi) {
+    return (
+      <div className="h-screen flex flex-col overflow-hidden bg-zinc-950 select-none">
+        <header className="retro-box !py-2 flex items-center justify-between mx-2 mt-2 gap-2">
+          <div className="flex items-center gap-3 px-1">
+            <div className="w-9 h-9 bg-white border-[3px] border-black flex items-center justify-center shrink-0"><Trees size={18} className="text-black" /></div>
+            <div>
+              <h1 className="font-title text-[10px] md:text-[12px]">POKEMONKEY</h1>
+              <p className="text-[12px] text-yellow-200 uppercase">Kalender tim · tampilan berbagi</p>
+            </div>
+          </div>
+          <a href="/" className="btn-retro btn-retro-sm bg-yellow-600 mr-1">Masuk aplikasi</a>
+        </header>
+        <main className="flex-1 p-2 overflow-hidden">
+          <div className="h-full retro-box !bg-black/80 !p-0 overflow-hidden flex flex-col">
+            <KalenderScreen bacaSaja tokenBagi={tokenBagi} />
+          </div>
+        </main>
+      </div>
+    );
   }
 
+  if (memuatSesi) {
+    return (
+      <div className="h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="retro-box !bg-zinc-900 border-yellow-500 p-8 text-center">
+          <Trees size={40} className="text-yellow-500 mx-auto mb-4 animate-bounce" />
+          <p className="text-[13px] uppercase text-zinc-300 tracking-widest">Menghubungkan…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!sesi) return <AuthScreen onMasuk={handleMasuk} />;
+
+  const { pengguna, boot } = sesi;
+  const demo = demoAktif();
+
+  const layar = (
+    <>
+      {activeTab === 'habitat' && (
+        <Habitat
+          state={gameState}
+          skin={skinAktif}
+          dialogue={monkeyDialogue}
+          onSetDialogue={setMonkeyDialogue}
+          onPindah={(pos) => setGameState((p) => ({ ...p, monkeyPos: pos }))}
+          pengguna={pengguna}
+          onGainXP={handleGainXP}
+          opsiRoster={boot.opsi.filter((o) => o.grup === 'roster')}
+          notify={notify}
+          statusTeks={gameState.statusText}
+          onUbahStatus={ubahStatus}
+          jumlahInfoBaru={pengumumanBaru}
+          onBukaInfo={() => pilihTab('pengumuman')}
+          jumlahPicaTerbuka={picaTerbuka.length}
+          adaPicaTelat={picaTerbuka.some((p) => p.telat)}
+          onBukaPica={() => pilihTab('pica')}
+          jumlahAcaraHariIni={acaraHariIni.length}
+          onBukaJadwal={() => pilihTab('jadwal')}
+          daftarAlarm={daftarAlarm}
+          sedangAlarm={Boolean(alarmAktif)}
+          onBukaAlarm={() => setPanelAlarmBuka(true)}
+          onBukaNotif={() => pilihTab('notif')}
+        />
+      )}
+      {activeTab === 'pica' && <PicaScreen boot={boot} pengguna={pengguna} picaAwal={picaTerpilih} onBootUlang={bootUlang} notify={notify} fokus={fokus} onFokus={() => setFokus((f) => !f)} />}
+      {activeTab === 'jadwal' && <KalenderScreen pengguna={pengguna} tim={boot.tim} opsiRoster={boot.opsi.filter((o) => o.grup === 'roster')} onBukaPica={bukaPica} notify={notify} fokus={fokus} onFokus={() => setFokus((f) => !f)} onPerubahanJadwal={() => api<{ jadwal: JadwalItem[] }>('/api/jadwal').then((d) => setSemuaJadwal(d.jadwal ?? [])).catch(() => undefined)} />}
+      {activeTab === 'pengumuman' && <PengumumanScreen pengguna={pengguna} jumlahTim={boot.tim.length} notify={notify} />}
+      {activeTab === 'roster' && <RosterScreen boot={boot} pengguna={pengguna} notify={notify} />}
+      {activeTab === 'memo' && <MemoScreen boot={boot} pengguna={pengguna} notify={notify} />}
+      {activeTab === 'notif' && <NotifikasiScreen boot={boot} notify={notify} />}
+      {activeTab === 'team' && <TeamScreen pengguna={pengguna} onBootUlang={bootUlang} notify={notify} />}
+      {activeTab === 'market' && <MarketScreen state={gameState} onBuy={handleBuySkin} onEquip={handleEquipSkin} />}
+      {activeTab === 'missions' && <MissionsScreen state={gameState} admin={pengguna.peran === 'admin'} onStart={handleMissionStart} onSimpan={handleMisiSimpan} onHapus={handleMisiHapus} />}
+      {activeTab === 'reports' && <ReportsScreen state={gameState} picaTerbuka={picaTerbuka} onSubmit={handleReportSubmit} />}
+      {activeTab === 'calendar' && <CalendarScreen state={gameState} onRead={(r) => { setMonkeyDialogue(`Uu-aa! ${r.activityType}: ${r.achievedUnit.toFixed(2)} unit. Semangat!`); setActiveTab('habitat'); }} />}
+    </>
+  );
+
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-zinc-950 font-retro select-none">
-      <header className="retro-box h-auto py-2 md:h-24 flex flex-col md:flex-row items-center justify-between mx-2 md:mx-4 mt-2 md:mt-4 z-20 gap-2 md:gap-0 relative">
-        {syncing && <div className="absolute inset-0 bg-blue-500/20 animate-pulse z-[-1]" />}
-        
-        <div className="flex gap-4 items-center w-full md:w-auto px-2">
-          <div className="w-10 h-10 md:w-12 md:h-12 bg-white border-4 border-black overflow-hidden relative shrink-0">
-             <User size={20} className="text-black m-2" />
-          </div>
-          <div className="overflow-hidden">
-            <h1 className="text-[8px] md:text-r-md font-bold mb-1 flex items-center gap-2">
-              POKEMONKEY 
-              <span className={`text-[5px] px-1 rounded flex items-center gap-1 ${gameState.isOnline ? 'bg-blue-600' : 'bg-red-600'}`}>
-                {gameState.isOnline ? <Wifi size={6} /> : <WifiOff size={6} />}
-                {gameState.isOnline ? 'ONLINE' : 'OFFLINE'}
+    <div className="h-screen flex flex-col overflow-hidden bg-zinc-950 select-none">
+      {/* ---------- Header ponsel: satu baris ---------- */}
+      {!fokus && (
+        <header className="md:hidden area-warna flex items-center gap-2 px-2.5 py-1.5 min-h-12 shrink-0 border-b-4 border-white" style={{ background: 'var(--pk-blue)' }}>
+          <div className="flex flex-col items-center shrink-0">
+            <button
+              onClick={() => setModalProfilBuka(true)}
+              className="w-8 h-8 bg-white border-2 border-black flex items-center justify-center shrink-0 overflow-hidden shadow-sm active:scale-95 transition-transform"
+              title="Klik untuk edit foto, nomor telepon & bagikan profil"
+              aria-label="Profil Pengguna"
+            >
+              {gameState.profilePhoto ? <img src={gameState.profilePhoto} alt="Profil" className="w-full h-full object-cover" /> : <User size={16} className="text-black" />}
+            </button>
+            {/* Bar stamina tepat di bawah foto profil */}
+            <button
+              onClick={() => setModalStaminaBuka(true)}
+              className="w-12 h-3.5 mt-0.5 bg-black border border-white overflow-hidden relative cursor-pointer active:scale-95 transition-transform"
+              title={`Sisa Stamina: ${gameState.stamina.toFixed(1)}% (Klik untuk melihat info detail)`}
+              aria-label="Info Bio-Stamina"
+            >
+              <div className="h-full stamina-bar-fill transition-all duration-300" style={{ width: `${gameState.stamina}%` }} />
+              <span className="absolute inset-0 flex items-center justify-center text-[7.5px] font-mono font-black text-white mix-blend-difference leading-none">
+                Sisa {gameState.stamina.toFixed(0)}%
               </span>
-            </h1>
-            <p className="text-[6px] md:text-r-xs text-yellow-300 truncate max-w-[120px] md:max-w-[150px] uppercase">ID: {gameState.userId} | {gameState.nickname}</p>
+            </button>
           </div>
-        </div>
-        
-        <div className="flex gap-2 md:gap-6 items-center justify-center">
-          <div className="flex gap-1 md:gap-2 bg-black/60 p-1 md:p-3 border-2 border-white/20">
-             {Array.from({ length: MAX_LIVES }).map((_, i) => (
-               <div key={i}>{i < Math.floor(gameState.lives) ? <Heart key={i} size={16} className="md:size-6 text-red-500 fill-red-500" /> : <HeartOff key={i} size={16} className="md:size-6 text-zinc-700" />}</div>
-             ))}
+          <div className="flex-1 min-w-0 leading-tight">
+            <div className="font-title text-[9px] text-white truncate">POKEMONKEY</div>
+            <div className="text-[11px] text-yellow-200 uppercase truncate">{gameState.nickname} · {pengguna.peran}{demo ? ' · DEMO' : ''}</div>
           </div>
-          
-          <div className="retro-box !bg-zinc-900 border-yellow-500 min-w-[80px] md:min-w-[120px] flex items-center gap-1 md:gap-3 px-2 md:px-4 !py-1 md:!py-3">
-             <Star size={14} className="md:size-5 text-yellow-400 fill-yellow-400 animate-pulse" />
-             <div className="text-left">
-                <p className="text-[4px] md:text-[6px] text-zinc-500 uppercase">XP</p>
-                <p className="text-[8px] md:text-r-sm font-bold text-white tracking-widest">{gameState.xp.toLocaleString()}</p>
-             </div>
-          </div>
-        </div>
+          <div className="chip-retro border-yellow-400 bg-black/50 text-yellow-300"><Star size={11} className="fill-yellow-300" /> {gameState.xp.toLocaleString('id-ID')}</div>
+          {antrean > 0 && <span className="chip-retro border-amber-400 bg-amber-900/60 text-amber-200"><CloudUpload size={11} /> {antrean}</span>}
+          <span className={`w-2.5 h-2.5 border border-white ${gameState.isOnline ? 'bg-emerald-400' : 'bg-red-500'}`} title={gameState.isOnline ? 'Online' : 'Offline'} />
+        </header>
+      )}
 
-        <div className="flex gap-2 items-center w-full md:w-auto justify-center md:justify-end px-2">
-          <button onClick={handleLogout} className="retro-box !bg-red-900 p-2 hover:scale-105 transition-transform" title="Logout">
-            <LogOut size={14} />
-          </button>
-          <button onClick={() => setGameState(p => ({ ...p, isPaused: !p.isPaused }))} className="retro-box !bg-yellow-500 p-2 hover:scale-105 transition-transform">
-            {gameState.isPaused ? <Play size={14} /> : <Pause size={14} />}
-          </button>
-        </div>
-      </header>
-
-      <main className="flex-1 flex flex-col md:flex-row p-2 md:p-4 gap-2 md:gap-4 overflow-hidden relative">
-        <aside className="hidden md:flex w-24 flex-col gap-4">
-           <SidebarItem active={activeTab === 'habitat'} icon={<Trees />} label="KEBUN" onClick={() => setActiveTab('habitat')} color="bg-green-600" />
-           <SidebarItem active={activeTab === 'team'} icon={<Users />} label="TEAM" onClick={() => setActiveTab('team')} color="bg-indigo-600" />
-           <SidebarItem active={activeTab === 'market'} icon={<ShoppingBag />} label="SHOP" onClick={() => setActiveTab('market')} color="bg-yellow-600" />
-           <SidebarItem active={activeTab === 'missions'} icon={<Target />} label="QUEST" onClick={() => setActiveTab('missions')} color="bg-blue-600" />
-           <SidebarItem active={activeTab === 'reports'} icon={<Backpack />} label="FEED" onClick={() => setActiveTab('reports')} color="bg-red-600" />
-           <SidebarItem active={activeTab === 'calendar'} icon={<CalendarIcon />} label="LOG" onClick={() => setActiveTab('calendar')} color="bg-purple-600" />
-           <SidebarItem active={activeTab === 'game'} icon={<Gamepad2 />} label="GAME" onClick={() => setActiveTab('game')} color="bg-orange-600" />
-           <SidebarItem active={activeTab === 'memo'} icon={<NotebookPen />} label="MEMO" onClick={() => setActiveTab('memo')} color="bg-cyan-600" />
-        </aside>
-
-        <section className="flex-1 retro-box !bg-transparent border-0 overflow-hidden relative flex flex-col z-10">
-          {activeTab === 'habitat' ? (
-            <Habitat state={gameState} dialogue={monkeyDialogue} onSetDialogue={setMonkeyDialogue} />
-          ) : (
-            <div className="flex-1 retro-box !bg-black/80 overflow-hidden relative flex flex-col">
-              {activeTab === 'team' && <TeamScreen state={gameState} />}
-              {activeTab === 'market' && <MarketScreen state={gameState} onBuy={handleBuySkin} onEquip={handleEquipSkin} />}
-              {activeTab === 'missions' && <MissionsScreen state={gameState} onStart={handleMissionStart} />}
-              {activeTab === 'reports' && <ReportsScreen state={gameState} onSubmit={handleReportSubmit} />}
-              {activeTab === 'calendar' && <CalendarScreen state={gameState} onRead={(r) => { setMonkeyDialogue(`Uu-aa! Detail: ${r.activityType} ${r.achievedUnit.toFixed(2)} unit. Semangat!`); setActiveTab('habitat'); }} />}
-              {activeTab === 'game' && <MonkeyRace activeSkin={gameState.activeSkinId} onGainXP={(xp) => {
-                 const newXP = gameState.xp + xp;
-                 const newLevel = Math.floor(newXP / 1000) + 1;
-                 setGameState(p => ({ ...p, xp: newXP, level: newLevel }));
-                 syncProgressToCloud({ xp: newXP, level: newLevel });
-              }} />}
-              {activeTab === 'memo' && <MemoScreen state={gameState} setGameState={setGameState} onSync={syncProgressToCloud} />}
+      {/* ---------- Header desktop ---------- */}
+      {!fokus && (
+        <header className="hidden md:flex retro-box min-h-[5.25rem] py-2 items-center justify-between mx-4 mt-4 z-20 relative">
+          {syncing && <div className="absolute inset-0 bg-blue-500/20 animate-pulse z-[-1]" />}
+          <div className="flex gap-4 items-center px-2">
+            <div className="flex flex-col items-center shrink-0">
+              <button
+                onClick={() => setModalProfilBuka(true)}
+                className="w-12 h-12 bg-white border-4 border-black flex items-center justify-center shrink-0 overflow-hidden shadow-sm cursor-pointer hover:border-yellow-400 hover:scale-105 active:scale-95 transition-all group relative"
+                title="Klik untuk edit foto, nomor telepon & bagikan profil"
+                aria-label="Profil Pengguna"
+              >
+                {gameState.profilePhoto ? (
+                  <img src={gameState.profilePhoto} alt="Profil" className="w-full h-full object-cover" />
+                ) : (
+                  <User size={22} className="text-black group-hover:text-amber-700 transition-colors" />
+                )}
+                <span className="absolute bottom-0 right-0 bg-yellow-400 text-black p-0.5 border-t border-l border-black opacity-0 group-hover:opacity-100 transition-opacity" title="Ubah Foto Profil">
+                  <Camera size={9} />
+                </span>
+              </button>
+              {/* Bar stamina tepat di bawah foto profil */}
+              <button
+                onClick={() => setModalStaminaBuka(true)}
+                className="w-16 sm:w-20 h-4 mt-1 bg-black border-2 border-white overflow-hidden relative cursor-pointer hover:border-yellow-400 hover:scale-105 active:scale-95 transition-all shadow group"
+                title={`Sisa Stamina: ${gameState.stamina.toFixed(1)}% (Klik untuk melihat info detail)`}
+                aria-label="Info Bio-Stamina"
+              >
+                <div className="h-full stamina-bar-fill transition-all duration-300" style={{ width: `${gameState.stamina}%` }} />
+                <span className="absolute inset-0 flex items-center justify-center gap-0.5 text-[8.5px] font-mono font-black text-white mix-blend-difference leading-none tracking-tight">
+                  <Flame size={9} className="shrink-0" />
+                  Sisa {gameState.stamina.toFixed(0)}%
+                </span>
+              </button>
             </div>
+            <div>
+              <h1 className="font-title text-[12px] flex items-center gap-2 mb-1">
+                POKEMONKEY
+                <span className={`chip-retro !text-[10px] border-white/40 ${gameState.isOnline ? 'bg-blue-800' : 'bg-red-700'}`}>
+                  {gameState.isOnline ? <Wifi size={10} /> : <WifiOff size={10} />}{gameState.isOnline ? 'ONLINE' : 'OFFLINE'}
+                </span>
+                {antrean > 0 && <span className="chip-retro !text-[10px] border-amber-300 bg-amber-700 animate-pulse"><CloudUpload size={10} /> {antrean} MENUNGGU</span>}
+                {demo && <span className="chip-retro !text-[10px] border-purple-300 bg-purple-700">DEMO</span>}
+              </h1>
+              <p className="text-[12px] text-yellow-200 uppercase">ID: {gameState.userId} · {gameState.fullName} · {pengguna.peran}</p>
+            </div>
+          </div>
+
+          <div className="flex gap-5 items-center">
+            <div className="flex gap-1.5 bg-black/60 p-2 border-2 border-white/20">
+              {Array.from({ length: MAX_LIVES }).map((_, i) => (
+                <div key={i}>{i < Math.floor(gameState.lives) ? <Heart size={20} className="text-red-500 fill-red-500" /> : <HeartOff size={20} className="text-zinc-600" />}</div>
+              ))}
+            </div>
+            <div className="retro-box !bg-zinc-900 border-yellow-500 min-w-[130px] flex items-center gap-3 px-4 !py-2">
+              <Star size={18} className="text-yellow-400 fill-yellow-400 animate-pulse" />
+              <div>
+                <p className="text-[11px] text-zinc-300 uppercase leading-none mb-1">XP · Level {gameState.level}</p>
+                <p className="font-title text-[12px] text-white">{gameState.xp.toLocaleString('id-ID')}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2 items-center px-2">
+            <button onClick={() => setMonkeyPointBuka(true)} className="btn-retro btn-retro-sm bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-bold flex items-center gap-1.5" title="Monkey Point - Tarik semua data & ekspor PowerPoint">
+              <Presentation size={15} />
+              <span className="hidden xl:inline">Monkey Point</span>
+            </button>
+            <button onClick={gantiTema} className="btn-ikon bg-zinc-800" title={tema === 'gelap' ? 'Mode terang (untuk di lapangan)' : 'Mode gelap'} aria-label="Ganti mode warna">
+              {tema === 'gelap' ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            <button onClick={() => setFokus(true)} className="btn-ikon bg-zinc-800" title="Layar penuh"><Maximize2 size={16} /></button>
+            <button onClick={() => setGameState((p) => ({ ...p, isPaused: !p.isPaused }))} className="btn-ikon bg-yellow-500 text-black" title={gameState.isPaused ? 'Lanjutkan' : 'Jeda'}>
+              {gameState.isPaused ? <Play size={16} /> : <Pause size={16} />}
+            </button>
+            <button onClick={handleLogout} className="btn-ikon bg-red-900" title="Keluar"><LogOut size={16} /></button>
+          </div>
+        </header>
+      )}
+
+      <main className={`flex-1 flex flex-col md:flex-row overflow-hidden relative ${fokus ? 'p-0' : 'p-1 md:p-4 gap-2 md:gap-4'}`}>
+        {!fokus && (
+          <aside className="hidden md:flex w-24 flex-col gap-2 overflow-auto custom-scrollbar pr-1">
+            {URUTAN_TAB.map((t) => (
+              <SidebarItem key={t} active={activeTab === t} icon={INFO_TAB[t].ikon} label={INFO_TAB[t].label} onClick={() => pilihTab(t)} color={INFO_TAB[t].warna} badge={t === 'pengumuman' ? pengumumanBaru : 0} />
+            ))}
+          </aside>
+        )}
+
+        {/* Tanpa z-index: bila section membuat konteks tumpukan, jendela/lembar di dalam
+            layar (z-[100]) akan terkurung di bawah navigasi bawah ponsel (z-30). */}
+        <section className="flex-1 min-w-0 overflow-hidden relative flex flex-col">
+          {activeTab === 'habitat' ? layar : (
+            <div className={`flex-1 retro-box !bg-black/85 !p-0 overflow-hidden relative flex flex-col ${fokus ? '!border-0 !shadow-none' : ''}`}>{layar}</div>
           )}
         </section>
-
-        <div className="hidden md:flex w-64 flex-col gap-4">
-           <div className="retro-box !bg-red-950/80 shrink-0">
-              <h3 className="text-r-xs font-bold text-orange-400 mb-4 flex items-center gap-2 uppercase"><Flame size={10} /> Bio-Stamina</h3>
-              <div className="h-6 bg-black border-4 border-white overflow-hidden relative">
-                 <div className="h-full stamina-bar-fill transition-all" style={{ width: `${gameState.stamina}%` }}></div>
-                 <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold mix-blend-difference">{gameState.stamina.toFixed(4)}%</span>
-              </div>
-           </div>
-
-           <div className="retro-box !bg-black/80 flex-1 overflow-auto flex flex-col custom-scrollbar">
-              <div className="border-b-4 border-emerald-500/30 mb-4 pb-2">
-                <h3 className="text-r-sm font-bold text-emerald-400 uppercase leading-none">Feeding Log</h3>
-                <div className="flex justify-between items-baseline mt-2">
-                   <span className="text-[6px] text-zinc-400 uppercase">Capaian:</span>
-                   <span className="text-r-sm text-white font-bold">{totalAchieved.toFixed(2)} UNIT</span>
-                </div>
-              </div>
-              <div className="space-y-3 flex-1 overflow-auto custom-scrollbar">
-                 {gameState.reports.map(r => (
-                   <div key={r.id} onClick={() => { setMonkeyDialogue(`Uu-aa! Detail: ${r.activityType} ${r.achievedUnit.toFixed(2)} unit. ${r.notes}`); setActiveTab('habitat'); }} className="border-b border-white/10 pb-2 cursor-pointer group hover:bg-white/5 p-2 transition-all">
-                      <div className="flex justify-between mb-1">
-                        <p className="text-[7px] text-yellow-500 font-bold uppercase group-hover:text-yellow-400">{r.activityType}</p>
-                        <Volume2 size={8} className="text-zinc-600" />
-                      </div>
-                      <div className="flex justify-between text-[6px]">
-                        <p className="text-zinc-300">+{r.achievedUnit.toFixed(2)} {r.unitType.toUpperCase()}</p>
-                        <p className="text-zinc-500">{new Date(r.timestamp).toLocaleDateString()}</p>
-                      </div>
-                   </div>
-                 ))}
-                 {gameState.reports.length === 0 && <p className="text-[6px] text-center opacity-20 py-4 uppercase">No records found</p>}
-              </div>
-           </div>
-        </div>
       </main>
 
-      <nav className="md:hidden h-16 bg-zinc-900 border-t-4 border-white flex items-center justify-around px-2 z-30">
-        <NavButton active={activeTab === 'habitat'} icon={<Trees />} onClick={() => setActiveTab('habitat')} color="text-green-500" />
-        <NavButton active={activeTab === 'team'} icon={<Users />} onClick={() => setActiveTab('team')} color="text-indigo-500" />
-        <NavButton active={activeTab === 'market'} icon={<ShoppingBag />} onClick={() => setActiveTab('market')} color="text-yellow-500" />
-        <NavButton active={activeTab === 'missions'} icon={<Target />} onClick={() => setActiveTab('missions')} color="text-blue-500" />
-        <NavButton active={activeTab === 'reports'} icon={<Backpack />} onClick={() => setActiveTab('reports')} color="text-red-500" />
-        <NavButton active={activeTab === 'game'} icon={<Gamepad2 />} onClick={() => setActiveTab('game')} color="text-orange-500" />
-        <NavButton active={activeTab === 'memo'} icon={<NotebookPen />} onClick={() => setActiveTab('memo')} color="text-cyan-500" />
-      </nav>
+      {/* ---------- Navigasi bawah ponsel ---------- */}
+      {!fokus && (
+        <nav className="md:hidden h-14 bg-zinc-900 border-t-4 border-white flex items-stretch z-30 shrink-0">
+          {TAB_UTAMA.map((t) => (
+            <NavButton key={t} active={activeTab === t} icon={INFO_TAB[t].ikon} label={INFO_TAB[t].label} onClick={() => pilihTab(t)} color={INFO_TAB[t].teks} badge={t === 'pengumuman' ? pengumumanBaru : 0} />
+          ))}
+          <NavButton active={menuBuka || !TAB_UTAMA.includes(activeTab)} icon={<Menu />} label={TAB_UTAMA.includes(activeTab) ? 'MENU' : INFO_TAB[activeTab].label} onClick={() => setMenuBuka(true)} color="text-white" badge={0} />
+        </nav>
+      )}
+
+      {fokus && (
+        <button onClick={() => setFokus(false)} className="fixed top-2 right-2 z-50 btn-ikon bg-zinc-800/90" title="Keluar layar penuh"><Minimize2 size={16} /></button>
+      )}
+
+      {/* ---------- Lembar menu & profil (ponsel) ---------- */}
+      {menuBuka && (
+        <div className="fixed inset-0 z-[90] bg-black/80 md:hidden" onClick={() => setMenuBuka(false)}>
+          <div className="absolute inset-x-0 bottom-0 retro-box !bg-zinc-900 !p-3 max-h-[85vh] overflow-auto custom-scrollbar" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <div
+                className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => { setMenuBuka(false); setModalProfilBuka(true); }}
+                title="Klik untuk edit foto, nomor telepon & profil"
+              >
+                <div className="w-10 h-10 bg-white border-[3px] border-black flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
+                  {gameState.profilePhoto ? <img src={gameState.profilePhoto} alt="Profil" className="w-full h-full object-cover" /> : <User size={18} className="text-black" />}
+                </div>
+                <div className="leading-tight">
+                  <p className="text-[14px] font-bold text-white flex items-center gap-1.5">
+                    {gameState.fullName}
+                    <span className="text-[10px] text-yellow-400 font-normal">[Edit]</span>
+                  </p>
+                  <p className="text-[11px] text-zinc-300 uppercase">{pengguna.jabatan ?? pengguna.peran} · Level {gameState.level}</p>
+                </div>
+              </div>
+              <button onClick={() => setMenuBuka(false)} className="text-zinc-400"><X size={22} /></button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div className="panel-retro !p-2">
+                <p className="text-[10px] text-zinc-400 uppercase mb-1">Nyawa</p>
+                <div className="flex gap-1">{Array.from({ length: MAX_LIVES }).map((_, i) => i < Math.floor(gameState.lives) ? <Heart key={i} size={14} className="text-red-500 fill-red-500" /> : <HeartOff key={i} size={14} className="text-zinc-600" />)}</div>
+              </div>
+              <div
+                onClick={() => { setMenuBuka(false); setModalStaminaBuka(true); }}
+                className="panel-retro !p-2 cursor-pointer hover:border-yellow-400 active:scale-95 transition-all"
+                title="Klik untuk melihat info Bio-Stamina lengkap"
+              >
+                <div className="flex justify-between items-center mb-1">
+                  <p className="text-[10px] text-zinc-400 uppercase">Stamina</p>
+                  <p className="text-[10px] text-yellow-300 font-mono font-bold">Sisa {gameState.stamina.toFixed(0)}%</p>
+                </div>
+                <div className="h-3 bg-black border-2 border-white/40 overflow-hidden relative">
+                  <div className="h-full stamina-bar-fill" style={{ width: `${gameState.stamina}%` }} />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              {URUTAN_TAB.filter((t) => !TAB_UTAMA.includes(t)).map((t) => (
+                <button key={t} onClick={() => pilihTab(t)} className={`retro-box !p-2 flex flex-col items-center gap-1 ${activeTab === t ? INFO_TAB[t].warna + ' teks-atas-warna border-white' : '!bg-zinc-800 border-zinc-600'}`}>
+                  {React.cloneElement(INFO_TAB[t].ikon as React.ReactElement<{ size?: number }>, { size: 20 })}
+                  <span className="text-[10px] font-bold">{INFO_TAB[t].label}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => { setMonkeyPointBuka(true); setMenuBuka(false); }} className="btn-retro btn-retro-sm bg-gradient-to-r from-amber-600 to-yellow-600 text-white font-bold flex-1 min-w-[100%] flex items-center justify-center gap-1.5">
+                <Presentation size={14} /> Monkey Point (Unduh PPTX)
+              </button>
+              <button onClick={gantiTema} className="btn-retro btn-retro-sm bg-zinc-700 flex-1 min-w-[46%]">
+                {tema === 'gelap' ? <><Sun size={14} /> Mode terang</> : <><Moon size={14} /> Mode gelap</>}
+              </button>
+              <button onClick={() => { setFokus(true); setMenuBuka(false); }} className="btn-retro btn-retro-sm bg-zinc-700 flex-1 min-w-[46%]"><Maximize2 size={14} /> Layar penuh</button>
+              <button onClick={() => setGameState((p) => ({ ...p, isPaused: !p.isPaused }))} className="btn-retro btn-retro-sm bg-yellow-600 flex-1">{gameState.isPaused ? <><Play size={14} /> Lanjut</> : <><Pause size={14} /> Jeda</>}</button>
+              <button onClick={handleLogout} className="btn-retro btn-retro-sm bg-red-900 flex-1"><LogOut size={14} /> Keluar</button>
+            </div>
+            <p className="text-[11px] text-zinc-500 mt-3 text-center">{gameState.isOnline ? 'Tersambung' : 'Offline'}{demo ? ' · mode demo, data di browser ini' : ''}</p>
+          </div>
+        </div>
+      )}
+
+      {/* GAME: lapisan layar penuh di atas header & navigasi bawah */}
+      {activeTab === 'game' && (
+        <div className="fixed inset-0 z-[80] bg-black">
+          <MonkeyRun skin={skinAktif} onGainXP={handleGainXP} onKeluar={() => setActiveTab('habitat')} />
+        </div>
+      )}
 
       {showNotification && (
-        <div className="fixed inset-x-0 bottom-20 md:bottom-10 flex justify-center z-50 animate-bounce px-4 pointer-events-none">
-           <div className="retro-box !bg-white text-black text-[10px] md:text-r-md px-6 md:px-10 py-3 md:py-6 border-black shadow-2xl">&gt; {showNotification}</div>
+        <div className="fixed inset-x-0 bottom-20 md:bottom-10 flex justify-center z-[95] animate-bounce px-4 pointer-events-none">
+          <div className="retro-box !bg-white text-black text-[13px] md:text-[14px] font-bold px-5 py-3 border-black shadow-2xl">&gt; {showNotification}</div>
         </div>
+      )}
+
+      {alarmAktif && (
+        <ModalAlarm
+          alarm={alarmAktif}
+          onTutup={() => {
+            setAlarmAktif(null);
+            hentikanAlarm();
+          }}
+          onBukaKalender={() => pilihTab('jadwal')}
+          notify={notify}
+        />
+      )}
+
+      {panelAlarmBuka && (
+        <PanelAlarm
+          daftarAlarm={daftarAlarm}
+          onTutup={() => setPanelAlarmBuka(false)}
+          onBukaKalender={() => pilihTab('jadwal')}
+          onUjiCobaAlarm={() => {
+            const ujiAlarm: AlarmItem = {
+              id: 'uji-' + Date.now(),
+              judul: 'Meeting Koordinasi Revegetasi (Simulasi)',
+              jamMulai: new Date(Date.now() + 480 * 60000).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace(':', '.'),
+              menitSebelum: 15,
+              waktuTargetMs: Date.now(),
+              keterangan: 'Simulasi pengujian alarm dengan nada dering kustom',
+            };
+            setAlarmAktif(ujiAlarm);
+            void bunyikanAlarm(ujiAlarm);
+          }}
+          notify={notify}
+        />
+      )}
+
+      {monkeyPointBuka && sesi && (
+        <ModalMonkeyPoint
+          boot={sesi.boot}
+          pengguna={sesi.pengguna}
+          onTutup={() => setMonkeyPointBuka(false)}
+          notify={notify}
+        />
+      )}
+
+      {modalStaminaBuka && (
+        <ModalStamina
+          stamina={gameState.stamina}
+          lastFeedingTime={gameState.lastFeedingTime}
+          reports={gameState.reports}
+          totalAchieved={totalAchieved}
+          onTutup={() => setModalStaminaBuka(false)}
+          onBukaLapor={() => {
+            pilihTab('reports');
+            setModalStaminaBuka(false);
+          }}
+          onPilihReport={(r) => {
+            setMonkeyDialogue(`Uu-aa! ${r.activityType} ${r.achievedUnit.toFixed(2)} unit. ${r.notes}`);
+            setActiveTab('habitat');
+            setModalStaminaBuka(false);
+          }}
+        />
+      )}
+
+      {modalProfilBuka && sesi && (
+        <ModalProfil
+          gameState={gameState}
+          pengguna={sesi.pengguna}
+          picaTerbukaCount={picaTerbuka.length}
+          picaTelatCount={picaTerbuka.filter((p) => p.telat).length}
+          totalAchieved={totalAchieved}
+          onSimpanFoto={async (fotoBase64) => {
+            setGameState((p) => ({ ...p, profilePhoto: fotoBase64 }));
+            try {
+              lupakanFoto(sesi.pengguna.foto);
+              const d = await simpanFotoProfil(fotoBase64);
+              setSesi((x) => (x ? { ...x, pengguna: { ...x.pengguna, foto: d.foto } } : null));
+              void bootUlang(); // agar anggota lain ikut melihat foto barunya
+            } catch (e) {
+              notify(e instanceof Error ? e.message.toUpperCase() : 'FOTO GAGAL DISIMPAN KE SERVER');
+            }
+          }}
+          onHapusFoto={async () => {
+            setGameState((p) => ({ ...p, profilePhoto: '' }));
+            try {
+              lupakanFoto(sesi.pengguna.foto);
+              await hapusFotoProfil();
+              setSesi((x) => (x ? { ...x, pengguna: { ...x.pengguna, foto: null } } : null));
+              void bootUlang();
+            } catch (e) {
+              notify(e instanceof Error ? e.message.toUpperCase() : 'FOTO GAGAL DIHAPUS DI SERVER');
+            }
+          }}
+          onSimpanWa={async (wa) => {
+            await api(`/api/tim/${sesi.pengguna.id}`, { method: 'PATCH', body: { wa } });
+            setSesi((s) => s ? { ...s, pengguna: { ...s.pengguna, wa } } : null);
+            setGameState((p) => ({ ...p, phone: wa }));
+            void bootUlang();
+          }}
+          onTutup={() => setModalProfilBuka(false)}
+          notify={notify}
+        />
       )}
     </div>
   );
 };
 
-const SidebarItem = ({ active, icon, label, onClick, color }: any) => (
-  <button onClick={onClick} className={`retro-box !p-2 flex flex-col items-center gap-1 transition-all ${active ? color + ' translate-x-2 scale-105 shadow-xl border-white' : '!bg-gray-800 opacity-60 border-zinc-700 hover:opacity-100'}`}>
-    {React.cloneElement(icon, { size: 20 })}
-    <span className="text-[6px] font-bold uppercase">{label}</span>
+const SidebarItem = ({ active, icon, label, onClick, color, badge }: { active: boolean; icon: React.ReactElement; label: string; onClick: () => void; color: string; badge: number }) => (
+  <button onClick={onClick} className={`retro-box !p-2 flex flex-col items-center gap-1 transition-all relative shrink-0 ${active ? color + ' teks-atas-warna translate-x-1 scale-105 border-white' : '!bg-zinc-800 opacity-70 border-zinc-700 hover:opacity-100'}`}>
+    {React.cloneElement(icon as React.ReactElement<{ size?: number }>, { size: 20 })}
+    <span className="text-[10px] font-bold uppercase">{label}</span>
+    {badge > 0 && <span className="absolute -top-1 -right-1 bg-pink-600 text-[10px] font-bold px-1 border border-white">{badge}</span>}
   </button>
 );
 
-const NavButton = ({ active, icon, onClick, color }: any) => (
-  <button onClick={onClick} className={`p-2 transition-all rounded-lg ${active ? 'bg-white/10 scale-110 ' + color : 'text-zinc-600'}`}>
-    {React.cloneElement(icon, { size: 24 })}
+const NavButton = ({ active, icon, label, onClick, color, badge }: { active: boolean; icon: React.ReactElement; label: string; onClick: () => void; color: string; badge: number }) => (
+  <button onClick={onClick} className={`flex-1 flex flex-col items-center justify-center gap-0.5 relative transition-colors ${active ? 'bg-white/10 ' + color : 'text-zinc-500'}`}>
+    {React.cloneElement(icon as React.ReactElement<{ size?: number }>, { size: 20 })}
+    <span className="text-[10px] font-bold">{label}</span>
+    {badge > 0 && <span className="absolute top-1 right-3 bg-pink-600 text-white teks-atas-warna text-[10px] font-bold px-1 border border-white">{badge}</span>}
   </button>
 );
 

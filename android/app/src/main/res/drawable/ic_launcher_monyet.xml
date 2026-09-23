@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ikon monyet piksel POKEMONKEY, digambar ulang dari public/ikon.svg (grid 16×16).
+     Kanvas ikon adaptif 108dp; monyet diletakkan di 60dp tengah agar aman dari
+     potongan bentuk ikon (bulat, kotak membulat, dll.) di semua merek HP. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="24"
+        android:translateY="24"
+        android:scaleX="3.75"
+        android:scaleY="3.75">
+        <!-- tanah -->
+        <path android:fillColor="#6B4A24" android:pathData="M0,13h16v3h-16z" />
+        <path android:fillColor="#4ADE80" android:pathData="M0,13h16v1h-16z" />
+        <!-- telinga -->
+        <path android:fillColor="#7C4A1E" android:pathData="M1,6h3v3h-3z M12,6h3v3h-3z" />
+        <path android:fillColor="#E8B98A" android:pathData="M2,7h1v1h-1z M13,7h1v1h-1z" />
+        <!-- kepala -->
+        <path android:fillColor="#7C4A1E" android:pathData="M4,2h8v11h-8z M3,3h10v9h-10z" />
+        <!-- wajah -->
+        <path android:fillColor="#E8B98A" android:pathData="M5,6h6v6h-6z M4,9h8v3h-8z" />
+        <!-- mata -->
+        <path android:fillColor="#000000" android:pathData="M6,7h1v2h-1z M9,7h1v2h-1z" />
+        <!-- mulut -->
+        <path android:fillColor="#5A3312" android:pathData="M7,10h2v1h-2z" />
+    </group>
+</vector>

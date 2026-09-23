@@ -1,110 +1,64 @@
+import React, { useState } from 'react';
+import { User, Key, LogIn, Trees, Wifi, AlertTriangle, Loader2, Settings, Globe, Ticket, PlayCircle } from 'lucide-react';
+import { api, GalatApi, simpanToken, ambilServer, simpanServer, SERVER_BAWAAN, aktifkanDemo, matikanDemo } from '../lib/api';
+import type { Pengguna } from '../lib/tipe-api';
 
-import React, { useState, useEffect } from 'react';
-import { User, Key, UserPlus, LogIn, Trees, Wifi, AlertTriangle, Loader2, Settings, Globe } from 'lucide-react';
+/** Versi uji menampilkan tombol demo dan pengaturan alamat server; APK produksi tidak. */
+const MODE_UJI = import.meta.env.VITE_DEMO !== '0';
+
+/**
+ * Layar masuk. Password lewat body POST; akun dibuat Admin di menu TEAM;
+ * anggota membuat password sendiri saat login pertama dengan kode undangan.
+ */
 
 interface AuthScreenProps {
-  onAuthSuccess: (data: any, usedCloudUrl: string) => void;
-  cloudUrl: string;
+  onMasuk: (pengguna: Pengguna) => void;
 }
 
-export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, cloudUrl: initialCloudUrl }) => {
-  const [isRegister, setIsRegister] = useState(false);
+export const AuthScreen: React.FC<AuthScreenProps> = ({ onMasuk }) => {
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
+  const [kodeUndangan, setKodeUndangan] = useState('');
+  const [perluKode, setPerluKode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
   const [showSettings, setShowSettings] = useState(false);
-  const [customCloudUrl, setCustomCloudUrl] = useState(initialCloudUrl || '');
+  const [server, setServer] = useState(ambilServer());
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    const activeUrl = customCloudUrl.trim();
-    
-    if (!activeUrl) {
-      setError("DIPERLUKAN URL APPS SCRIPT (MASUK KE SETTINGS)!");
-      return;
-    }
-
-    if (!userId || !password || (isRegister && !fullName)) return;
-    
+    if (!userId || !password) return;
     setLoading(true);
     setError(null);
-
-    const cleanUserId = userId.trim().toLowerCase();
-
     try {
-      if (isRegister) {
-        // Registration via POST
-        // Note: Using text/plain for body/headers avoids CORS preflight triggers
-        await fetch(activeUrl, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({
-            action: 'register',
-            userId: cleanUserId,
-            password,
-            fullName
-          })
-        });
-        
-        // Wait a bit for the script to handle the post
-        await new Promise(r => setTimeout(r, 1200));
-
-        // Verify registration with login check
-        const checkRes = await fetch(`${activeUrl}?action=login&userId=${cleanUserId}&password=${password}`);
-        const checkData = await checkRes.json();
-        
-        if (typeof checkData === 'object' && checkData.userId) {
-          onAuthSuccess(checkData, activeUrl);
-        } else {
-          setError("PENDAFTARAN BERHASIL. SILAKAN LOGIN MANUAL.");
-          setIsRegister(false);
-        }
-      } else {
-        // Login via GET for readable JSON response from Apps Script
-        const response = await fetch(`${activeUrl}?action=login&userId=${cleanUserId}&password=${password}`);
-        
-        if (!response.ok) {
-            throw new Error(`Server returned status ${response.status}`);
-        }
-
-        const result = await response.json();
-        
-        if (result === "AUTH_FAILED") {
-          setError("ID ATAU PASSWORD SALAH!");
-        } else if (typeof result === 'object' && result.userId) {
-          onAuthSuccess(result, activeUrl);
-        } else {
-          setError("FORMAT RESPONSE TIDAK DIKENALI. CEK SCRIPT ANDA.");
-        }
-      }
+      const d = await api<{ token: string; pengguna: Pengguna }>('/api/auth/login', {
+        body: { userId: userId.trim().toLowerCase(), password, kodeUndangan: kodeUndangan || undefined },
+      });
+      simpanToken(d.token);
+      onMasuk(d.pengguna);
     } catch (err) {
-      console.error("Auth error:", err);
-      
-      // Fallback for local debugging
-      if (!isRegister && cleanUserId === "admin" && password === "admin") {
-         onAuthSuccess({
-            userId: "admin",
-            fullName: "Forester Master",
-            xp: 1500,
-            level: 2,
-            plantedArea: 5,
-            ownedSkins: ["classic", "manager"],
-            activeSkinId: "classic",
-            memoPlans: []
-         }, "");
-         return;
-      }
-
-      // If fetch fails, provide helpful troubleshooting
-      if (err instanceof TypeError && err.message === "Failed to fetch") {
-        setError(`GAGAL MENGHUBUNGI SERVER (Failed to fetch). Pastikan URL benar dan Script di-deploy sebagai 'Anyone' (Who has access: Anyone).`);
+      if (err instanceof GalatApi) {
+        if (err.data.perluKodeUndangan) setPerluKode(true);
+        setError(err.status === 0 ? `${err.message} Server: ${ambilServer()}` : err.message);
       } else {
-        setError(`ERROR: ${err instanceof Error ? err.message : 'Gangguan Koneksi'}`);
+        setError('Gangguan koneksi.');
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const masukDemo = async () => {
+    setLoading(true);
+    setError(null);
+    aktifkanDemo();
+    try {
+      const d = await api<{ token: string; pengguna: Pengguna }>('/api/auth/login', { body: { userId: 'agung', password: 'demo-demo' } });
+      simpanToken(d.token);
+      onMasuk(d.pengguna);
+    } catch (err) {
+      matikanDemo();
+      setError(err instanceof Error ? err.message : 'Demo gagal dimuat.');
     } finally {
       setLoading(false);
     }
@@ -112,140 +66,79 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, cloudUrl:
 
   return (
     <div className="h-screen w-full bg-zinc-950 flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="absolute inset-0 opacity-10 pointer-events-none">
-        <div className="garden-bg w-full h-full"></div>
-      </div>
-      
-      <button 
-        onClick={() => setShowSettings(!showSettings)}
-        className="absolute top-4 right-4 z-20 p-3 retro-box !bg-zinc-800 text-yellow-500 hover:text-white transition-all"
-        title="Cloud Settings"
-      >
-        <Settings size={20} className={showSettings ? 'rotate-90' : ''} />
-      </button>
+      <div className="absolute inset-0 opacity-10 pointer-events-none"><div className="garden-bg w-full h-full" /></div>
 
-      <div className="retro-box !bg-zinc-900 w-full max-w-md border-yellow-500 p-8 shadow-[0_0_80px_rgba(234,179,8,0.15)] z-10 scale-up-center">
-         {showSettings ? (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-               <div className="text-center mb-6">
-                  <Globe size={32} className="mx-auto text-cyan-500 mb-2" />
-                  <h2 className="text-r-sm font-bold text-white uppercase">Cloud Settings</h2>
-                  <p className="text-[6px] text-zinc-500 uppercase mt-1">Konfigurasi Endpoint Apps Script</p>
-               </div>
-               
-               <div className="space-y-2">
-                  <label className="text-[8px] text-zinc-500 uppercase font-bold">Script Exec URL</label>
-                  <input 
-                    type="text" 
-                    value={customCloudUrl} 
-                    onChange={e => setCustomCloudUrl(e.target.value)}
-                    className="w-full bg-black border-4 border-white p-3 text-[8px] outline-none text-cyan-400 font-mono focus:border-cyan-500"
-                    placeholder="https://script.google.com/macros/s/.../exec"
-                  />
-                           <p className="text-[5px] text-zinc-400 leading-relaxed mt-2 bg-black/40 p-2 border border-white/5">
-                              * Deploy script Anda di Google Apps Script:<br/>
-                              1. Deploy &gt; New Deployment<br/>
-                              2. Select 'Web App'<br/>
-                              3. Execute as 'Me'<br/>
-                              4. Who has access: 'Anyone' (WAJIB)
-                           </p>
-               </div>
+      {MODE_UJI && (
+        <button onClick={() => setShowSettings(!showSettings)} className="absolute top-4 right-4 z-20 btn-ikon bg-zinc-800 text-yellow-400" title="Pengaturan server">
+          <Settings size={18} className={showSettings ? 'rotate-90' : ''} />
+        </button>
+      )}
 
-               <button 
-                  onClick={() => setShowSettings(false)}
-                  className="w-full retro-box !p-3 font-bold text-[8px] !bg-zinc-700 hover:!bg-zinc-600"
-               >
-                  KEMBALI KE LOGIN
-               </button>
+      <div className="retro-box !bg-zinc-900 w-full max-w-md border-yellow-500 !p-6 md:!p-8 z-10 max-h-[95vh] overflow-auto custom-scrollbar">
+        {showSettings ? (
+          <div className="space-y-5">
+            <div className="text-center">
+              <Globe size={32} className="mx-auto text-cyan-400 mb-2" />
+              <h2 className="judul-layar text-white">Server</h2>
+              <p className="text-[12px] text-zinc-400 mt-1">Alamat Worker Cloudflare</p>
             </div>
-         ) : (
-            <>
-               <div className="text-center mb-10">
-                  <div className="inline-block p-5 bg-yellow-500 rounded-2xl mb-6 shadow-xl animate-bounce">
-                     <Trees size={48} className="text-black" />
-                  </div>
-                  <h1 className="text-r-md font-bold text-yellow-500 mb-3 tracking-widest uppercase">Pokemonkey Cloud</h1>
-                  <p className="text-[8px] text-zinc-500 uppercase tracking-widest leading-relaxed">Centralized Reclamation Progress Sync</p>
-               </div>
+            <div>
+              <label className="label-retro">Alamat server</label>
+              <input type="text" value={server} onChange={(e) => setServer(e.target.value)} className="input-retro font-mono text-cyan-300" placeholder={SERVER_BAWAAN} />
+              <p className="text-[12px] text-zinc-400 leading-relaxed mt-2 panel-retro">
+                Uji di komputer: <code>http://localhost:8787</code><br />
+                Produksi: <code>https://pokemonkey-api.&lt;akun&gt;.workers.dev</code><br />
+                Ponsel di Wi-Fi yang sama: <code>http://&lt;ip-komputer&gt;:8787</code>
+              </p>
+            </div>
+            <button onClick={() => { simpanServer(server); setShowSettings(false); setError(null); }} className="btn-retro bg-cyan-700 w-full">Simpan &amp; kembali</button>
+          </div>
+        ) : (
+          <>
+            <div className="text-center mb-6">
+              <div className="inline-block p-4 bg-yellow-500 border-4 border-black mb-4 animate-bounce"><Trees size={40} className="text-black" /></div>
+              <h1 className="font-title text-[13px] md:text-[15px] text-yellow-400 mb-2">POKEMONKEY</h1>
+              <p className="text-[12px] text-zinc-300 uppercase tracking-widest">Rev &amp; Rehab · Sistem Kerja Tim</p>
+            </div>
 
-               {error && (
-                  <div className="bg-red-950/40 border-2 border-red-500 p-4 mb-8 flex items-start gap-4 text-[8px] text-red-200 uppercase leading-normal">
-                     <AlertTriangle size={20} className="shrink-0 text-red-500" />
-                     <span>{error}</span>
-                  </div>
-               )}
+            {error && (
+              <div className="bg-red-950/50 border-2 border-red-500 p-3 mb-5 flex items-start gap-3 text-[13px] text-red-200">
+                <AlertTriangle size={18} className="shrink-0 text-red-400" /><span>{error}</span>
+              </div>
+            )}
 
-               <form onSubmit={handleAuth} className="space-y-6">
-                  <div className="space-y-2">
-                     <label className="text-[8px] text-zinc-500 uppercase font-bold flex items-center gap-2">
-                        <User size={12}/> {isRegister ? 'BUAT USER ID' : 'USER ID'}
-                     </label>
-                     <input 
-                        type="text" 
-                        required
-                        value={userId} 
-                        onChange={e => setUserId(e.target.value)}
-                        className="w-full bg-black border-4 border-white p-4 text-r-sm outline-none text-white focus:border-yellow-500 transition-colors"
-                        placeholder="ID (CONTOH: MANDOR_RIMBA)"
-                     />
-                  </div>
+            <form onSubmit={handleAuth} className="space-y-4">
+              <div>
+                <label className="label-retro flex items-center gap-1.5"><User size={12} /> User ID</label>
+                <input type="text" required autoCapitalize="none" autoComplete="username" value={userId} onChange={(e) => setUserId(e.target.value)} className="input-retro text-[16px]" placeholder="contoh: agung" />
+              </div>
+              <div>
+                <label className="label-retro flex items-center gap-1.5"><Key size={12} /> Password</label>
+                <input type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="input-retro text-[16px]" placeholder="••••••••" />
+              </div>
+              {perluKode && (
+                <div>
+                  <label className="label-retro !text-yellow-300 flex items-center gap-1.5"><Ticket size={12} /> Kode undangan</label>
+                  <input type="text" value={kodeUndangan} onChange={(e) => setKodeUndangan(e.target.value)} autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} className="input-retro !border-yellow-500 text-[16px]" placeholder="dari Admin" />
+                  <p className="text-[12px] text-zinc-400 mt-1">Login pertama: password yang Anda ketik menjadi password akun.</p>
+                </div>
+              )}
+              <button type="submit" disabled={loading} className="btn-retro bg-yellow-600 w-full !py-3 text-[14px]">
+                {loading ? <Loader2 size={20} className="animate-spin" /> : <><LogIn size={18} /> Masuk</>}
+              </button>
+            </form>
 
-                  {isRegister && (
-                     <div className="space-y-2">
-                        <label className="text-[8px] text-zinc-500 uppercase font-bold">NAMA LENGKAP</label>
-                        <input 
-                           type="text" 
-                           required
-                           value={fullName} 
-                           onChange={e => setFullName(e.target.value)}
-                           className="w-full bg-black border-4 border-white p-4 text-r-sm outline-none text-white focus:border-yellow-500 transition-colors"
-                           placeholder="NAMA LENGKAP"
-                        />
-                     </div>
-                  )}
+            <div className="mt-6 border-t-2 border-white/10 pt-5 space-y-3">
+              {MODE_UJI && <button type="button" onClick={masukDemo} disabled={loading} className="btn-retro bg-purple-700 w-full"><PlayCircle size={16} /> Lihat demo (tanpa server)</button>}
+              <p className="text-[12px] text-zinc-400 leading-relaxed text-center">{MODE_UJI ? 'Demo memuat 10 PICA periode 26W36, tim, roster, jadwal, dan memo contoh di browser ini saja. ' : 'Login pertama: isi user ID, buat password baru, lalu masukkan kode undangan dari Admin. '}Belum punya akun? Minta Admin membuatkannya di menu TEAM.</p>
+            </div>
+          </>
+        )}
 
-                  <div className="space-y-2">
-                     <label className="text-[8px] text-zinc-500 uppercase font-bold flex items-center gap-2">
-                        <Key size={12}/> PASSWORD
-                     </label>
-                     <input 
-                        type="password" 
-                        required
-                        value={password} 
-                        onChange={e => setPassword(e.target.value)}
-                        className="w-full bg-black border-4 border-white p-4 text-r-sm outline-none text-white focus:border-yellow-500 transition-colors"
-                        placeholder="********"
-                     />
-                  </div>
-
-                  <button 
-                     type="submit"
-                     disabled={loading}
-                     className={`w-full retro-box !p-5 font-bold text-r-sm flex items-center justify-center gap-4 !bg-yellow-600 hover:!bg-yellow-500 transition-all ${loading ? 'opacity-50 grayscale' : 'active:translate-y-2 shadow-2xl'}`}
-                  >
-                     {loading ? (
-                       <Loader2 size={24} className="animate-spin" />
-                     ) : (
-                       isRegister ? <><UserPlus size={20} /> DAFTAR BARU</> : <><LogIn size={20} /> MASUK GAME</>
-                     )}
-                  </button>
-               </form>
-
-               <div className="mt-10 text-center border-t-2 border-white/5 pt-8">
-                  <button 
-                     onClick={() => { setIsRegister(!isRegister); setError(null); }} 
-                     className="text-[8px] text-zinc-600 uppercase hover:text-yellow-500 transition-colors tracking-widest"
-                  >
-                     {isRegister ? 'Sudah punya akun? Login di sini' : 'Belum punya akun? Daftar sekarang'}
-                  </button>
-               </div>
-            </>
-         )}
-
-         <div className="mt-6 flex items-center justify-center gap-3 opacity-20">
-            <Wifi size={12} className="text-emerald-500" />
-            <span className="text-[6px] uppercase font-bold tracking-widest">Progress Link v3 Active</span>
-         </div>
+        <div className="mt-5 flex items-center justify-center gap-2 opacity-40">
+          <Wifi size={12} className="text-emerald-400" />
+          <span className="text-[11px] uppercase tracking-widest">Cloudflare Link v4</span>
+        </div>
       </div>
     </div>
   );

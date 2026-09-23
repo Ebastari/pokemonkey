@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Ketukan pada notifikasi dari penjadwal latar (runner.js).
+                 Background Runner mengarahkan notifikasinya ke intent beraksi
+                 ".NOTIFICATION_CLICKED" di paket ini. Tanpa penyaring ini
+                 notifikasinya tetap muncul tetapi tidak bisa diketuk. -->
+            <intent-filter>
+                <action android:name=".NOTIFICATION_CLICKED" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+
+        <!-- Home Screen Widgets (Layar Depan HP) -->
+        <receiver
+            android:name=".DashboardWidgetProvider"
+            android:exported="true"
+            android:label="POKEMONKEY Dashboard">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_dashboard_info" />
+        </receiver>
+
+        <receiver
+            android:name=".PicaWidgetProvider"
+            android:exported="true"
+            android:label="POKEMONKEY PICA">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_pica_info" />
+        </receiver>
+
+        <receiver
+            android:name=".JadwalWidgetProvider"
+            android:exported="true"
+            android:label="POKEMONKEY Jadwal &amp; Alarm">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_jadwal_info" />
+        </receiver>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Pengingat 07.00/12.00/17.00 dan alarm acara. Sejak Android 13 diminta
+         saat dijalankan, dari tombol "Izinkan notifikasi" di menu NOTIF. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Tombol Kamera di FEED (laporan lapangan). HP tanpa kamera tetap boleh
+         memasang; foto bisa dipilih dari galeri. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- Izin bawaan @capacitor/background-runner yang tidak dipakai POKEMONKEY:
+         lokasi (plugin juga menyediakan API geolokasi) dan alarm presisi.
+         Dibuang agar daftar izin di HP tidak menyatakan aplikasi melacak lokasi. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" tools:node="remove" />
+</manifest>

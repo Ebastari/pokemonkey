@@ -1,0 +1,75 @@
+{
+  "name": "POKEMONKEY · Revegetasi & Rehabilitasi",
+  "short_name": "POKEMONKEY",
+  "description": "PICA, jadwal, pengumuman, memo, dan laporan lapangan tim Revegetasi & Rehabilitasi.",
+  "lang": "id",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "/ikon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Lapor lapangan",
+      "short_name": "Lapor",
+      "description": "Kirim capaian hari ini ke PICA",
+      "url": "/?tab=reports",
+      "icons": [
+        {
+          "src": "/ikon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "PICA saya",
+      "short_name": "PICA",
+      "description": "Daftar PICA yang masih terbuka",
+      "url": "/?tab=pica",
+      "icons": [
+        {
+          "src": "/ikon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "Jadwal hari ini",
+      "short_name": "Jadwal",
+      "description": "Kalender tim hari ini",
+      "url": "/?tab=jadwal",
+      "icons": [
+        {
+          "src": "/ikon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "Memo baru",
+      "short_name": "Memo",
+      "description": "Catat keputusan atau rencana",
+      "url": "/?tab=memo",
+      "icons": [
+        {
+          "src": "/ikon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pokemonkey-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+
+  "observability": { "enabled": true },
+
+  // Aplikasi web disajikan dari Worker yang sama dengan API-nya, jadi satu
+  // alamat untuk APK dan browser komputer. Jalankan `npm run build` di folder
+  // induk dulu agar ../dist ada. Rute API dan webhook tetap ke Worker.
+  "assets": {
+    "directory": "../dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/wa/*", "/lihat/*"]
+  },
+
+  // Database. Isi "database_id" dengan keluaran `wrangler d1 create pokemonkey`.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pokemonkey",
+      "database_id": "8328c3d4-20c4-429c-b3c2-b4470ed6b7ca",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Foto bukti dan PDF surat jalan.
+  "r2_buckets": [
+    {
+      "binding": "BUKET",
+      "bucket_name": "pokemonkey-lampiran"
+    }
+  ],
+
+  // SATU cron untuk seluruh tangga pengingat (paket gratis hanya memberi 5 per akun).
+  // Berjalan dalam UTC: tiap 15 menit, lalu kode yang memutuskan mana yang jatuh tempo
+  // menurut jam WITA.
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
+
+  "vars": {
+    "APP_NAMA": "POKEMONKEY",
+    "TZ_OFFSET_MENIT": "480",
+    // Dipakai tautan papan PICA hanya-baca (/lihat/pica) di rekap WhatsApp.
+    "ALAMAT_PUBLIK": "https://pokemonkey-api.montana-camera.workers.dev",
+    // Web Push (iPhone PWA & browser). Buat sepasang kunci: npx web-push generate-vapid-keys
+    // Kunci publik tidak rahasia; kunci privat WAJIB lewat `wrangler secret put VAPID_PRIVATE_KEY`.
+    "VAPID_SUBJECT": "mailto:admin@pokemonkey.local",
+    "VAPID_PUBLIC_KEY": ""
+  }
+
+  // Rahasia (JANGAN ditulis di file ini, jangan pernah masuk APK):
+  //   wrangler secret put FONNTE_TOKEN
+  //   wrangler secret put FIRMS_MAP_KEY      (NASA FIRMS, pemantauan titik api)
+  //   wrangler secret put WEBHOOK_KUNCI
+}

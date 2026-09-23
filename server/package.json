@@ -1,0 +1,24 @@
+{
+  "name": "pokemonkey-api",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:buat": "wrangler d1 create pokemonkey",
+    "db:lokal": "wrangler d1 migrations apply pokemonkey --local",
+    "db:awan": "wrangler d1 migrations apply pokemonkey --remote",
+    "db:lihat": "wrangler d1 execute pokemonkey --local --command \"SELECT id, bidang, status, due_date FROM pica ORDER BY nomor\"",
+    "cron:uji": "curl \"http://localhost:8787/cdn-cgi/handler/scheduled\"",
+    "tipe": "wrangler types"
+  },
+  "dependencies": {
+    "@block65/webcrypto-web-push": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260918.1",
+    "typescript": "~5.8.2",
+    "wrangler": "^4.28.0"
+  }
+}

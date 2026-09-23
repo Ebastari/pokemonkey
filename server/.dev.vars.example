@@ -1,0 +1,27 @@
+# Salin berkas ini menjadi `.dev.vars` untuk menjalankan server di komputer sendiri.
+# `.dev.vars` sudah masuk .gitignore — jangan pernah di-commit.
+#
+# Untuk server di Cloudflare, JANGAN pakai berkas ini. Gunakan:
+#   npx wrangler secret put FONNTE_TOKEN
+#   npx wrangler secret put WEBHOOK_KUNCI
+#   npx wrangler secret put KODE_UNDANGAN
+
+# Token perangkat dari dasbor fonnte.com (menu Device). Boleh dikosongkan dulu;
+# aplikasi tetap jalan, hanya pengiriman WhatsApp yang ditahan.
+FONNTE_TOKEN=
+
+# String acak panjang. Dipakai di URL webhook: /wa/webhook?kunci=<nilai ini>
+WEBHOOK_KUNCI=ganti-dengan-string-acak-panjang
+
+# Kode yang Anda bagikan ke anggota tim untuk membuat password saat login pertama.
+KODE_UNDANGAN=REVDAS2026
+
+# Web Push (notifikasi iPhone/browser). Buat sepasang dengan:
+#   npx web-push generate-vapid-keys
+# Kosongkan bila belum dipakai; notifikasi Android lewat Background Runner tetap jalan.
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+
+# Kunci NASA FIRMS untuk pemantauan titik api (hotspot)
+# Dapatkan gratis di: https://firms.modaps.eosdis.nasa.gov/api/map_key/
+FIRMS_MAP_KEY=

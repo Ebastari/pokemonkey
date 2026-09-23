@@ -1,153 +1,1387 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  NotebookPen, Plus, ListFilter, ArrowUpDown, Search, X, Trash2, Pencil, Eye, Loader2, KanbanSquare,
+  CircleDot, Tags, Table2, Lock, Pin, PinOff, ChevronLeft, ChevronDown, User, ImageDown, FileSpreadsheet,
+  FileText, ClipboardList, Download, Clock, MapPin, Hash, Sun, Moon,
+} from 'lucide-react';
+import { api } from '../lib/api';
+import { unduhGambar } from '../lib/gambar';
+import { bukuBaru, gayakanChip, lembarBaru, pasangSaringan, simpanBuku, tanggalExcel, FORMAT_TANGGAL } from '../lib/excel';
+import type { Bootstrap, Opsi, Pengguna } from '../lib/tipe-api';
+import type { Memo } from '../types';
+import { warna } from '../lib/warna';
+import * as W from '../lib/waktu';
+import { IsiMemo, toggleBaris } from './MemoMarkup';
+import { FormInternalMemo } from './FormInternalMemo';
+import { type DataMemoDinas, MEMO_DINAS_DEFAULT, eksporMemoDinasKeExcel } from '../lib/ekspor-memo-dinas';
+import { FormMOM } from './FormMOM';
+import { type DataMOM, MOM_DEFAULT, eksporMOMKeWord, eksporMOMKeExcel } from '../lib/ekspor-mom';
+import { TampilanNomorSurat } from './TampilanNomorSurat';
+import { type ItemSurat, generateNomorSuratOtomatis, hitungLamaHari } from '../lib/tipe-surat';
+import {
+  muatSurat, simpanSuratKeServer, hapusSuratDiServer,
+  muatMemoDinas, simpanMemoDinasKeServer, hapusMemoDinasDiServer,
+  muatMom, simpanMomKeServer, hapusMomDiServer,
+} from '../lib/dokumen';
+import { bacaTema, pasangTema, type Tema } from '../lib/tema';
 
-import React, { useState } from 'react';
-import { NotebookPen, X, CheckCircle2, Trash2, CalendarDays, Clock } from 'lucide-react';
-import { GameState, WorkPlan } from '../types';
-import { MONTH_NAMES } from '../constants';
+/**
+ * MEMO — papan "Memo Internal" tim bergaya Notion, plus catatan pribadi.
+ * Satu sumber data, beberapa tampilan: Ikhtisar (per kategori), Status,
+ * Kategori (daftar), Tabel (semua properti), Pribadi, Internal Memo, Minutes of Meeting (MoM),
+ * dan Manajemen Nomor Surat (Internal & Eksternal).
+ */
 
-interface MemoScreenProps {
-  state: GameState;
-  setGameState: any;
-  onSync: (override?: Partial<GameState>) => void;
+type Tab = 'ikhtisar' | 'status' | 'kategori' | 'tabel' | 'pribadi' | 'internal_memo' | 'mom' | 'nomor_surat';
+type Urut = 'tanggal' | 'judul' | 'diubah';
+
+const KUNCI_TAB = 'pokemonkey_memo_tab';
+
+const TAB: { id: Tab; label: string; ikon: React.ReactElement }[] = [
+  { id: 'ikhtisar', label: 'Ikhtisar', ikon: <KanbanSquare size={14} /> },
+  { id: 'status', label: 'Status', ikon: <CircleDot size={14} /> },
+  { id: 'kategori', label: 'Kategori', ikon: <Tags size={14} /> },
+  { id: 'tabel', label: 'Tabel', ikon: <Table2 size={14} /> },
+  { id: 'pribadi', label: 'Pribadi', ikon: <Lock size={14} /> },
+  { id: 'internal_memo', label: 'Internal Memo', ikon: <FileText size={14} /> },
+  { id: 'mom', label: 'Minutes of Meeting', ikon: <ClipboardList size={14} /> },
+  { id: 'nomor_surat', label: 'Nomor Surat', ikon: <Hash size={14} /> },
+];
+
+const BAWAAN: Record<string, string[]> = {
+  memo_kategori: ['Revegetasi', 'Nursery', 'Administrasi', 'Operasi & K3'],
+  memo_tipe: ['Perubahan Kebijakan', 'Rekap Rapat', 'Pengumuman', 'Pembaruan', 'Keputusan'],
+  memo_status: ['Draf', 'Sedang berlangsung', 'Selesai'],
+};
+
+const ambilOpsi = (boot: Bootstrap, grup: string): Opsi[] => {
+  const ada = boot.opsi.filter((o) => o.grup === grup);
+  return ada.length ? ada : BAWAAN[grup].map((nilai, i) => ({ grup, nilai, label: nilai, warna: 'zinc', urutan: i }));
+};
+
+const tglMemo = (t: string | null) => {
+  if (!t) return '';
+  const [y, m, d] = t.slice(0, 10).split('-').map(Number);
+  return `${d} ${W.NAMA_BULAN_PENDEK[m - 1]} ${y}`;
+};
+
+interface Props {
+  boot: Bootstrap;
+  pengguna: Pengguna;
+  notify: (m: string) => void;
 }
 
-export const MemoScreen: React.FC<MemoScreenProps> = ({ state, setGameState, onSync }) => {
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [description, setDescription] = useState("");
-  const [startTime, setStartTime] = useState("07:00");
-  const [endTime, setEndTime] = useState("15:00");
+export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
+  const [tab, setTabState] = useState<Tab>(() => {
+    try { return (localStorage.getItem(KUNCI_TAB) as Tab) || 'ikhtisar'; } catch { return 'ikhtisar'; }
+  });
+  const setTab = (t: Tab) => { setTabState(t); try { localStorage.setItem(KUNCI_TAB, t); } catch { /* abaikan */ } };
 
-  const daysInMonth = (month: number) => new Date(2026, month + 1, 0).getDate();
-  const startDayOfMonth = (month: number) => new Date(2026, month, 1).getDay();
+  // State tema terang / gelap
+  const [temaAktif, setTemaAktif] = useState<Tema>(bacaTema);
+  const toggleTema = () => {
+    const baru: Tema = temaAktif === 'gelap' ? 'terang' : 'gelap';
+    setTemaAktif(baru);
+    pasangTema(baru);
+    notify(baru === 'terang' ? 'MODE TERANG AKTIF — UNTUK DI LAPANGAN' : 'MODE GELAP AKTIF');
+  };
 
-  const handleAdd = () => {
-    if (!description || !selectedDate) return;
-    const newPlan: WorkPlan = { 
-      id: Date.now().toString(), 
-      date: selectedDate, 
-      startTime, 
-      endTime, 
-      description, 
-      isDone: false 
+  const [memo, setMemo] = useState<Memo[]>([]);
+  const [memuat, setMemuat] = useState(true);
+  const [cari, setCari] = useState('');
+  const [cariBuka, setCariBuka] = useState(false);
+  const [saring, setSaring] = useState({ tipe: '', status: '' });
+  const [urut, setUrut] = useState<Urut>('tanggal');
+  const [alat, setAlat] = useState<null | 'saring' | 'urut'>(null);
+  const [terpilihId, setTerpilihId] = useState<string | null>(null);
+
+  // ---------------------------------------------------------------------
+  // Dokumen administrasi (nomor surat, Internal Memo dinas, MoM).
+  // Sumbernya server (D1) lewat lib/dokumen.ts; data lama di ponsel ikut
+  // dipindahkan sekali saat daftar server masih kosong.
+  // ---------------------------------------------------------------------
+  const [daftarNomorSurat, setDaftarNomorSurat] = useState<ItemSurat[]>([]);
+  const [daftarMemoDinas, setDaftarMemoDinas] = useState<DataMemoDinas[]>([]);
+  const [daftarMOM, setDaftarMOM] = useState<DataMOM[]>([]);
+  const [memuatDokumen, setMemuatDokumen] = useState(true);
+  const [memoDinasAktif, setMemoDinasAktif] = useState<DataMemoDinas | null>(null);
+  const [bukaFormDinas, setBukaFormDinas] = useState(false);
+  const [momAktif, setMomAktif] = useState<DataMOM | null>(null);
+  const [bukaFormMOM, setBukaFormMOM] = useState(false);
+
+  const muatDokumen = useCallback(async () => {
+    try {
+      const [surat, dinas, mom] = await Promise.all([muatSurat(), muatMemoDinas(), muatMom()]);
+      setDaftarNomorSurat(surat);
+      setDaftarMemoDinas(dinas);
+      setDaftarMOM(mom);
+    } catch (e) {
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMUAT DOKUMEN');
+    } finally {
+      setMemuatDokumen(false);
+    }
+  }, [notify]);
+  useEffect(() => { muatDokumen(); }, [muatDokumen]);
+
+  /** Kirim satu perubahan ke server; bila gagal, daftar disegarkan agar tidak beda dengan server. */
+  const kirimDokumen = async (aksi: () => Promise<unknown>, pesanGagal: string) => {
+    try { await aksi(); } catch (e) {
+      notify(e instanceof Error ? e.message.toUpperCase() : pesanGagal);
+      muatDokumen();
+    }
+  };
+
+  const handleSimpanItemSurat = async (item: ItemSurat, bukaDiMemoDinas?: boolean) => {
+    const ada = daftarNomorSurat.some((s) => s.id === item.id);
+    setDaftarNomorSurat(ada ? daftarNomorSurat.map((s) => (s.id === item.id ? item : s)) : [item, ...daftarNomorSurat]);
+    await kirimDokumen(() => simpanSuratKeServer(item), 'GAGAL MENYIMPAN NOMOR SURAT');
+    notify('NOMOR SURAT BERHASIL DISIMPAN');
+
+    if (bukaDiMemoDinas && item.kategori === 'im') {
+      handleBukaMemoDinasDariSurat(item);
+    }
+  };
+
+  const handleHapusItemSurat = async (id: string) => {
+    setDaftarNomorSurat(daftarNomorSurat.filter((s) => s.id !== id));
+    await kirimDokumen(() => hapusSuratDiServer(id), 'GAGAL MENGHAPUS NOMOR SURAT');
+  };
+
+  const handleBukaMemoDinasDariSurat = (item: ItemSurat) => {
+    const eksis = daftarMemoDinas.find(
+      (m) => (item.internalMemoId && m.id === item.internalMemoId) || m.nomor === item.nomorSurat
+    );
+    if (eksis) {
+      setMemoDinasAktif(eksis);
+    } else {
+      setMemoDinasAktif({
+        ...MEMO_DINAS_DEFAULT,
+        id: item.internalMemoId || `memo-dinas-${Date.now()}`,
+        nomor: item.nomorSurat,
+        namaKaryawan: item.namaYangDitugaskan || '',
+        tanggalBerangkat: item.tanggalMulai || W.hariIniWita(),
+        tanggalKembali: item.tanggalBerakhir || W.hariIniWita(),
+        tempatTujuan: item.tujuanDinas || '',
+        keperluan: item.keperluan || item.namaSurat || '',
+        dari: item.namaPembuat || MEMO_DINAS_DEFAULT.dari,
+        dibuatPada: item.dibuatPada || new Date().toISOString(),
+      });
+    }
+    setBukaFormDinas(true);
+  };
+
+  const handleSimpanMemoDinas = async (data: DataMemoDinas) => {
+    const id = data.id || `memo-dinas-${Date.now()}`;
+    const itemDenganId = { ...data, id, dibuatPada: data.dibuatPada || new Date().toISOString() };
+    const ada = daftarMemoDinas.some((m) => m.id === id);
+    setDaftarMemoDinas(ada ? daftarMemoDinas.map((m) => (m.id === id ? itemDenganId : m)) : [itemDenganId, ...daftarMemoDinas]);
+    setBukaFormDinas(false);
+    setMemoDinasAktif(null);
+    await kirimDokumen(() => simpanMemoDinasKeServer(itemDenganId), 'GAGAL MENYIMPAN INTERNAL MEMO');
+
+    // Sinkronisasi otomatis ke Manajemen Nomor Surat.
+    if (!data.nomor) return;
+    const nomorTrim = data.nomor.trim();
+    const suratAda = daftarNomorSurat.find((s) => s.nomorSurat === nomorTrim || s.internalMemoId === id);
+    const durasi = hitungLamaHari(data.tanggalBerangkat, data.tanggalKembali);
+
+    if (suratAda) {
+      const suratBaru: ItemSurat = {
+        ...suratAda,
+        nomorSurat: nomorTrim,
+        namaSurat: data.perihal || suratAda.namaSurat,
+        namaYangDitugaskan: data.namaKaryawan || suratAda.namaYangDitugaskan,
+        tanggalMulai: data.tanggalBerangkat || suratAda.tanggalMulai,
+        tanggalBerakhir: data.tanggalKembali || suratAda.tanggalBerakhir,
+        lamaHari: durasi ?? suratAda.lamaHari,
+        tujuanDinas: data.tempatTujuan || suratAda.tujuanDinas,
+        keperluan: data.keperluan || suratAda.keperluan,
+        namaPembuat: data.dari || suratAda.namaPembuat,
+        internalMemoId: id,
+        diubahPada: new Date().toISOString(),
+      };
+      setDaftarNomorSurat(daftarNomorSurat.map((s) => (s.id === suratAda.id ? suratBaru : s)));
+      await kirimDokumen(() => simpanSuratKeServer(suratBaru), 'GAGAL MENYIMPAN NOMOR SURAT');
+    } else {
+      const match = nomorTrim.match(/^(\d+)\//);
+      const entriSuratBaru: ItemSurat = {
+        id: `surat-${Date.now()}`,
+        kategori: 'im',
+        nomorUrut: match ? parseInt(match[1], 10) : undefined,
+        nomorSurat: nomorTrim,
+        namaSurat: data.perihal || `Internal Memo - ${data.namaKaryawan}`,
+        namaYangDitugaskan: data.namaKaryawan,
+        tanggalMulai: data.tanggalBerangkat,
+        tanggalBerakhir: data.tanggalKembali,
+        lamaHari: durasi,
+        tujuanDinas: data.tempatTujuan,
+        keperluan: data.keperluan,
+        namaPembuat: data.dari,
+        internalMemoId: id,
+        dibuatPada: new Date().toISOString(),
+      };
+      setDaftarNomorSurat([entriSuratBaru, ...daftarNomorSurat]);
+      await kirimDokumen(() => simpanSuratKeServer(entriSuratBaru), 'GAGAL MENYIMPAN NOMOR SURAT');
+    }
+  };
+
+  const handleHapusMemoDinas = async (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!confirm('Hapus dokumen Internal Memo ini?')) return;
+    setDaftarMemoDinas(daftarMemoDinas.filter((m) => m.id !== id));
+    await kirimDokumen(() => hapusMemoDinasDiServer(id), 'GAGAL MENGHAPUS INTERNAL MEMO');
+    notify('INTERNAL MEMO DIHAPUS');
+  };
+
+  const buatMemoDinasBaru = () => {
+    // Nomor otomatis mengikuti daftar nomor surat yang ada di server.
+    const gen = generateNomorSuratOtomatis('im', daftarNomorSurat, W.hariIniWita());
+    setMemoDinasAktif({
+      ...MEMO_DINAS_DEFAULT,
+      id: `memo-dinas-${Date.now()}`,
+      nomor: gen.nomorSurat,
+      tanggalBerangkat: W.hariIniWita(),
+      tanggalKembali: W.hariIniWita(),
+      dibuatPada: new Date().toISOString(),
+    });
+    setBukaFormDinas(true);
+  };
+
+  const handleSimpanMOM = async (data: DataMOM) => {
+    const id = data.id || `mom-${Date.now()}`;
+    const itemDenganId = { ...data, id, dibuatPada: data.dibuatPada || new Date().toISOString() };
+    const ada = daftarMOM.some((m) => m.id === id);
+    setDaftarMOM(ada ? daftarMOM.map((m) => (m.id === id ? itemDenganId : m)) : [itemDenganId, ...daftarMOM]);
+    setBukaFormMOM(false);
+    setMomAktif(null);
+    await kirimDokumen(() => simpanMomKeServer(itemDenganId), 'GAGAL MENYIMPAN MINUTES OF MEETING');
+  };
+
+  const handleHapusMOM = async (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!confirm('Hapus dokumen Minutes of Meeting ini?')) return;
+    setDaftarMOM(daftarMOM.filter((m) => m.id !== id));
+    await kirimDokumen(() => hapusMomDiServer(id), 'GAGAL MENGHAPUS MINUTES OF MEETING');
+    notify('MINUTES OF MEETING DIHAPUS');
+  };
+
+  const buatMOMBaru = () => {
+    setMomAktif({
+      ...MOM_DEFAULT,
+      id: `mom-${Date.now()}`,
+      tanggal: W.hariIniWita(),
+      dibuatPada: new Date().toISOString(),
+    });
+    setBukaFormMOM(true);
+  };
+
+  const kategori = useMemo(() => ambilOpsi(boot, 'memo_kategori'), [boot]);
+  const tipe = useMemo(() => ambilOpsi(boot, 'memo_tipe'), [boot]);
+  const status = useMemo(() => ambilOpsi(boot, 'memo_status'), [boot]);
+  const bolehBuat = pengguna.peran !== 'pemantau';
+  const kelola = pengguna.peran === 'admin' || pengguna.peran === 'supervisor';
+
+  const muat = useCallback(async () => {
+    try {
+      const d = await api<{ memo: Memo[] }>('/api/memo?lingkup=tim');
+      setMemo(d.memo);
+    } catch (e) {
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMUAT MEMO');
+    } finally {
+      setMemuat(false);
+    }
+  }, [notify]);
+
+  useEffect(() => { muat(); }, [muat]);
+
+  const tersaring = useMemo(() => {
+    const q = cari.trim().toLowerCase();
+    return memo
+      .filter((m) => (!q || `${m.judul} ${m.ringkasan ?? ''} ${m.isi}`.toLowerCase().includes(q))
+        && (!saring.tipe || m.tipe === saring.tipe)
+        && (!saring.status || m.status === saring.status))
+      .sort((a, b) => (urut === 'judul'
+        ? a.judul.localeCompare(b.judul)
+        : urut === 'diubah'
+          ? String(b.diubah_pada ?? b.dibuat_pada).localeCompare(String(a.diubah_pada ?? a.dibuat_pada))
+          : String(b.tanggal ?? b.dibuat_pada).localeCompare(String(a.tanggal ?? a.dibuat_pada))));
+  }, [memo, cari, saring, urut]);
+
+  const buat = async (awal: { kategori?: string | null; status?: string | null } = {}) => {
+    const body = {
+      lingkup: 'tim',
+      judul: '',
+      isi: '',
+      ringkasan: '',
+      kategori: awal.kategori ?? kategori[0]?.nilai ?? null,
+      tipe: null,
+      status: awal.status ?? 'Draf',
+      tanggal: W.hariIniWita(),
     };
-    const newMemos = [newPlan, ...state.memoPlans];
-    setGameState((p: any) => ({ ...p, memoPlans: newMemos }));
-    onSync({ memoPlans: newMemos });
-    setDescription("");
-    setStartTime("07:00");
-    setEndTime("15:00");
-    setSelectedDate(null);
+    try {
+      const d = await api<{ id: string }>('/api/memo', { body });
+      const baru: Memo = {
+        id: d.id, user_id: pengguna.id, penulis: pengguna.nama, lingkup: 'tim', judul: '', isi: '', ringkasan: '',
+        kategori: body.kategori, tipe: null, status: body.status, tanggal: body.tanggal,
+        disematkan: 0, warna: null, dibuat_pada: new Date().toISOString(), diubah_pada: null,
+      };
+      setMemo((m) => [baru, ...m]);
+      setTerpilihId(d.id);
+      if (tab === 'pribadi') setTab('ikhtisar');
+    } catch (e) {
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUAT MEMO');
+    }
   };
 
-  const handleToggleDone = (id: string) => {
-    const newMemos = state.memoPlans.map(p => p.id === id ? { ...p, isDone: !p.isDone } : p);
-    setGameState((prev: any) => ({ ...prev, memoPlans: newMemos }));
-    onSync({ memoPlans: newMemos });
+  const perbarui = useCallback((id: string, patch: Partial<Memo>) => {
+    setMemo((m) => m.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  }, []);
+
+  const terpilih = memo.find((m) => m.id === terpilihId) ?? null;
+  const adaSaring = Boolean(saring.tipe || saring.status || cari);
+
+  // Ekspor Excel seperti tab yang dibuka: Tabel = tabel biasa; Ikhtisar/Kategori/Status = dikelompokkan dengan judul berwarna.
+  const [mengekspor, setMengekspor] = useState(false);
+  const eksporExcel = async () => {
+    if (!tersaring.length) { notify('TIDAK ADA MEMO UNTUK DIEKSPOR'); return; }
+    setMengekspor(true);
+    try {
+      const wb = await bukuBaru();
+      const labelTab = TAB.find((t) => t.id === tab)?.label ?? tab;
+      const k = lembarBaru(wb, 'Memo', {
+        judul: `Memo Internal · ${labelTab}`,
+        keterangan: [
+          `${tersaring.length} memo`,
+          saring.tipe && `Tipe: ${tipe.find((o) => o.nilai === saring.tipe)?.label ?? saring.tipe}`,
+          saring.status && `Status: ${status.find((o) => o.nilai === saring.status)?.label ?? saring.status}`,
+          cari.trim() && `Cari: "${cari.trim()}"`,
+        ].filter(Boolean).join(' · '),
+        kolom: [
+          { judul: 'Judul', lebar: 36, bungkus: true }, { judul: 'Kategori', lebar: 16 }, { judul: 'Tipe', lebar: 20 }, { judul: 'Status', lebar: 18 },
+          { judul: 'Tanggal', lebar: 12 }, { judul: 'Penulis', lebar: 18 }, { judul: 'Ringkasan', lebar: 48, bungkus: true }, { judul: 'Isi', lebar: 70, bungkus: true },
+        ],
+      });
+      const cari_ = (opsi: Opsi[], n: string | null) => opsi.find((o) => o.nilai === n);
+      const tulis = (m: Memo) => {
+        const row = k.tambah([
+          m.judul || 'Tanpa judul', cari_(kategori, m.kategori)?.label ?? m.kategori ?? '', cari_(tipe, m.tipe)?.label ?? m.tipe ?? '',
+          cari_(status, m.status)?.label ?? m.status ?? '', tanggalExcel(m.tanggal), m.penulis ?? '', m.ringkasan ?? '', m.isi.slice(0, 32000),
+        ]);
+        row.getCell(1).font = { ...row.getCell(1).font, bold: true };
+        row.getCell(5).numFmt = FORMAT_TANGGAL;
+        if (m.kategori) gayakanChip(row.getCell(2), cari_(kategori, m.kategori)?.warna);
+        if (m.tipe) gayakanChip(row.getCell(3), 'zinc', { tebal: false });
+        if (m.status) gayakanChip(row.getCell(4), cari_(status, m.status)?.warna);
+      };
+
+      if (tab === 'tabel') {
+        tersaring.forEach(tulis);
+        pasangSaringan(k);
+      } else {
+        const kunci = tab === 'status' ? 'status' : 'kategori';
+        const opsi = kunci === 'status' ? status : kategori;
+        const grup = [...opsi.map((o) => ({ nilai: o.nilai, label: o.label, warna: o.warna })), { nilai: '', label: kunci === 'status' ? 'Tanpa status' : 'Tanpa kategori', warna: 'zinc' }];
+        grup.forEach((g) => {
+          const isi = tersaring.filter((m) => (m[kunci] ?? '') === g.nilai);
+          // Seperti layar: Ikhtisar/Status menampilkan kolom kosong, Kategori tidak.
+          if (!isi.length && (tab === 'kategori' || g.nilai === '')) return;
+          k.kelompok(`${g.label} · ${isi.length} memo`, g.warna);
+          isi.forEach(tulis);
+        });
+      }
+
+      await simpanBuku(wb, `Memo-${labelTab}-${W.hariIniWita()}.xlsx`, 'Ekspor memo');
+      notify(`${tersaring.length} MEMO DIEKSPOR`);
+    } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'EKSPOR GAGAL'); }
+    finally { setMengekspor(false); }
   };
 
-  const handleDelete = (id: string) => {
-    const newMemos = state.memoPlans.filter(p => p.id !== id);
-    setGameState((prev: any) => ({ ...prev, memoPlans: newMemos }));
-    onSync({ memoPlans: newMemos });
+  // Unduh gambar: hanya tampilan (tab) yang sedang dibuka, dengan saringan yang berlaku.
+  const areaIsi = useRef<HTMLDivElement>(null);
+  const [mengunduh, setMengunduh] = useState(false);
+  const unduh = async () => {
+    if (!areaIsi.current || mengunduh) return;
+    const labelTab = TAB.find((t) => t.id === tab)?.label ?? tab;
+    const keterangan = [
+      `${tersaring.length} memo`,
+      saring.tipe && `Tipe: ${tipe.find((o) => o.nilai === saring.tipe)?.label ?? saring.tipe}`,
+      saring.status && `Status: ${status.find((o) => o.nilai === saring.status)?.label ?? saring.status}`,
+      cari.trim() && `Cari: "${cari.trim()}"`,
+    ].filter(Boolean).join(' · ');
+    setMengunduh(true);
+    try {
+      const hasil = await unduhGambar(areaIsi.current, { nama: `memo-${tab}-${W.hariIniWita()}`, judul: `Memo Internal · ${labelTab}`, keterangan });
+      notify(hasil === 'diunduh' ? 'GAMBAR DIUNDUH' : 'GAMBAR SIAP DIBAGIKAN');
+    } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUAT GAMBAR'); }
+    finally { setMengunduh(false); }
   };
 
   return (
-    <div className="p-4 flex flex-col h-full overflow-hidden">
-       <h2 className="text-r-md border-b-4 border-white pb-2 mb-4 uppercase flex items-center gap-2">
-         <NotebookPen size={20} /> Memo Rencana 2026
-       </h2>
-       
-       <div className="flex-1 overflow-auto space-y-8 pb-10 custom-scrollbar">
-         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {MONTH_NAMES.map((monthName, mIdx) => (
-              <div key={monthName} className="retro-box !bg-zinc-900/50 p-2 border-zinc-700">
-                 <h3 className="text-[7px] font-bold text-cyan-400 mb-2 uppercase text-center">{monthName}</h3>
-                 <div className="grid grid-cols-7 gap-1">
-                    {['S','M','T','W','T','F','S'].map(d => <div key={d} className="text-[4px] text-zinc-600 text-center font-bold">{d}</div>)}
-                    {Array.from({ length: startDayOfMonth(mIdx) }).map((_, i) => <div key={i} />)}
-                    {Array.from({ length: daysInMonth(mIdx) }).map((_, dIdx) => {
-                      const day = dIdx + 1;
-                      const dStr = `2026-${(mIdx + 1).toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
-                      const hasPlan = state.memoPlans.some(p => p.date === dStr);
-                      return (
-                        <button 
-                          key={day} onClick={() => setSelectedDate(dStr)}
-                          className={`aspect-square flex items-center justify-center text-[5px] border transition-all ${hasPlan ? 'bg-cyan-600 border-white text-white animate-pulse' : 'bg-black/40 border-white/5 text-zinc-500 hover:border-white'}`}
-                        >
-                          {day}
-                        </button>
-                      );
-                    })}
-                 </div>
-              </div>
-            ))}
-         </div>
-       </div>
-
-       {selectedDate && (
-         <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="retro-box !bg-zinc-900 w-full max-w-sm border-cyan-500 flex flex-col gap-4 scale-up-center">
-               <div className="flex justify-between items-center border-b-2 border-white/20 pb-2">
-                  <h3 className="text-r-sm font-bold text-cyan-400 uppercase flex items-center gap-2"><CalendarDays size={16} /> {selectedDate}</h3>
-                  <button onClick={() => setSelectedDate(null)} className="text-zinc-500 hover:text-white transition-colors"><X size={24} /></button>
-               </div>
-               
-               <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-[6px] text-zinc-500 uppercase flex items-center gap-1">
-                        <Clock size={8}/> Mulai
-                      </label>
-                      <input 
-                        type="time" 
-                        value={startTime} 
-                        onChange={(e) => setStartTime(e.target.value)}
-                        className="w-full bg-black border-2 border-white/20 p-2 text-[10px] text-white outline-none focus:border-cyan-500"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[6px] text-zinc-500 uppercase flex items-center gap-1">
-                        <Clock size={8}/> Selesai
-                      </label>
-                      <input 
-                        type="time" 
-                        value={endTime} 
-                        onChange={(e) => setEndTime(e.target.value)}
-                        className="w-full bg-black border-2 border-white/20 p-2 text-[10px] text-white outline-none focus:border-cyan-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[6px] text-zinc-500 uppercase">Rencana Aktivitas</label>
-                    <textarea 
-                      value={description} onChange={e => setDescription(e.target.value)}
-                      placeholder="Input rencana kerja..."
-                      className="w-full h-20 bg-black border-4 border-white p-3 text-[10px] outline-none text-white focus:border-cyan-500"
-                    />
-                  </div>
-
-                  <button onClick={handleAdd} className="w-full retro-box !bg-cyan-600 p-4 font-bold text-[10px] uppercase hover:!bg-cyan-500 active:translate-y-1 transition-all">SIMPAN JADWAL</button>
-               </div>
-
-               <div className="max-h-40 overflow-auto space-y-2 pr-2 custom-scrollbar">
-                  <p className="text-[6px] text-zinc-500 uppercase border-t border-white/10 pt-2">Eksisting Plan:</p>
-                  {state.memoPlans.filter(p => p.date === selectedDate).map(p => (
-                    <div key={p.id} className="flex items-center justify-between bg-black/50 p-2 border border-white/10">
-                       <div className="flex-1 overflow-hidden">
-                          <p className={`text-[7px] font-bold truncate ${p.isDone ? 'line-through opacity-40' : 'text-white'}`}>{p.description}</p>
-                          <p className="text-[5px] text-cyan-400">{p.startTime} - {p.endTime}</p>
-                       </div>
-                       <div className="flex gap-1 ml-2">
-                          <button onClick={() => handleToggleDone(p.id)} className={`p-1 ${p.isDone ? 'bg-zinc-700' : 'bg-green-600'}`}><CheckCircle2 size={10} /></button>
-                          <button onClick={() => handleDelete(p.id)} className="p-1 bg-red-900"><Trash2 size={10} /></button>
-                       </div>
-                    </div>
-                  ))}
-                  {state.memoPlans.filter(p => p.date === selectedDate).length === 0 && <p className="text-[6px] italic opacity-30 text-center">Belum ada rencana.</p>}
-               </div>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* ---------- Kepala ---------- */}
+      <div className="px-3 pt-3 pb-2 shrink-0">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-lime-500 border-[3px] border-black flex items-center justify-center shrink-0 shadow-[3px_3px_0_#000]">
+              <NotebookPen size={20} className="text-black" />
             </div>
-         </div>
-       )}
+            <div>
+              <h2 className="font-title text-[15px] md:text-[20px] text-white leading-tight">Memo &amp; Surat</h2>
+              <p className="text-[11px] text-zinc-400">Arsip memo internal, MoM, dan penomoran surat resmi</p>
+            </div>
+          </div>
+
+          <button
+            onClick={toggleTema}
+            className="btn-retro btn-retro-sm !bg-zinc-800 hover:!bg-zinc-700 text-zinc-200 flex items-center gap-1.5 text-[11px] shadow-[2px_2px_0_#000]"
+            title={temaAktif === 'gelap' ? 'Ganti ke Mode Terang (Lapangan)' : 'Ganti ke Mode Gelap'}
+          >
+            {temaAktif === 'gelap' ? <Sun size={13} className="text-amber-300" /> : <Moon size={13} className="text-indigo-400" />}
+            <span className="hidden sm:inline font-mono font-bold">{temaAktif === 'gelap' ? 'Mode Terang' : 'Mode Gelap'}</span>
+          </button>
+        </div>
+        {/* Baris 2: Tab Navigasi Utama (Tepat di bawah Judul) */}
+        <div className="flex flex-wrap gap-1 border-b-4 border-white pb-2 mb-2">
+          {TAB.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 text-[13px] font-bold border-2 transition-colors ${
+                tab === t.id ? 'bg-lime-600 border-white text-white shadow-[2px_2px_0_#000]' : 'border-transparent text-zinc-400 hover:text-white'
+              }`}
+            >
+              {t.ikon}{t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Baris 3: Toolbar Khusus Menu Memo Internal (Ikhtisar, Status, Kategori, Tabel) */}
+        {tab !== 'pribadi' && tab !== 'internal_memo' && tab !== 'mom' && tab !== 'nomor_surat' && (
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              {bolehBuat && (
+                <button
+                  onClick={() => buat()}
+                  className="btn-retro btn-retro-sm !bg-zinc-800 hover:!bg-zinc-700 !text-white font-bold flex items-center gap-1.5 shadow-[2px_2px_0_#000]"
+                >
+                  <Plus size={12} /> Entri baru
+                </button>
+              )}
+
+              <div className="flex items-center gap-1 shrink-0 relative ml-auto">
+                <button onClick={() => setAlat(alat === 'saring' ? null : 'saring')} className={`btn-ikon !w-8 !h-8 ${saring.tipe || saring.status ? 'bg-lime-600' : 'bg-zinc-800'}`} title="Saring"><ListFilter size={14} /></button>
+                <button onClick={() => setAlat(alat === 'urut' ? null : 'urut')} className="btn-ikon !w-8 !h-8 bg-zinc-800" title="Urutkan"><ArrowUpDown size={14} /></button>
+                <button onClick={() => setCariBuka((v) => !v)} className={`btn-ikon !w-8 !h-8 ${cari ? 'bg-lime-600' : 'bg-zinc-800'}`} title="Cari"><Search size={14} /></button>
+                <button onClick={unduh} disabled={mengunduh || memuat} className="btn-ikon !w-8 !h-8 bg-zinc-800" title="Unduh gambar tampilan ini">{mengunduh ? <Loader2 size={14} className="animate-spin" /> : <ImageDown size={14} />}</button>
+                <button onClick={eksporExcel} disabled={mengekspor || memuat} className="btn-ikon !w-8 !h-8 bg-emerald-700" title="Ekspor ke Excel">{mengekspor ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}</button>
+
+                {alat === 'saring' && (
+                  <div className="absolute right-0 top-full mt-2 z-30 retro-box !bg-zinc-900 border-lime-500 !p-3 w-60 space-y-2">
+                    <div><label className="label-retro">Tipe</label>
+                      <select value={saring.tipe} onChange={(e) => setSaring({ ...saring, tipe: e.target.value })} className="input-retro !py-1.5 !text-[13px]">
+                        <option value="">Semua tipe</option>{tipe.map((o) => <option key={o.nilai} value={o.nilai}>{o.label}</option>)}
+                      </select></div>
+                    <div><label className="label-retro">Status</label>
+                      <select value={saring.status} onChange={(e) => setSaring({ ...saring, status: e.target.value })} className="input-retro !py-1.5 !text-[13px]">
+                        <option value="">Semua status</option>{status.map((o) => <option key={o.nilai} value={o.nilai}>{o.label}</option>)}
+                      </select></div>
+                    <button onClick={() => { setSaring({ tipe: '', status: '' }); setAlat(null); }} className="btn-retro btn-retro-sm bg-zinc-700 w-full">Hapus saringan</button>
+                  </div>
+                )}
+                {alat === 'urut' && (
+                  <div className="absolute right-0 top-full mt-2 z-30 retro-box !bg-zinc-900 border-lime-500 !p-1 w-48">
+                    {([['tanggal', 'Tanggal memo'], ['diubah', 'Terakhir diubah'], ['judul', 'Judul A–Z']] as const).map(([k, label]) => (
+                      <button key={k} onClick={() => { setUrut(k); setAlat(null); }} className={`block w-full text-left px-2 py-1.5 text-[13px] ${urut === k ? 'bg-lime-600 text-white' : 'hover:bg-white/10'}`}>{label}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {cariBuka && (
+              <div className="relative mb-2">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                <input autoFocus value={cari} onChange={(e) => setCari(e.target.value)} placeholder="Cari judul, ringkasan, isi…" className="input-retro !pl-8 !py-1.5 !text-[13px]" />
+              </div>
+            )}
+            {adaSaring && (
+              <p className="text-[12px] text-zinc-400 mb-1">{tersaring.length} dari {memo.length} memo</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ---------- Isi ---------- */}
+      <div ref={areaIsi} data-gambar-lepas className="flex-1 min-h-0 overflow-hidden px-3 pb-3" onClick={() => setAlat(null)}>
+        {memuat && tab !== 'pribadi' && tab !== 'internal_memo' && tab !== 'mom' && tab !== 'nomor_surat' && <p className="text-[13px] text-zinc-400 flex items-center gap-2 py-8 justify-center"><Loader2 size={14} className="animate-spin" /> Memuat…</p>}
+
+        {!memuat && tab === 'ikhtisar' && (
+          <Papan daftar={tersaring} kolom={kategori} kunci="kategori" tipe={tipe} status={status} onBuka={setTerpilihId} onBaru={bolehBuat ? (nilai) => buat({ kategori: nilai || null }) : undefined} />
+        )}
+        {!memuat && tab === 'status' && (
+          <Papan daftar={tersaring} kolom={status} kunci="status" tipe={tipe} status={status} onBuka={setTerpilihId} onBaru={bolehBuat ? (nilai) => buat({ status: nilai || null }) : undefined} />
+        )}
+        {!memuat && tab === 'kategori' && (
+          <DaftarKategori daftar={tersaring} kategori={kategori} tipe={tipe} status={status} onBuka={setTerpilihId} />
+        )}
+        {!memuat && tab === 'tabel' && (
+          <TabelMemo daftar={tersaring} kategori={kategori} tipe={tipe} status={status} onBuka={setTerpilihId} />
+        )}
+        {tab === 'pribadi' && <CatatanPribadi notify={notify} />}
+        {memuatDokumen && (tab === 'internal_memo' || tab === 'mom' || tab === 'nomor_surat') && (
+          <p className="text-[13px] text-zinc-400 flex items-center gap-2 py-8 justify-center"><Loader2 size={14} className="animate-spin" /> Memuat dokumen dari server…</p>
+        )}
+        {!memuatDokumen && tab === 'internal_memo' && (
+          <TampilanInternalMemo
+            daftar={daftarMemoDinas}
+            onBuka={(item) => {
+              setMemoDinasAktif(item);
+              setBukaFormDinas(true);
+            }}
+            onBaru={buatMemoDinasBaru}
+            onHapus={handleHapusMemoDinas}
+            notify={notify}
+          />
+        )}
+        {!memuatDokumen && tab === 'mom' && (
+          <TampilanMOM
+            daftar={daftarMOM}
+            onBuka={(item) => {
+              setMomAktif(item);
+              setBukaFormMOM(true);
+            }}
+            onBaru={buatMOMBaru}
+            onHapus={handleHapusMOM}
+            notify={notify}
+          />
+        )}
+        {!memuatDokumen && tab === 'nomor_surat' && (
+          <TampilanNomorSurat
+            daftar={daftarNomorSurat}
+            onSimpanItem={handleSimpanItemSurat}
+            onHapusItem={handleHapusItemSurat}
+            onBukaMemoDinasDariSurat={handleBukaMemoDinasDariSurat}
+            notify={notify}
+          />
+        )}
+      </div>
+
+      {terpilih && (
+        <LembarMemo
+          memo={terpilih}
+          boleh={terpilih.user_id === pengguna.id || kelola}
+          kategori={kategori}
+          tipe={tipe}
+          status={status}
+          onUbah={(patch) => perbarui(terpilih.id, patch)}
+          onHapus={() => { setMemo((m) => m.filter((x) => x.id !== terpilih.id)); setTerpilihId(null); }}
+          onTutup={() => setTerpilihId(null)}
+          notify={notify}
+        />
+      )}
+
+      {bukaFormDinas && (
+        <FormInternalMemo
+          initialData={memoDinasAktif ?? MEMO_DINAS_DEFAULT}
+          daftarSurat={daftarNomorSurat}
+          onSimpan={handleSimpanMemoDinas}
+          onTutup={() => {
+            setBukaFormDinas(false);
+            setMemoDinasAktif(null);
+          }}
+          notify={notify}
+        />
+      )}
+
+      {bukaFormMOM && (
+        <FormMOM
+          initialData={momAktif ?? MOM_DEFAULT}
+          onSimpan={handleSimpanMOM}
+          onTutup={() => {
+            setBukaFormMOM(false);
+            setMomAktif(null);
+          }}
+          notify={notify}
+        />
+      )}
+    </div>
+  );
+};
+
+// ============================================================
+// Kartu & tampilan
+// ============================================================
+
+const ChipOpsi: React.FC<{ nilai: string | null; opsi: Opsi[]; bulat?: boolean }> = ({ nilai, opsi, bulat }) => {
+  if (!nilai) return null;
+  const o = opsi.find((x) => x.nilai === nilai);
+  const w = warna(o?.warna);
+  if (bulat) {
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 border text-[12px] font-bold whitespace-nowrap ${w.garis} ${w.teks} ${w.latar}`}>
+        <span className={`w-2 h-2 ${w.titik}`} />{o?.label ?? nilai}
+      </span>
+    );
+  }
+  return <span className="inline-block px-1.5 py-0.5 text-[12px] font-bold bg-white/10 border border-white/20 text-zinc-200 whitespace-nowrap">{o?.label ?? nilai}</span>;
+};
+
+const KartuMemo: React.FC<{ memo: Memo; tipe: Opsi[]; status: Opsi[]; onBuka: (id: string) => void }> = ({ memo: m, tipe, status, onBuka }) => (
+  <button onClick={() => onBuka(m.id)} className="w-full text-left bg-zinc-950 border-[3px] border-white/25 p-3 shadow-[3px_3px_0_#000] hover:border-white/60 transition-colors flex flex-col gap-2">
+    <p className={`text-[15px] font-bold leading-snug ${m.judul ? 'text-white' : 'text-zinc-500 italic'}`}>{m.judul || 'Tanpa judul'}</p>
+    {m.ringkasan && <p className="text-[13px] text-zinc-300 leading-snug line-clamp-3">{m.ringkasan}</p>}
+    {m.tipe && <div><ChipOpsi nilai={m.tipe} opsi={tipe} /></div>}
+    <p className="text-[12px] text-zinc-400">{tglMemo(m.tanggal)}{m.penulis ? ` · ${m.penulis.split(' ')[0]}` : ''}</p>
+    {m.status && <div><ChipOpsi nilai={m.status} opsi={status} bulat /></div>}
+  </button>
+);
+
+const Papan: React.FC<{
+  daftar: Memo[]; kolom: Opsi[]; kunci: 'kategori' | 'status'; tipe: Opsi[]; status: Opsi[];
+  onBuka: (id: string) => void; onBaru?: (nilai: string) => void;
+}> = ({ daftar, kolom, kunci, tipe, status, onBuka, onBaru }) => {
+  const semuaKolom = [...kolom];
+  if (daftar.some((m) => !m[kunci])) {
+    semuaKolom.push({ grup: '', nilai: '', label: kunci === 'status' ? 'Tanpa status' : 'Tanpa kategori', warna: 'zinc', urutan: 999 });
+  }
+
+  return (
+    <div data-gambar-lepas className="h-full overflow-y-auto sm:overflow-x-auto sm:overflow-y-hidden custom-scrollbar sm:snap-x sm:snap-mandatory">
+      <div data-gambar-lepas className="flex flex-col gap-3 pb-2 sm:flex-row sm:h-full sm:min-w-max">
+        {semuaKolom.map((k) => {
+          const isi = daftar.filter((m) => (m[kunci] ?? '') === k.nilai);
+          const w = warna(k.warna);
+          return (
+            <section key={k.nilai || '_'} className="w-full sm:w-72 sm:shrink-0 sm:snap-start flex flex-col sm:min-h-0 bg-white/[0.04] border-2 border-white/10">
+              <div className="flex items-center gap-2 px-2 py-2 shrink-0 sticky top-0 z-10 bg-zinc-950 sm:static sm:bg-transparent">
+                <span className={`px-2 py-0.5 text-[13px] font-bold border ${w.garis} ${w.teks} ${w.latar}`}>{k.label}</span>
+                <span className="text-[13px] text-zinc-400">{isi.length}</span>
+              </div>
+              <div data-gambar-lepas className="px-2 pb-2 space-y-2 sm:flex-1 sm:overflow-y-auto sm:min-h-0 custom-scrollbar">
+                {isi.map((m) => <KartuMemo key={m.id} memo={m} tipe={tipe} status={status} onBuka={onBuka} />)}
+                {onBaru && (
+                  <button data-tanpa-gambar onClick={() => onBaru(k.nilai)} className="w-full text-left text-[13px] text-zinc-500 hover:text-white px-2 py-1.5 flex items-center gap-1.5">
+                    <Plus size={13} /> Baru
+                  </button>
+                )}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const DaftarKategori: React.FC<{ daftar: Memo[]; kategori: Opsi[]; tipe: Opsi[]; status: Opsi[]; onBuka: (id: string) => void }> = ({ daftar, kategori, tipe, status, onBuka }) => (
+  <div data-gambar-lepas className="h-full overflow-y-auto custom-scrollbar space-y-4 pr-1">
+    {[...kategori, { grup: '', nilai: '', label: 'Tanpa kategori', warna: 'zinc', urutan: 999 }].map((k) => {
+      const isi = daftar.filter((m) => (m.kategori ?? '') === k.nilai);
+      if (isi.length === 0) return null;
+      const w = warna(k.warna);
+      return (
+        <section key={k.nilai || '_'}>
+          <div className={`flex items-center gap-2 border-b-2 pb-1 mb-1 ${w.garis}`}>
+            <span className={`text-[14px] font-bold ${w.teks}`}>{k.label}</span>
+            <span className="text-[12px] text-zinc-400">{isi.length}</span>
+          </div>
+          {isi.map((m) => (
+            <button key={m.id} onClick={() => onBuka(m.id)} className="w-full text-left flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-2 border-b border-white/10 hover:bg-white/5">
+              <span className={`text-[14px] font-bold flex-1 min-w-[160px] ${m.judul ? 'text-white' : 'text-zinc-500 italic'}`}>{m.judul || 'Tanpa judul'}</span>
+              <ChipOpsi nilai={m.tipe} opsi={tipe} />
+              <ChipOpsi nilai={m.status} opsi={status} bulat />
+              <span className="text-[12px] text-zinc-400 w-24 text-right">{tglMemo(m.tanggal)}</span>
+            </button>
+          ))}
+        </section>
+      );
+    })}
+    {daftar.length === 0 && <p className="text-[13px] text-zinc-400 text-center py-8">Belum ada memo.</p>}
+  </div>
+);
+
+const TabelMemo: React.FC<{ daftar: Memo[]; kategori: Opsi[]; tipe: Opsi[]; status: Opsi[]; onBuka: (id: string) => void }> = ({ daftar, kategori, tipe, status, onBuka }) => (
+  <div data-gambar-lepas data-gambar-lebar className="h-full overflow-auto custom-scrollbar border-[3px] border-white/30">
+    <table className="min-w-[860px] w-full text-[13px] border-collapse">
+      <thead className="sticky top-0 z-10">
+        <tr className="bg-zinc-900 text-zinc-300 text-[11px] uppercase">
+          {['Judul', 'Kategori', 'Tipe', 'Status', 'Tanggal', 'Penulis', 'Ringkasan'].map((h) => (
+            <th key={h} className="text-left px-2 py-2 border-b-2 border-white/25 font-bold whitespace-nowrap">{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {daftar.map((m, i) => (
+          <tr key={m.id} onClick={() => onBuka(m.id)} className={`cursor-pointer align-top hover:bg-lime-500/10 ${i % 2 ? 'bg-white/[0.03]' : ''}`}>
+            <td className={`px-2 py-2 border-b border-white/10 font-bold min-w-[220px] ${m.judul ? 'text-white' : 'text-zinc-500 italic'}`}>{m.judul || 'Tanpa judul'}</td>
+            <td className="px-2 py-2 border-b border-white/10"><ChipOpsi nilai={m.kategori} opsi={kategori} bulat /></td>
+            <td className="px-2 py-2 border-b border-white/10"><ChipOpsi nilai={m.tipe} opsi={tipe} /></td>
+            <td className="px-2 py-2 border-b border-white/10"><ChipOpsi nilai={m.status} opsi={status} bulat /></td>
+            <td className="px-2 py-2 border-b border-white/10 whitespace-nowrap text-zinc-300">{tglMemo(m.tanggal)}</td>
+            <td className="px-2 py-2 border-b border-white/10 whitespace-nowrap text-zinc-300">{m.penulis ?? '—'}</td>
+            <td className="px-2 py-2 border-b border-white/10 text-zinc-400 min-w-[260px]">{m.ringkasan}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    {daftar.length === 0 && <p className="text-[13px] text-zinc-400 text-center py-8">Belum ada memo.</p>}
+  </div>
+);
+
+const TampilanInternalMemo: React.FC<{
+  daftar: DataMemoDinas[];
+  onBuka: (item: DataMemoDinas) => void;
+  onBaru: () => void;
+  onHapus: (id: string, e: React.MouseEvent) => void;
+  notify: (m: string) => void;
+}> = ({ daftar, onBuka, onBaru, onHapus, notify }) => {
+  const [cari, setCari] = useState('');
+  const [sedangEksporId, setSedangEksporId] = useState<string | null>(null);
+
+  const formatRupiah = (val?: number | null) => {
+    if (!val) return '—';
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+  };
+
+  const tersaring = useMemo(() => {
+    const q = cari.trim().toLowerCase();
+    if (!q) return daftar;
+    return daftar.filter((d) =>
+      `${d.nomor ?? ''} ${d.namaKaryawan} ${d.divisiKaryawan} ${d.perihal} ${d.tempatTujuan} ${d.keperluan}`.toLowerCase().includes(q)
+    );
+  }, [daftar, cari]);
+
+  const handleEkspor = async (item: DataMemoDinas, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const id = item.id || 'default';
+    setSedangEksporId(id);
+    try {
+      await eksporMemoDinasKeExcel(item);
+      notify('BERKAS EXCEL MEMO DINAS BERHASIL DIUNDUH');
+    } catch (err) {
+      notify(err instanceof Error ? err.message.toUpperCase() : 'GAGAL MENGEKSPOR EXCEL');
+    } finally {
+      setSedangEksporId(null);
+    }
+  };
+
+  return (
+    <div className="h-full flex flex-col min-h-0 overflow-hidden space-y-3">
+      {/* Banner / Info */}
+      <div className="panel-retro !bg-zinc-950 !p-3 border-lime-500 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-amber-500 border-2 border-black flex items-center justify-center shrink-0 shadow-[2px_2px_0_#000]">
+            <FileSpreadsheet size={20} className="text-black" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-title text-[13px] md:text-[15px] text-white">Internal Memo Perjalanan Dinas</h3>
+              <span className="bg-emerald-900/80 text-emerald-300 text-[10px] px-2 py-0.5 border border-emerald-500/40 font-mono font-bold">
+                HASNUR GROUP
+              </span>
+            </div>
+            <p className="text-[12px] text-zinc-400">
+              Format baku PT Energi Batubara Lestari · Live preview surat resmi A4 &amp; ekspor langsung ke template .xlsx
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={onBaru} className="btn-retro btn-retro-sm bg-lime-600 text-white font-bold flex items-center gap-1.5 shadow-[2px_2px_0_#000]">
+            <Plus size={13} /> Buat Memo Dinas
+          </button>
+        </div>
+      </div>
+
+      {/* Pencarian */}
+      <div className="relative shrink-0">
+        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+        <input
+          value={cari}
+          onChange={(e) => setCari(e.target.value)}
+          placeholder="Cari nama karyawan, nomor memo, tujuan, atau keperluan…"
+          className="input-retro !pl-8 !py-1.5 !text-[13px]"
+        />
+      </div>
+
+      {/* Daftar Kartu Memo Dinas */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 min-h-0 pr-1">
+        {tersaring.length === 0 ? (
+          <div className="text-center py-12 panel-retro !bg-zinc-900/50 border-dashed border-zinc-700">
+            <FileText size={36} className="mx-auto text-zinc-600 mb-2" />
+            <p className="text-[14px] font-bold text-zinc-300 mb-1">Belum ada Internal Memo Dinas</p>
+            <p className="text-[12px] text-zinc-500 mb-4">Buat memo dinas baru atau gunakan format bawaan template Excel.</p>
+            <button onClick={onBaru} className="btn-retro btn-retro-sm bg-lime-600">
+              <Plus size={12} /> Buat Memo Baru
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {tersaring.map((item) => {
+              const totalTambahan = (item.biayaTambahan || []).reduce(
+                (acc, c) => acc + (Number(c.nominal) || 0),
+                0
+              );
+              const total =
+                (Number(item.biayaTransportasi) || 0) +
+                (Number(item.biayaPenginapan) || 0) +
+                (Number(item.biayaUangMakan) || 0) +
+                (Number(item.biayaLainLain) || 0) +
+                totalTambahan;
+
+              const sedangEkspor = sedangEksporId === (item.id || 'default');
+
+              return (
+                <div
+                  key={item.id || item.nomor || Math.random()}
+                  onClick={() => onBuka(item)}
+                  className="bg-zinc-900/90 border-[3px] border-zinc-700 hover:border-amber-400 transition-all p-3.5 shadow-[3px_3px_0_#000] cursor-pointer flex flex-col justify-between gap-3 group rounded"
+                >
+                  <div className="space-y-2">
+                    {/* Nomor & Badge Biaya */}
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded lencana-im">
+                        {item.nomor || 'TANPA NOMOR'}
+                      </span>
+                      <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded lencana-kk">
+                        {formatRupiah(total)}
+                      </span>
+                    </div>
+
+                    {/* Perihal & Karyawan */}
+                    <div>
+                      <h4 className="text-[15px] font-bold text-white group-hover:text-amber-300 transition-colors">
+                        {item.perihal || 'Permohonan Perjalanan Dinas'}
+                      </h4>
+                      <p className="text-[13px] text-amber-400 font-semibold mt-0.5 flex items-center gap-1.5">
+                        <User size={13} /> {item.namaKaryawan || '—'}
+                        <span className="text-[11px] text-zinc-400 font-normal">({item.jabatanKaryawan || item.divisiKaryawan})</span>
+                      </p>
+                    </div>
+
+                    {/* Rincian Tujuan & Keperluan */}
+                    <div className="bg-zinc-950/60 border border-zinc-700/80 p-2.5 text-[12px] space-y-1.5 rounded">
+                      <div className="flex items-start gap-1.5">
+                        <span className="text-zinc-400 font-bold w-16 shrink-0">Tujuan:</span>
+                        <span className="font-bold text-zinc-100">{item.tempatTujuan || '—'}</span>
+                      </div>
+                      <div className="flex items-start gap-1.5">
+                        <span className="text-zinc-400 font-bold w-16 shrink-0">Jadwal:</span>
+                        <span className="text-zinc-300 font-mono">{item.tanggalBerangkat || '—'} s/d {item.tanggalKembali || '—'}</span>
+                      </div>
+                      <div className="flex items-start gap-1.5">
+                        <span className="text-zinc-400 font-bold w-16 shrink-0">Keperluan:</span>
+                        <span className="text-zinc-200 line-clamp-2">{item.keperluan || '—'}</span>
+                      </div>
+                    </div>
+
+                    {/* Dari & Kepada */}
+                    <div className="text-[11px] text-zinc-400 flex items-center justify-between border-t border-zinc-700/80 pt-1.5">
+                      <span>Dari: <strong className="text-zinc-200">{item.dari}</strong></span>
+                      <span>Kepada: <strong className="text-zinc-200">{item.kepada}</strong></span>
+                    </div>
+                  </div>
+
+                  {/* Tombol Aksi */}
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-700/80">
+                    <button
+                      onClick={(e) => handleEkspor(item, e)}
+                      disabled={sedangEkspor}
+                      className="btn-retro btn-retro-sm !bg-emerald-800 hover:!bg-emerald-700 !text-white flex items-center gap-1.5 text-[11px]"
+                      title="Unduh file Excel (.xlsx) dengan format template asli"
+                    >
+                      {sedangEkspor ? <Loader2 size={12} className="animate-spin" /> : <FileSpreadsheet size={12} />}
+                      <span>Unduh .xlsx</span>
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onBuka(item); }}
+                      className="btn-retro btn-retro-sm !bg-zinc-800 hover:!bg-zinc-700 !text-white flex items-center gap-1 text-[11px]"
+                    >
+                      <Pencil size={12} /> Buka / Edit
+                    </button>
+                    {item.id !== 'memo-dinas-bawaan' && (
+                      <button
+                        onClick={(e) => onHapus(item.id!, e)}
+                        className="btn-ikon !w-7 !h-7 !bg-red-700 hover:!bg-red-600 text-white border border-red-400"
+                        title="Hapus memo"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// Tampilan Minutes of Meeting (MOM)
+// ============================================================
+
+const TampilanMOM: React.FC<{
+  daftar: DataMOM[];
+  onBuka: (item: DataMOM) => void;
+  onBaru: () => void;
+  onHapus: (id: string, e?: React.MouseEvent) => void;
+  notify: (m: string) => void;
+}> = ({ daftar, onBuka, onBaru, onHapus, notify }) => {
+  const [cari, setCari] = useState('');
+  const [sedangEksporId, setSedangEksporId] = useState<string | null>(null);
+
+  const tersaring = useMemo(() => {
+    const q = cari.trim().toLowerCase();
+    if (!q) return daftar;
+    return daftar.filter((item) =>
+      `${item.judul} ${item.tempat} ${item.pesertaRingkasan} ${item.poinList.map((p) => p.minutesOfMeeting).join(' ')}`
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [daftar, cari]);
+
+  const handleEkspor = async (item: DataMOM, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSedangEksporId(item.id || 'default');
+    try {
+      await eksporMOMKeWord(item);
+      notify('BERKAS WORD BERHASIL DIUNDUH');
+    } catch (err) {
+      notify(err instanceof Error ? err.message.toUpperCase() : 'GAGAL MENGEKSPOR WORD');
+    } finally {
+      setSedangEksporId(null);
+    }
+  };
+
+  const handleEksporExcel = async (item: DataMOM, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSedangEksporId(item.id || 'default');
+    try {
+      await eksporMOMKeExcel(item);
+      notify('BERKAS EXCEL BERHASIL DIUNDUH');
+    } catch (err) {
+      notify(err instanceof Error ? err.message.toUpperCase() : 'GAGAL MENGEKSPOR EXCEL');
+    } finally {
+      setSedangEksporId(null);
+    }
+  };
+
+  return (
+    <div className="h-full flex flex-col min-h-0 overflow-hidden space-y-3">
+      {/* Banner / Info */}
+      <div className="panel-retro !bg-zinc-950 !p-3 border-blue-500 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-blue-500 border-2 border-black flex items-center justify-center shrink-0 shadow-[2px_2px_0_#000]">
+            <ClipboardList size={20} className="text-black" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-title text-[13px] md:text-[15px] text-white">Minutes of Meeting (MoM)</h3>
+              <span className="bg-blue-900/80 text-blue-300 text-[10px] px-2 py-0.5 border border-blue-500/40 font-mono font-bold">
+                TEMPLATE RESMI
+              </span>
+            </div>
+            <p className="text-[12px] text-zinc-400">
+              Notulen rapat resmi · Pratinjau cetak A4 adaptif, penyesuaian panjang halaman &amp; ekspor Word (.doc)
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={onBaru} className="btn-retro btn-retro-sm bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center gap-1.5 shadow-[2px_2px_0_#000]">
+            <Plus size={13} /> Buat MoM Baru
+          </button>
+        </div>
+      </div>
+
+      {/* Pencarian */}
+      <div className="relative shrink-0">
+        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+        <input
+          value={cari}
+          onChange={(e) => setCari(e.target.value)}
+          placeholder="Cari judul agenda, tempat, peserta, atau poin pembahasan…"
+          className="input-retro !pl-8 !py-1.5 !text-[13px]"
+        />
+      </div>
+
+      {/* Daftar Kartu MoM */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 min-h-0 pr-1">
+        {tersaring.length === 0 ? (
+          <div className="text-center py-12 panel-retro !bg-zinc-900/50 border-dashed border-zinc-700">
+            <ClipboardList size={36} className="mx-auto text-zinc-600 mb-2" />
+            <p className="text-[14px] font-bold text-zinc-300 mb-1">Belum ada Minutes of Meeting</p>
+            <p className="text-[12px] text-zinc-500 mb-4">Buat notulen rapat baru berdasarkan template resmi.</p>
+            <button onClick={onBaru} className="btn-retro btn-retro-sm bg-blue-600">
+              <Plus size={12} /> Buat MoM Baru
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {tersaring.map((item) => {
+              const sedangEkspor = sedangEksporId === (item.id || 'default');
+              const jmlPoin = item.poinList?.length || 0;
+              const jmlPeserta = item.pesertaList?.length || 0;
+              const jmlFoto = item.fotoList?.length || 0;
+
+              return (
+                <div
+                  key={item.id || Math.random()}
+                  onClick={() => onBuka(item)}
+                  className="bg-zinc-900/90 border-[3px] border-zinc-700 hover:border-blue-400 transition-all p-3.5 shadow-[3px_3px_0_#000] cursor-pointer flex flex-col justify-between gap-3 group rounded"
+                >
+                  <div className="space-y-2">
+                    {/* Header Kartu: Tanggal & Badge Orientasi */}
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded lencana-sr">
+                        {item.tanggal || 'DRAF'}
+                      </span>
+                      <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded uppercase lencana-im">
+                        {item.orientasi || 'landscape'}
+                      </span>
+                    </div>
+
+                    {/* Judul MoM */}
+                    <div>
+                      <h4 className="text-[15px] font-bold text-white group-hover:text-blue-300 transition-colors">
+                        {item.judul || 'MINUTES OF MEETING'}
+                      </h4>
+                      <p className="text-[12px] text-zinc-400 mt-0.5 flex items-center gap-1.5">
+                        <MapPin size={12} className="text-zinc-400" /> {item.tempat || '—'} · <Clock size={12} className="text-zinc-400" /> {item.waktu || '—'}
+                      </p>
+                    </div>
+
+                    {/* Ringkasan Peserta & Poin */}
+                    <div className="bg-zinc-950/60 border border-zinc-700/80 p-2.5 text-[12px] space-y-1.5 rounded">
+                      <div className="flex items-start gap-1.5">
+                        <span className="text-zinc-400 font-bold w-16 shrink-0">Peserta:</span>
+                        <span className="text-zinc-200 line-clamp-1">{item.pesertaRingkasan || '—'}</span>
+                      </div>
+                      <div className="flex items-start gap-1.5">
+                        <span className="text-zinc-400 font-bold w-16 shrink-0">Ringkasan:</span>
+                        <span className="text-zinc-200">
+                          {jmlPoin} poin pembahasan · {jmlPeserta} peserta hadir {jmlFoto > 0 ? `· ${jmlFoto} foto` : ''}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tombol Aksi */}
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+                    <button
+                      onClick={(e) => handleEkspor(item, e)}
+                      disabled={sedangEkspor}
+                      className="btn-retro btn-retro-sm !bg-blue-800 hover:!bg-blue-700 !text-white flex items-center gap-1.5 text-[11px]"
+                      title="Unduh file Word (.doc) sesuai template"
+                    >
+                      {sedangEkspor ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                      <span>Unduh .doc</span>
+                    </button>
+                    <button
+                      onClick={(e) => handleEksporExcel(item, e)}
+                      disabled={sedangEkspor}
+                      className="btn-retro btn-retro-sm !bg-emerald-800 hover:!bg-emerald-700 !text-white flex items-center gap-1.5 text-[11px]"
+                      title="Unduh file Excel (.xlsx) dengan tabel rapi"
+                    >
+                      {sedangEkspor ? <Loader2 size={12} className="animate-spin" /> : <FileSpreadsheet size={12} />}
+                      <span>Unduh .xlsx</span>
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onBuka(item); }}
+                      className="btn-retro btn-retro-sm !bg-zinc-800 hover:!bg-zinc-700 !text-white flex items-center gap-1 text-[11px]"
+                    >
+                      <Pencil size={12} /> Buka / Edit
+                    </button>
+                    {item.id !== 'mom-bawaan' && (
+                      <button
+                        onClick={(e) => onHapus(item.id!, e)}
+                        className="btn-ikon !w-7 !h-7 !bg-red-700 hover:!bg-red-600 text-white border border-red-400"
+                        title="Hapus MoM"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// Halaman satu memo
+// ============================================================
+
+/** Baris properti ala halaman Notion. Di luar LembarMemo agar isinya tidak dipasang ulang tiap ketikan. */
+const Properti: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="flex items-center gap-3 min-h-[34px]">
+    <span className="w-20 shrink-0 text-[12px] text-zinc-400">{label}</span>
+    <div className="flex-1 min-w-0">{children}</div>
+  </div>
+);
+
+const LembarMemo: React.FC<{
+  memo: Memo; boleh: boolean; kategori: Opsi[]; tipe: Opsi[]; status: Opsi[];
+  onUbah: (patch: Partial<Memo>) => void; onHapus: () => void; onTutup: () => void; notify: (m: string) => void;
+}> = ({ memo, boleh, kategori, tipe, status, onUbah, onHapus, onTutup, notify }) => {
+  const [judul, setJudul] = useState(memo.judul);
+  const [ringkasan, setRingkasan] = useState(memo.ringkasan ?? '');
+  const [isi, setIsi] = useState(memo.isi);
+  const [mode, setMode] = useState<'baca' | 'tulis'>(boleh && !memo.isi ? 'tulis' : 'baca');
+  const [status_, setStatusSimpan] = useState<'tersimpan' | 'mengetik' | 'menyimpan'>('tersimpan');
+  const tertunda = useRef<Partial<Memo>>({});
+  const pewaktu = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const kirim = useCallback(async () => {
+    const patch = tertunda.current;
+    tertunda.current = {};
+    if (Object.keys(patch).length === 0) return;
+    setStatusSimpan('menyimpan');
+    try {
+      await api(`/api/memo/${memo.id}`, { method: 'PATCH', body: patch });
+      onUbah({ ...patch, diubah_pada: new Date().toISOString() });
+      setStatusSimpan('tersimpan');
+    } catch (e) {
+      setStatusSimpan('mengetik');
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENYIMPAN MEMO');
+    }
+  }, [memo.id, onUbah, notify]);
+
+  const jadwalkan = (patch: Partial<Memo>, segera = false) => {
+    if (!boleh) return;
+    tertunda.current = { ...tertunda.current, ...patch };
+    setStatusSimpan('mengetik');
+    if (pewaktu.current) clearTimeout(pewaktu.current);
+    pewaktu.current = setTimeout(kirim, segera ? 0 : 700);
+  };
+
+  const tutup = async () => {
+    if (pewaktu.current) clearTimeout(pewaktu.current);
+    await kirim();
+    // Entri baru yang dibiarkan kosong tidak ikut mengotori papan tim.
+    if (boleh && !judul.trim() && !ringkasan.trim() && !isi.trim()) {
+      try { await api(`/api/memo/${memo.id}`, { method: 'DELETE' }); onHapus(); return; } catch { /* biarkan */ }
+    }
+    onTutup();
+  };
+
+  const hapus = async () => {
+    if (!confirm(`Hapus memo "${judul || 'Tanpa judul'}"?`)) return;
+    try { await api(`/api/memo/${memo.id}`, { method: 'DELETE' }); notify('MEMO DIHAPUS'); onHapus(); }
+    catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENGHAPUS'); }
+  };
+
+  const pilih = (nilai: string | null, opsi: Opsi[], kunci: 'kategori' | 'tipe' | 'status') => (boleh ? (
+    <select value={nilai ?? ''} onChange={(e) => { const v = e.target.value || null; onUbah({ [kunci]: v }); jadwalkan({ [kunci]: v }, true); }} className="input-retro !py-1 !text-[13px] !w-auto max-w-full">
+      <option value="">—</option>{opsi.map((o) => <option key={o.nilai} value={o.nilai}>{o.label}</option>)}
+    </select>
+  ) : <ChipOpsi nilai={nilai} opsi={opsi} bulat={kunci !== 'tipe'} />);
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm flex items-end md:items-center justify-center md:p-4" onClick={tutup}>
+      <div className="retro-box !bg-zinc-900 border-lime-500 w-full md:max-w-2xl max-h-[92vh] flex flex-col !p-0" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 px-4 py-2 border-b-2 border-white/15 shrink-0">
+          <span className="text-[12px] text-zinc-400 flex-1 truncate">Memo Internal{boleh ? '' : ' · baca-saja'}</span>
+          {boleh && <span className="text-[11px] text-zinc-500">{status_ === 'tersimpan' ? 'tersimpan' : status_ === 'menyimpan' ? 'menyimpan…' : 'mengetik…'}</span>}
+          {boleh && <button onClick={hapus} className="btn-ikon !w-8 !h-8 bg-red-900" title="Hapus"><Trash2 size={14} /></button>}
+          <button onClick={tutup} className="text-zinc-400 hover:text-white" aria-label="Tutup"><X size={22} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-3 space-y-3">
+          {boleh ? (
+            <input autoFocus={!memo.judul} value={judul} onChange={(e) => { setJudul(e.target.value); jadwalkan({ judul: e.target.value }); }} placeholder="Tanpa judul" className="w-full bg-transparent text-[22px] font-bold text-white outline-none placeholder:text-zinc-600" />
+          ) : (
+            <h3 className="text-[22px] font-bold text-white leading-snug">{judul || 'Tanpa judul'}</h3>
+          )}
+
+          <div className="space-y-0.5">
+            <Properti label="Kategori">{pilih(memo.kategori, kategori, 'kategori')}</Properti>
+            <Properti label="Tipe">{pilih(memo.tipe, tipe, 'tipe')}</Properti>
+            <Properti label="Status">{pilih(memo.status, status, 'status')}</Properti>
+            <Properti label="Tanggal">
+              {boleh
+                ? <input type="date" value={memo.tanggal ?? ''} onChange={(e) => { onUbah({ tanggal: e.target.value || null }); jadwalkan({ tanggal: e.target.value || null }, true); }} className="input-retro !py-1 !text-[13px] !w-auto" />
+                : <span className="text-[13px] text-zinc-200">{tglMemo(memo.tanggal) || '—'}</span>}
+            </Properti>
+            <Properti label="Penulis"><span className="text-[13px] text-zinc-200 flex items-center gap-1"><User size={12} /> {memo.penulis ?? '—'}</span></Properti>
+          </div>
+
+          <div>
+            <label className="label-retro">Ringkasan (tampil di kartu)</label>
+            {boleh
+              ? <textarea value={ringkasan} onChange={(e) => { setRingkasan(e.target.value); jadwalkan({ ringkasan: e.target.value }); }} className="input-retro h-16 resize-none !text-[13px]" placeholder="Dua–tiga kalimat inti memo…" />
+              : <p className="text-[13px] text-zinc-200">{ringkasan || '—'}</p>}
+          </div>
+
+          <div className="border-t-2 border-white/10 pt-3">
+            {boleh && (
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[11px] text-zinc-500 flex-1">Markup: # judul · - butir · - [ ] tugas · **tebal**</span>
+                <button onClick={() => setMode(mode === 'baca' ? 'tulis' : 'baca')} className="btn-retro btn-retro-sm bg-zinc-800">
+                  {mode === 'baca' ? <><Pencil size={12} /> Tulis</> : <><Eye size={12} /> Baca</>}
+                </button>
+              </div>
+            )}
+            {boleh && mode === 'tulis' ? (
+              <textarea value={isi} onChange={(e) => { setIsi(e.target.value); jadwalkan({ isi: e.target.value }); }} className="input-retro !border-white/15 min-h-[220px] resize-y leading-relaxed" placeholder="Tulis isi memo…" spellCheck={false} />
+            ) : (
+              <div className="text-[14px] leading-relaxed">
+                <IsiMemo isi={isi} kosong="Belum ada isi." onToggle={boleh ? (i) => { const baru = toggleBaris(isi, i); setIsi(baru); jadwalkan({ isi: baru }); } : undefined} />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// Catatan pribadi (hanya pemiliknya)
+// ============================================================
+
+const TEMPLATE: { nama: string; judul: string; isi: string }[] = [
+  { nama: 'Kosong', judul: '', isi: '' },
+  { nama: 'Rencana harian', judul: `Rencana ${W.formatPanjang(W.hariIniWita())}`, isi: '# Prioritas\n- [ ] \n- [ ] \n- [ ] \n\n## Lapangan\n- [ ] \n\n## Catatan\n' },
+  { nama: 'Catatan rapat', judul: 'Catatan rapat', isi: '# Peserta\n- \n\n# Keputusan\n- \n\n# Tindak lanjut\n- [ ] Siapa · apa · kapan\n' },
+  { nama: 'Daftar tugas', judul: 'Daftar tugas', isi: '- [ ] \n- [ ] \n- [ ] \n' },
+];
+
+const WARNA_PRIBADI: Record<string, string> = { amber: 'border-l-amber-400', cyan: 'border-l-cyan-400', emerald: 'border-l-emerald-400', pink: 'border-l-pink-400', purple: 'border-l-purple-400' };
+const TITIK_PRIBADI: Record<string, string> = { amber: 'bg-amber-400', cyan: 'bg-cyan-400', emerald: 'bg-emerald-400', pink: 'bg-pink-400', purple: 'bg-purple-400' };
+
+const CatatanPribadi: React.FC<{ notify: (m: string) => void }> = ({ notify }) => {
+  const [daftar, setDaftar] = useState<Memo[]>([]);
+  const [memuat, setMemuat] = useState(true);
+  const [aktifId, setAktifId] = useState<string | null>(null);
+  const [cari, setCari] = useState('');
+  const [mode, setMode] = useState<'tulis' | 'baca'>('tulis');
+  const [templateBuka, setTemplateBuka] = useState(false);
+  const [judul, setJudul] = useState('');
+  const [isi, setIsi] = useState('');
+  const [status, setStatus] = useState<'tersimpan' | 'mengetik' | 'menyimpan'>('tersimpan');
+  const simpanRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => {
+    api<{ memo: Memo[] }>('/api/memo?lingkup=pribadi')
+      .then((d) => setDaftar(d.memo))
+      .catch((e) => notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMUAT CATATAN'))
+      .finally(() => setMemuat(false));
+  }, [notify]);
+
+  const aktif = daftar.find((m) => m.id === aktifId) ?? null;
+
+  const buka = (m: Memo) => { setAktifId(m.id); setJudul(m.judul); setIsi(m.isi); setMode(m.isi.includes('- [') ? 'baca' : 'tulis'); setStatus('tersimpan'); };
+
+  const jadwalkan = (j: string, i: string) => {
+    if (!aktifId) return;
+    const id = aktifId;
+    setStatus('mengetik');
+    if (simpanRef.current) clearTimeout(simpanRef.current);
+    simpanRef.current = setTimeout(async () => {
+      setStatus('menyimpan');
+      try {
+        await api(`/api/memo/${id}`, { method: 'PATCH', body: { judul: j, isi: i } });
+        setDaftar((d) => d.map((m) => (m.id === id ? { ...m, judul: j, isi: i, diubah_pada: new Date().toISOString() } : m)));
+        setStatus('tersimpan');
+      } catch { setStatus('mengetik'); notify('GAGAL MENYIMPAN CATATAN'); }
+    }, 800);
+  };
+
+  const buat = async (t: typeof TEMPLATE[number]) => {
+    setTemplateBuka(false);
+    try {
+      const d = await api<{ id: string }>('/api/memo', { body: { lingkup: 'pribadi', judul: t.judul, isi: t.isi } });
+      const baru: Memo = { id: d.id, lingkup: 'pribadi', judul: t.judul, isi: t.isi, ringkasan: null, kategori: null, tipe: null, status: null, tanggal: null, disematkan: 0, warna: null, dibuat_pada: new Date().toISOString(), diubah_pada: null };
+      setDaftar((x) => [baru, ...x]);
+      buka(baru);
+      setMode('tulis');
+    } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUAT CATATAN'); }
+  };
+
+  const ubah = async (m: Memo, patch: Partial<Memo>) => {
+    try { await api(`/api/memo/${m.id}`, { method: 'PATCH', body: patch }); setDaftar((d) => d.map((x) => (x.id === m.id ? { ...x, ...patch } : x))); }
+    catch { notify('GAGAL'); }
+  };
+
+  const hapus = async (m: Memo) => {
+    if (!confirm(`Hapus catatan "${m.judul || 'Tanpa judul'}"?`)) return;
+    try { await api(`/api/memo/${m.id}`, { method: 'DELETE' }); setDaftar((d) => d.filter((x) => x.id !== m.id)); if (aktifId === m.id) setAktifId(null); }
+    catch { notify('GAGAL MENGHAPUS'); }
+  };
+
+  const tersaring = daftar.filter((m) => !cari || `${m.judul} ${m.isi}`.toLowerCase().includes(cari.toLowerCase()));
+
+  return (
+    <div className="flex h-full gap-3 min-h-0">
+      <div className={`${aktif ? 'hidden md:flex' : 'flex'} w-full md:w-72 shrink-0 flex-col min-h-0`}>
+        <div className="flex items-center gap-2 mb-2">
+          <div className="relative flex-1">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <input value={cari} onChange={(e) => setCari(e.target.value)} placeholder="Cari catatan…" className="input-retro !pl-8 !py-1.5 !text-[13px]" />
+          </div>
+          <div className="relative">
+            <button onClick={() => setTemplateBuka((v) => !v)} className="btn-retro btn-retro-sm bg-lime-600"><Plus size={12} /> Baru <ChevronDown size={11} /></button>
+            {templateBuka && (
+              <div className="absolute right-0 top-full mt-1 z-30 retro-box !bg-zinc-900 !p-1 w-44 border-lime-500">
+                {TEMPLATE.map((t) => <button key={t.nama} onClick={() => buat(t)} className="block w-full text-left px-2 py-1.5 text-[13px] hover:bg-white/10">{t.nama}</button>)}
+              </div>
+            )}
+          </div>
+        </div>
+        <p className="text-[11px] text-zinc-500 mb-2 flex items-center gap-1"><Lock size={10} /> Hanya terlihat oleh Anda</p>
+        <div className="flex-1 overflow-auto custom-scrollbar space-y-1.5 min-h-0">
+          {memuat && <p className="text-[12px] text-zinc-400 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> memuat…</p>}
+          {!memuat && tersaring.length === 0 && <p className="text-[12px] text-zinc-400 text-center py-8">Belum ada catatan. Tekan <b>Baru</b>.</p>}
+          {tersaring.map((m) => {
+            const cuplikan = m.isi.split('\n').find((b) => b.trim() && !b.startsWith('#'))?.replace(/^- \[[ x]\] /, '☐ ').replace(/^- /, '• ') ?? '';
+            const selesai = (m.isi.match(/- \[x\]/g) ?? []).length;
+            const total = (m.isi.match(/- \[[ x]\]/g) ?? []).length;
+            return (
+              <button key={m.id} onClick={() => buka(m)} className={`w-full text-left panel-retro !p-2 border-l-4 ${m.warna ? WARNA_PRIBADI[m.warna] : 'border-l-zinc-500'} ${aktifId === m.id ? '!bg-lime-950/40 !border-white/50' : ''}`}>
+                <div className="flex items-center gap-1">
+                  {m.disematkan ? <Pin size={11} className="text-lime-300 shrink-0" /> : null}
+                  <p className="text-[14px] font-bold text-white truncate flex-1">{m.judul || 'Tanpa judul'}</p>
+                </div>
+                <p className="text-[12px] text-zinc-300 truncate">{cuplikan}</p>
+                <p className="text-[11px] text-zinc-500 mt-0.5">{W.formatWaktuIso(m.diubah_pada ?? m.dibuat_pada)}{total ? ` · ${selesai}/${total} selesai` : ''}</p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className={`${aktif ? 'flex' : 'hidden md:flex'} flex-1 flex-col min-w-0 min-h-0`}>
+        {aktif ? (
+          <>
+            <div className="flex items-center gap-1.5 mb-2">
+              <button onClick={() => setAktifId(null)} className="md:hidden btn-ikon !w-8 !h-8 bg-zinc-800"><ChevronLeft size={16} /></button>
+              <input value={judul} onChange={(e) => { setJudul(e.target.value); jadwalkan(e.target.value, isi); }} placeholder="Judul catatan" className="flex-1 bg-transparent text-[18px] font-bold text-white outline-none border-b-2 border-transparent focus:border-lime-400 min-w-0" />
+              <span className="text-[11px] text-zinc-400 whitespace-nowrap hidden sm:inline">{status === 'tersimpan' ? 'tersimpan' : status === 'menyimpan' ? 'menyimpan…' : 'mengetik…'}</span>
+              <button onClick={() => setMode(mode === 'baca' ? 'tulis' : 'baca')} className={`btn-ikon !w-8 !h-8 ${mode === 'baca' ? 'bg-lime-600' : 'bg-zinc-800'}`} title={mode === 'baca' ? 'Tulis' : 'Baca'}>{mode === 'baca' ? <Pencil size={14} /> : <Eye size={14} />}</button>
+              <button onClick={() => ubah(aktif, { disematkan: aktif.disematkan ? 0 : 1 })} className={`btn-ikon !w-8 !h-8 ${aktif.disematkan ? 'bg-lime-600' : 'bg-zinc-800'}`} title="Sematkan">{aktif.disematkan ? <PinOff size={14} /> : <Pin size={14} />}</button>
+              <button onClick={() => hapus(aktif)} className="btn-ikon !w-8 !h-8 bg-red-900" title="Hapus"><Trash2 size={14} /></button>
+            </div>
+            <div className="flex items-center gap-1 mb-2">
+              {Object.keys(WARNA_PRIBADI).map((w) => <button key={w} onClick={() => ubah(aktif, { warna: aktif.warna === w ? null : w })} className={`w-4 h-4 border-2 ${aktif.warna === w ? 'border-white' : 'border-transparent'} ${TITIK_PRIBADI[w]}`} aria-label={`Warna ${w}`} />)}
+            </div>
+            {mode === 'tulis' ? (
+              <textarea value={isi} onChange={(e) => { setIsi(e.target.value); jadwalkan(judul, e.target.value); }} placeholder="Tulis di sini…" className="flex-1 input-retro !border-white/15 resize-none leading-relaxed text-[14px] min-h-0" spellCheck={false} />
+            ) : (
+              <div className="flex-1 overflow-auto custom-scrollbar panel-retro !border-white/15 text-[14px] leading-relaxed min-h-0">
+                <IsiMemo isi={isi} kosong="Kosong. Tekan ikon pensil untuk menulis." onToggle={(i) => { const baru = toggleBaris(isi, i); setIsi(baru); jadwalkan(judul, baru); }} />
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-[13px] text-zinc-500">Pilih catatan di kiri atau buat yang baru.</div>
+        )}
+      </div>
     </div>
   );
 };

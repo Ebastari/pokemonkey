@@ -1,4 +1,3 @@
-
 import { Mission, MissionType, MissionStatus, Skin } from './types';
 
 export const INITIAL_TOTAL_AREA = 150; // ha
@@ -8,20 +7,48 @@ export const NURSERY_CAPACITY_PER_DAY = 500; // bibit per hari per orang/monyet
 
 export const MONTH_NAMES = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
 ];
 
+/**
+ * Skin diurutkan dari murah ke mahal. Makin tinggi tingkatnya, makin banyak
+ * lapisan yang ditambahkan ke sprite: aksesori → efek → jubah/sayap → kilau.
+ * tier 1 = seragam, 2 = aksesori, 3 = aksesori + efek, 4 = + jubah/sayap,
+ * 5 = legenda (semua sekaligus).
+ */
 export const SKINS: Skin[] = [
-  { id: 'classic', name: 'Classic Forester', description: 'Seragam standar rimbawan.', cost: 0, colors: { primary: '#8B4513', secondary: '#D2B48C', accent: '#000000' } },
-  { id: 'manager', name: 'Safety Manager', description: 'Gaya mandor dengan rompi oranye.', cost: 2000, colors: { primary: '#ff6600', secondary: '#ffcc00', accent: '#333333' } },
-  { id: 'botanist', name: 'Elite Botanist', description: 'Ahli bibit dengan nuansa alam.', cost: 4000, colors: { primary: '#2d5a27', secondary: '#9acd32', accent: '#1a3317' } },
-  { id: 'golden', name: 'Golden Monkey', description: 'Monyet berlapis emas murni.', cost: 8000, colors: { primary: '#ffd700', secondary: '#fffacd', accent: '#b8860b' } },
-  { id: 'cyber', name: 'Cyber Gorilla', description: 'Teknologi masa depan.', cost: 12000, colors: { primary: '#ff00ff', secondary: '#00ffff', accent: '#000000' } },
-  { id: 'fire', name: 'Lava Primat', description: 'Terlahir dari kawah reklamasi.', cost: 15000, colors: { primary: '#cc0000', secondary: '#ff9900', accent: '#330000' } },
-  { id: 'ice', name: 'Frost Ape', description: 'Dingin dan tenang.', cost: 18000, colors: { primary: '#b0e0e6', secondary: '#ffffff', accent: '#4682b4' } },
-  { id: 'shadow', name: 'Ninja Monkey', description: 'Bekerja dalam kegelapan.', cost: 20000, colors: { primary: '#222222', secondary: '#444444', accent: '#ff0000' } },
-  { id: 'military', name: 'Forest Guard', description: 'Siap mengawal hutan.', cost: 6000, colors: { primary: '#4b5320', secondary: '#6b8e23', accent: '#1b1e0c' } },
-  { id: 'king', name: 'The Forest King', description: 'Penguasa segala rimbawan.', cost: 25000, colors: { primary: '#4b0082', secondary: '#ffd700', accent: '#000000' } },
+  { id: 'classic', name: 'Classic Forester', description: 'Seragam standar rimbawan.', cost: 0, tier: 1,
+    colors: { primary: '#8B4513', secondary: '#D2B48C', accent: '#3b1d08' } },
+  { id: 'military', name: 'Forest Guard', description: 'Helm hijau, siap mengawal hutan.', cost: 3000, tier: 2,
+    colors: { primary: '#5b6b2b', secondary: '#b5c48a', accent: '#1b1e0c' }, aksesori: ['helm_hijau'] },
+  { id: 'manager', name: 'Safety Manager', description: 'Helm dan rompi oranye sang mandor.', cost: 4500, tier: 2,
+    colors: { primary: '#8B4513', secondary: '#D2B48C', accent: '#3b1d08' }, aksesori: ['helm_oranye', 'rompi'] },
+  { id: 'botanist', name: 'Elite Botanist', description: 'Topi daun ahli bibit.', cost: 6000, tier: 2,
+    colors: { primary: '#2d5a27', secondary: '#9acd32', accent: '#0f2a0c' }, aksesori: ['topi_daun'] },
+  { id: 'astro', name: 'Astro Ape', description: 'Kubah kaca — reklamasi di planet lain.', cost: 9000, tier: 3,
+    colors: { primary: '#cbd5e1', secondary: '#f8fafc', accent: '#334155' }, aksesori: ['kubah'], efek: 'aura' },
+  { id: 'cyber', name: 'Cyber Gorilla', description: 'Visor neon dari masa depan.', cost: 12000, tier: 3,
+    colors: { primary: '#6d28d9', secondary: '#22d3ee', accent: '#1e1b4b' }, aksesori: ['visor'], efek: 'aura' },
+  { id: 'samurai', name: 'Samurai Rimba', description: 'Kabuto merah bertanduk emas.', cost: 14000, tier: 3,
+    colors: { primary: '#7f1d1d', secondary: '#fca5a5', accent: '#450a0a' }, aksesori: ['kabuto'], efek: 'bayangan' },
+  { id: 'fire', name: 'Lava Primat', description: 'Terlahir dari kawah reklamasi.', cost: 16000, tier: 3,
+    colors: { primary: '#b91c1c', secondary: '#fb923c', accent: '#3f0000' }, aksesori: ['api'], efek: 'api' },
+  { id: 'ice', name: 'Frost Ape', description: 'Dingin, tenang, berkilau beku.', cost: 18000, tier: 3,
+    colors: { primary: '#7dd3fc', secondary: '#f0f9ff', accent: '#0c4a6e' }, aksesori: ['es'], efek: 'es' },
+  { id: 'shadow', name: 'Ninja Monkey', description: 'Bekerja dalam kegelapan.', cost: 20000, tier: 3,
+    colors: { primary: '#27272a', secondary: '#52525b', accent: '#09090b' }, aksesori: ['masker'], efek: 'bayangan' },
+  { id: 'golden', name: 'Golden Monkey', description: 'Berlapis emas murni, berkilau.', cost: 24000, tier: 4,
+    colors: { primary: '#f59e0b', secondary: '#fef3c7', accent: '#78350f' }, aksesori: ['mahkota'], efek: 'kilau' },
+  { id: 'king', name: 'The Forest King', description: 'Mahkota dan jubah penguasa rimba.', cost: 28000, tier: 4,
+    colors: { primary: '#4c1d95', secondary: '#fde68a', accent: '#1e1b4b' }, aksesori: ['jubah', 'mahkota'], efek: 'aura' },
+  { id: 'phoenix', name: 'Phoenix Ape', description: 'Sayap api yang tak pernah padam.', cost: 35000, tier: 4,
+    colors: { primary: '#c2410c', secondary: '#fde047', accent: '#431407' }, aksesori: ['sayap_api', 'api'], efek: 'api' },
+  { id: 'dragon', name: 'Naga Rimba', description: 'Tanduk dan sayap penjaga hutan purba.', cost: 42000, tier: 4,
+    colors: { primary: '#14532d', secondary: '#86efac', accent: '#052e16' }, aksesori: ['sayap_naga', 'tanduk'], efek: 'aura' },
+  { id: 'diamond', name: 'Diamond Primate', description: 'Kristal murni, memantulkan cahaya.', cost: 50000, tier: 5,
+    colors: { primary: '#a5f3fc', secondary: '#ffffff', accent: '#164e63' }, aksesori: ['mahkota_kristal'], efek: 'kilau' },
+  { id: 'legend', name: 'Rimbawan Legenda', description: 'Emas dan zamrud — hanya untuk yang menghijaukan 150 Ha.', cost: 75000, tier: 5,
+    colors: { primary: '#ca8a04', secondary: '#bbf7d0', accent: '#422006' }, aksesori: ['sayap_emas', 'jubah', 'mahkota'], efek: 'kilau' },
 ];
 
 export const INITIAL_MISSIONS: Mission[] = [
@@ -35,7 +62,7 @@ export const INITIAL_MISSIONS: Mission[] = [
     status: MissionStatus.AVAILABLE,
     rewardXP: 1000,
     capacityPerDay: LAND_CAPACITY_PER_DAY,
-    durationDays: 90
+    durationDays: 90,
   },
   {
     id: 'm2_1',
@@ -47,7 +74,7 @@ export const INITIAL_MISSIONS: Mission[] = [
     status: MissionStatus.AVAILABLE,
     rewardXP: 200,
     capacityPerDay: 2000,
-    durationDays: 5
+    durationDays: 5,
   },
   {
     id: 'm2_2',
@@ -60,7 +87,7 @@ export const INITIAL_MISSIONS: Mission[] = [
     rewardXP: 300,
     capacityPerDay: NURSERY_CAPACITY_PER_DAY,
     durationDays: 20,
-    unlockedBy: ['m2_1']
+    unlockedBy: ['m2_1'],
   },
   {
     id: 'm2_3',
@@ -73,7 +100,7 @@ export const INITIAL_MISSIONS: Mission[] = [
     rewardXP: 400,
     capacityPerDay: 400,
     durationDays: 25,
-    unlockedBy: ['m2_2']
+    unlockedBy: ['m2_2'],
   },
   {
     id: 'm2_6',
@@ -86,7 +113,7 @@ export const INITIAL_MISSIONS: Mission[] = [
     rewardXP: 500,
     capacityPerDay: 800,
     durationDays: 12,
-    unlockedBy: ['m2_3']
+    unlockedBy: ['m2_3'],
   },
   {
     id: 'm2_7',
@@ -99,7 +126,7 @@ export const INITIAL_MISSIONS: Mission[] = [
     rewardXP: 450,
     capacityPerDay: 10000,
     durationDays: 1,
-    unlockedBy: ['m2_6']
+    unlockedBy: ['m2_6'],
   },
   {
     id: 'm2_10',
@@ -112,7 +139,7 @@ export const INITIAL_MISSIONS: Mission[] = [
     rewardXP: 800,
     capacityPerDay: 2500,
     durationDays: 4,
-    unlockedBy: ['m2_7']
+    unlockedBy: ['m2_7'],
   },
   {
     id: 'm3',
@@ -125,6 +152,6 @@ export const INITIAL_MISSIONS: Mission[] = [
     rewardXP: 2500,
     capacityPerDay: PLANTING_CAPACITY_PER_DAY,
     durationDays: 90,
-    unlockedBy: ['m1', 'm2_10']
-  }
+    unlockedBy: ['m1', 'm2_10'],
+  },
 ];

@@ -1,167 +1,210 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Users, Trophy, BrainCircuit, Globe, RefreshCcw, Wifi, Star, UserPlus, Phone, X, AlertTriangle, KeyRound } from 'lucide-react';
+import { api, GalatApi } from '../lib/api';
+import type { AnggotaTim, Pengguna } from '../lib/tipe-api';
+import { PanelAnggota } from './PanelAnggota';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Users, Trophy, BrainCircuit, Globe, RefreshCcw, Wifi, Star } from 'lucide-react';
-import { GameState, TeamMember } from '../types';
+interface Peringkat { id: string; name: string; xp: number; level: number; totalHa: number; lastActive: string | null }
+interface Props { pengguna: Pengguna; onBootUlang: () => void; notify: (pesan: string) => void }
 
-export const TeamScreen = ({ state }: { state: GameState }) => {
-  const [teamData, setTeamData] = useState<TeamMember[]>([]);
+const PERAN_LABEL: Record<string, string> = { admin: 'Admin', supervisor: 'Supervisor', anggota: 'Anggota', pemantau: 'Pemantau' };
+
+export const TeamScreen: React.FC<Props> = ({ pengguna, onBootUlang, notify }) => {
+  const [tim, setTim] = useState<AnggotaTim[]>([]);
+  const [peringkat, setPeringkat] = useState<Peringkat[]>([]);
   const [loading, setLoading] = useState(false);
-  const [aiAdvice, setAiAdvice] = useState<string>("Uu-aa! Menyiapkan data tim...");
+  const [formBuka, setFormBuka] = useState(false);
+  const [anggotaTerpilih, setAnggotaTerpilih] = useState<{ id: string; nama: string } | null>(null);
+  const admin = pengguna.peran === 'admin';
 
-  // Fungsi Rule-Based Engine (Pengganti Gemini)
-  const generateLocalAdvice = (data: TeamMember[]) => {
-    const totalHa = data.reduce((acc, m) => acc + m.totalHa, 0);
-    const targetHa = 150;
-    const percentage = (totalHa / targetHa) * 100;
-    const memberCount = data.length;
-    const topPlayer = data.length > 0 ? [...data].sort((a, b) => b.xp - a.xp)[0] : null;
-
-    // Kumpulan Template Pesan Monyet
-    if (totalHa === 0) {
-      return "UU-AA! Lahan masih gersang! Ayo ajak timmu mulai menanam sekarang!";
-    }
-    
-    if (percentage >= 100) {
-      return "LUAR BIASA! Target 150ha tercapai! Kalian adalah pahlawan hutan sejati! Uu-aa!";
-    }
-
-    if (percentage > 75) {
-      return `Sedikit lagi! ${totalHa.toFixed(1)}ha sudah hijau. Fokus pada tahap penyelesaian!`;
-    }
-
-    if (percentage > 40) {
-      return `Progres tim sangat solid! ${memberCount} forester bekerja keras. Terus jaga ritme penanaman!`;
-    }
-
-    if (topPlayer && topPlayer.xp > 5000) {
-      return `Uu-aa! Lihat ${topPlayer.name}, dia sangat produktif! Ayo tim lainnya, jangan mau kalah!`;
-    }
-
-    if (percentage > 0) {
-      return `Awal yang bagus! ${totalHa.toFixed(2)}ha sudah dikerjakan. Ingat: satu bibit hari ini, satu hutan masa depan!`;
-    }
-
-    return "Uu-aa! Tetap semangat dan jangan lupa sinkronkan data lapanganmu!";
-  };
-
-  // Fetch Team Data from Spreadsheet
-  const fetchTeamData = async () => {
-    if (!state.cloudUrl) {
-      // Fallback Mock Data jika tidak ada URL Cloud
-      const mock = [
-        { name: state.fullName || 'You', xp: state.xp, level: state.level, lastActive: 'Sekarang', totalHa: state.plantedArea },
-        { name: 'Mandor Budi', xp: 4500, level: 5, lastActive: '10m lalu', totalHa: 12.5 },
-        { name: 'Tim Nursery', xp: 8200, level: 9, lastActive: '2j lalu', totalHa: 25.0 },
-      ];
-      setTeamData(mock);
-      setAiAdvice(generateLocalAdvice(mock));
-      return;
-    }
-
+  const muat = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${state.cloudUrl}?action=getTeamData`);
-      if (!response.ok) throw new Error("Fetch failed");
-      const data = await response.json();
-      setTeamData(data);
-      setAiAdvice(generateLocalAdvice(data)); // Update advice secara lokal
-    } catch (err) {
-      console.warn("Could not fetch team data. Using local mock data.");
-      const fallback = [
-        { name: state.fullName || 'You', xp: state.xp, level: state.level, lastActive: 'Sekarang', totalHa: state.plantedArea },
-        { name: 'Mandor Budi', xp: 4500, level: 5, lastActive: '10m lalu', totalHa: 12.5 },
-      ];
-      setTeamData(fallback);
-      setAiAdvice(generateLocalAdvice(fallback));
-    } finally {
-      setLoading(false);
-    }
+      const [t, p] = await Promise.all([api<{ tim: AnggotaTim[] }>('/api/tim'), api<{ peringkat: Peringkat[] }>('/api/peringkat')]);
+      setTim(t.tim); setPeringkat(p.peringkat);
+    } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMUAT TIM'); }
+    finally { setLoading(false); }
+  }, [notify]);
+  useEffect(() => { muat(); }, [muat]);
+
+  const globalTotal = useMemo(() => peringkat.reduce((acc, m) => acc + m.totalHa, 0), [peringkat]);
+  const totalTelat = useMemo(() => tim.reduce((a, t) => a + t.pica_telat, 0), [tim]);
+  const tanpaWa = useMemo(() => tim.filter((t) => !t.punya_wa), [tim]);
+
+  const aiAdvice = useMemo(() => {
+    if (tim.length === 0) return 'Uu-aa! Menyiapkan data tim...';
+    const terberat = [...tim].sort((a, b) => b.pica_terbuka - a.pica_terbuka)[0];
+    if (totalTelat >= 5) return `UU-AA! ${totalTelat} PICA sudah lewat tenggat! Bahas di rapat mingguan, jangan ditumpuk.`;
+    if (terberat && terberat.pica_terbuka >= 5) return `${terberat.nama} memegang ${terberat.pica_terbuka} PICA terbuka. Bagi beban sebelum menumpuk!`;
+    if (tanpaWa.length > 0) return `${tanpaWa.length} anggota belum punya nomor WA — pengingat tidak sampai ke mereka.`;
+    if (totalTelat > 0) return `${totalTelat} PICA lewat tenggat. Sedikit lagi bersih, ayo tutup dengan bukti!`;
+    return 'Semua PICA masih dalam tenggat. Jaga ritmenya, uu-aa!';
+  }, [tim, totalTelat, tanpaWa]);
+
+  /** Admin: kosongkan password anggota yang lupa/salah membuat password; sesi lamanya ikut dicabut. */
+  const resetPassword = async (t: AnggotaTim) => {
+    if (!confirm(`Reset password ${t.nama}? Ia akan membuat password baru saat login berikutnya dengan kode undangan.`)) return;
+    try {
+      const d = await api<{ pesan: string }>(`/api/tim/${t.id}/reset-password`, { method: 'POST', body: {} });
+      notify(d.pesan.toUpperCase());
+    } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL'); }
   };
 
-  useEffect(() => {
-    fetchTeamData();
-  }, [state.cloudUrl, state.xp, state.plantedArea]); // Trigger refresh saat data lokal berubah
-
-  const globalTotal = useMemo(() => teamData.reduce((acc, m) => acc + m.totalHa, 0), [teamData]);
+  const ubahWa = async (t: AnggotaTim) => {
+    const wa = prompt(`Nomor WhatsApp ${t.nama} (mis. 0812…):`);
+    if (wa === null) return;
+    try { await api(`/api/tim/${t.id}`, { method: 'PATCH', body: { wa } }); notify('NOMOR WA DISIMPAN'); muat(); }
+    catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL'); }
+  };
 
   return (
-    <div className="p-4 flex flex-col h-full overflow-hidden">
-       <div className="flex justify-between items-center border-b-4 border-white pb-2 mb-6">
-          <h2 className="text-r-md uppercase flex items-center gap-2">
-            <Users size={20} /> Team Network
-          </h2>
-          <button 
-            disabled={loading}
-            onClick={fetchTeamData} 
-            className={`p-2 bg-indigo-600 rounded hover:bg-indigo-500 transition-all ${loading ? 'opacity-50' : 'active:scale-90'}`}
-          >
-             <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
-          </button>
-       </div>
+    <div className="p-3 flex flex-col h-full overflow-hidden">
+      <div className="flex justify-between items-center border-b-4 border-white pb-2 mb-3">
+        <h2 className="judul-layar flex items-center gap-2"><Users size={16} /> Team Network</h2>
+        <div className="flex gap-2">
+          {admin && <button onClick={() => setFormBuka(true)} className="btn-ikon bg-emerald-600" title="Tambah anggota"><UserPlus size={16} /></button>}
+          <button disabled={loading} onClick={muat} className="btn-ikon bg-indigo-600"><RefreshCcw size={16} className={loading ? 'animate-spin' : ''} /></button>
+        </div>
+      </div>
 
-       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 overflow-auto custom-scrollbar pb-20">
-          <div className="space-y-4">
-             {/* Global Progress Card */}
-             <div className="retro-box !bg-indigo-900/40 border-indigo-400 p-4">
-                <div className="flex justify-between items-center mb-4">
-                   <h3 className="text-[10px] font-bold text-indigo-300 uppercase flex items-center gap-2"><Globe size={14} /> Global Progress</h3>
-                   <span className="text-[8px] bg-white text-indigo-900 px-2 font-bold">150 HA TARGET</span>
-                </div>
-                <div className="h-6 bg-black border-4 border-white overflow-hidden relative mb-2">
-                   <div className="h-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-1000 shadow-[0_0_10px_rgba(79,70,229,0.5)]" style={{ width: `${Math.min(100, (globalTotal / 150) * 100)}%` }}></div>
-                   <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold mix-blend-difference">{((globalTotal / 150) * 100).toFixed(2)}% COMPLETE</span>
-                </div>
-                <p className="text-[6px] text-indigo-200 text-center uppercase tracking-widest">Total Kontribusi Tim: {globalTotal.toFixed(2)} HA</p>
-             </div>
-
-             {/* Local Analysis Card (Pengganti Gemini) */}
-             <div className="retro-box !bg-black/80 border-cyan-500 p-4 relative overflow-hidden group">
-                <div className="absolute -right-4 -top-4 opacity-10 group-hover:scale-110 transition-transform pointer-events-none">
-                   <BrainCircuit size={80} className="text-cyan-500" />
-                </div>
-                <h3 className="text-[8px] font-bold text-cyan-400 uppercase mb-3 flex items-center gap-2">
-                   <span className="w-2 h-2 bg-cyan-400 rounded-full animate-ping"></span> Shift Genius (Local)
-                </h3>
-                <div className="bg-cyan-950/30 p-3 border border-cyan-500/30 min-h-[60px]">
-                   <p className="text-[8px] leading-relaxed text-white italic">"{aiAdvice}"</p>
-                </div>
-                <p className="text-[5px] text-zinc-500 mt-2 uppercase">*Analisis instan berdasarkan data tim terbaru.</p>
-             </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 flex-1 overflow-auto custom-scrollbar pb-4">
+        <div className="space-y-3">
+          <div className="retro-box !bg-indigo-900/40 border-indigo-400">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-[13px] font-bold text-indigo-200 uppercase flex items-center gap-2"><Globe size={14} /> Global Progress</h3>
+              <span className="chip-retro border-white bg-white text-indigo-900">150 Ha target</span>
+            </div>
+            <div className="h-6 bg-black border-4 border-white overflow-hidden relative mb-2">
+              <div className="h-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-1000" style={{ width: `${Math.min(100, (globalTotal / 150) * 100)}%` }} />
+              <span className="absolute inset-0 flex items-center justify-center text-[12px] font-bold mix-blend-difference">{((globalTotal / 150) * 100).toFixed(1)}%</span>
+            </div>
+            <p className="text-[12px] text-indigo-100 text-center uppercase">Total kontribusi tim: {globalTotal.toFixed(2)} Ha</p>
           </div>
 
-          <div className="space-y-4">
-             {/* Leaderboard */}
-             <div className="retro-box !bg-zinc-900/80 p-4 border-yellow-500 flex flex-col h-full min-h-[300px]">
-                <h3 className="text-[10px] font-bold text-yellow-400 uppercase mb-4 flex items-center gap-2"><Trophy size={14} /> Forester Ranking</h3>
-                <div className="space-y-2 overflow-auto custom-scrollbar pr-1 flex-1">
-                   {teamData.length > 0 ? (
-                     teamData.sort((a,b) => b.xp - a.xp).map((member, idx) => (
-                       <div key={member.name} className={`flex items-center justify-between p-3 border-2 transition-all ${member.name === state.fullName ? 'border-yellow-400 bg-yellow-400/10 scale-[1.02]' : 'border-white/10 bg-black/40 hover:border-white/30'}`}>
-                          <div className="flex items-center gap-3">
-                             <span className="text-[8px] font-bold text-zinc-500 w-4">#{idx+1}</span>
-                             <div>
-                                <p className="text-[8px] font-bold text-white uppercase">{member.name}</p>
-                                <p className="text-[6px] text-zinc-500 uppercase">LVL {member.level} | {member.lastActive}</p>
-                             </div>
-                          </div>
-                          <div className="text-right">
-                             <p className="text-[10px] font-bold text-yellow-400 flex items-center gap-1 justify-end">
-                                {member.xp.toLocaleString()} <Star size={10} fill="currentColor" />
-                             </p>
-                             <p className="text-[6px] text-emerald-400 uppercase">{member.totalHa.toFixed(2)} HA</p>
-                          </div>
-                       </div>
-                     ))
-                   ) : (
-                      <div className="flex flex-col items-center justify-center p-10 opacity-30 text-center h-full">
-                         <Wifi size={32} className="mb-2 animate-pulse" />
-                         <p className="text-[8px] uppercase">Menghubungkan ke Cloud...</p>
-                      </div>
-                   )}
-                </div>
-             </div>
+          <div className="retro-box !bg-black/80 border-cyan-500 relative overflow-hidden">
+            <div className="absolute -right-4 -top-4 opacity-10 pointer-events-none"><BrainCircuit size={80} className="text-cyan-400" /></div>
+            <h3 className="text-[12px] font-bold text-cyan-300 uppercase mb-2 flex items-center gap-2"><span className="w-2 h-2 bg-cyan-400 animate-ping" /> Shift Genius</h3>
+            <div className="bg-cyan-950/40 p-3 border border-cyan-500/40"><p className="text-[14px] leading-relaxed text-white italic">"{aiAdvice}"</p></div>
+            <p className="text-[11px] text-zinc-400 mt-2 uppercase">Dihitung dari beban PICA dan tenggat saat ini.</p>
           </div>
-       </div>
+
+          <div className="retro-box !bg-zinc-900/80 border-amber-500">
+            <h3 className="text-[13px] font-bold text-amber-300 uppercase mb-3 flex items-center gap-2"><AlertTriangle size={14} /> Beban PICA</h3>
+            <div className="space-y-2">
+              {tim.map((t) => (
+                <div key={t.id} className={`flex items-center justify-between p-2.5 border-2 ${t.id === pengguna.id ? 'border-amber-400 bg-amber-400/10' : 'border-white/10 bg-black/40 hover:bg-white/5 transition-colors'}`}>
+                  <div
+                    className="min-w-0 flex-1 cursor-pointer"
+                    onClick={() => setAnggotaTerpilih({ id: t.id, nama: t.nama })}
+                    title="Klik untuk melihat detail profil & progres"
+                  >
+                    <p className="text-[14px] font-bold text-white truncate hover:text-yellow-300 transition-colors flex items-center gap-1.5">
+                      {t.nama}
+                      {t.id === pengguna.id && <span className="chip-retro !text-[8px] border-amber-400 bg-amber-900 text-amber-200">SAYA</span>}
+                    </p>
+                    <p className="text-[11px] text-zinc-400 uppercase">{PERAN_LABEL[t.peran] ?? t.peran}{t.bidang ? ` · ${t.bidang}` : ''}</p>
+                  </div>
+                  <div className="flex items-center gap-2.5 shrink-0">
+                    <div
+                      className="text-right leading-tight cursor-pointer"
+                      onClick={() => setAnggotaTerpilih({ id: t.id, nama: t.nama })}
+                    >
+                      <p className="text-[14px] font-bold text-white">{t.pica_terbuka} <span className="text-[10px] text-zinc-400 font-normal">TERBUKA</span></p>
+                      {t.pica_telat > 0 && <p className="text-[11px] text-red-400 uppercase font-bold">{t.pica_telat} telat</p>}
+                    </div>
+                    {admin && t.id !== pengguna.id && (
+                      <button onClick={() => resetPassword(t)} title={`Reset password ${t.nama}`} aria-label={`Reset password ${t.nama}`} className="p-1.5 border-2 border-amber-500 text-amber-400 hover:bg-amber-500/20">
+                        <KeyRound size={14} />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => (admin || t.id === pengguna.id ? ubahWa(t) : setAnggotaTerpilih({ id: t.id, nama: t.nama }))}
+                      title={t.punya_wa ? 'Nomor WA terpasang - Klik untuk chat/ubah' : 'Belum ada nomor WA'}
+                      className={`p-1.5 border-2 ${t.punya_wa ? 'border-emerald-500 text-emerald-400 hover:bg-emerald-500/20' : 'border-red-500 text-red-400 animate-pulse'}`}
+                    >
+                      <Phone size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="retro-box !bg-zinc-900/80 border-yellow-500 flex flex-col min-h-[300px]">
+          <h3 className="text-[13px] font-bold text-yellow-300 uppercase mb-3 flex items-center gap-2"><Trophy size={14} /> Forester Ranking</h3>
+          <div className="space-y-2 overflow-auto custom-scrollbar pr-1 flex-1">
+            {peringkat.length > 0 ? peringkat.map((member, idx) => (
+              <div
+                key={member.id}
+                onClick={() => setAnggotaTerpilih({ id: member.id, nama: member.name })}
+                className={`flex items-center justify-between p-2.5 border-2 cursor-pointer hover:bg-white/10 transition-colors ${member.id === pengguna.id ? 'border-yellow-400 bg-yellow-400/10' : 'border-white/10 bg-black/40'}`}
+                title="Klik untuk melihat detail profil"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="font-title text-[11px] text-zinc-400 w-6">#{idx + 1}</span>
+                  <div>
+                    <p className="text-[14px] font-bold text-white hover:text-yellow-300 transition-colors">{member.name}</p>
+                    <p className="text-[11px] text-zinc-400 uppercase">Level {member.level} · {member.lastActive ? 'aktif' : 'belum aktif'}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-[14px] font-bold text-yellow-300 flex items-center gap-1 justify-end">{member.xp.toLocaleString('id-ID')} <Star size={12} fill="currentColor" /></p>
+                  <p className="text-[11px] text-emerald-300 uppercase">{member.totalHa.toFixed(2)} Ha</p>
+                </div>
+              </div>
+            )) : (
+              <div className="flex flex-col items-center justify-center p-10 opacity-50 text-center h-full"><Wifi size={32} className="mb-2 animate-pulse" /><p className="text-[12px] uppercase">Menghubungkan…</p></div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {formBuka && <FormAnggota onTutup={() => setFormBuka(false)} onSimpan={(pesan) => { setFormBuka(false); notify(pesan.toUpperCase()); muat(); onBootUlang(); }} />}
+
+      {anggotaTerpilih && (
+        <PanelAnggota
+          userId={anggotaTerpilih.id}
+          nama={anggotaTerpilih.nama}
+          pengguna={pengguna}
+          notify={notify}
+          onTutup={() => setAnggotaTerpilih(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+const FormAnggota: React.FC<{ onTutup: () => void; onSimpan: (pesan: string) => void }> = ({ onTutup, onSimpan }) => {
+  const [f, setF] = useState({ id: '', nama: '', jabatan: '', bidang: '', wa: '', peran: 'anggota' });
+  const [menyimpan, setMenyimpan] = useState(false);
+  const [galat, setGalat] = useState<string | null>(null);
+
+  const simpan = async () => {
+    setMenyimpan(true); setGalat(null);
+    try { const d = await api<{ pesan: string }>('/api/tim', { body: f }); onSimpan(d.pesan); }
+    catch (e) { setGalat(e instanceof GalatApi ? e.message : 'Gagal menyimpan.'); }
+    finally { setMenyimpan(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-3" onClick={onTutup}>
+      <div className="retro-box !bg-zinc-900 w-full max-w-sm border-emerald-500 flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center border-b-2 border-white/20 pb-2"><h3 className="judul-layar text-emerald-300">Anggota baru</h3><button onClick={onTutup} className="text-zinc-400 hover:text-white"><X size={20} /></button></div>
+        {galat && <p className="text-[12px] text-red-200 bg-red-950/50 border border-red-500 p-2">{galat}</p>}
+        <div><label className="label-retro">Nama lengkap</label><input autoFocus value={f.nama} onChange={(e) => setF({ ...f, nama: e.target.value, id: f.id || e.target.value.split(' ')[0].toLowerCase().replace(/[^a-z0-9]/g, '') })} className="input-retro" /></div>
+        <div><label className="label-retro">User ID (huruf kecil, untuk login)</label><input value={f.id} onChange={(e) => setF({ ...f, id: e.target.value.toLowerCase() })} className="input-retro font-mono" /></div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="label-retro">Jabatan</label><input value={f.jabatan} onChange={(e) => setF({ ...f, jabatan: e.target.value })} className="input-retro" /></div>
+          <div><label className="label-retro">Bidang</label><input value={f.bidang} onChange={(e) => setF({ ...f, bidang: e.target.value })} className="input-retro" /></div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="label-retro">Nomor WA</label><input value={f.wa} onChange={(e) => setF({ ...f, wa: e.target.value })} className="input-retro" placeholder="0812…" /></div>
+          <div><label className="label-retro">Peran</label><select value={f.peran} onChange={(e) => setF({ ...f, peran: e.target.value })} className="input-retro">{Object.entries(PERAN_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+        </div>
+        <p className="text-[12px] text-zinc-300 leading-relaxed">Anggota membuat password sendiri saat login pertama, dengan kode undangan yang Anda bagikan.</p>
+        <button onClick={simpan} disabled={menyimpan || !f.id || !f.nama} className="btn-retro bg-emerald-600 w-full">{menyimpan ? 'Menyimpan…' : 'Buat akun'}</button>
+      </div>
     </div>
   );
 };

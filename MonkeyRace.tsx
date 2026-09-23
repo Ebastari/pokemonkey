@@ -132,7 +132,13 @@ export const MonkeyRace: React.FC<MonkeyRaceProps> = ({ onGainXP, activeSkin }) 
            <div className="absolute right-4 md:right-10 h-full w-2 md:w-4 bg-[repeating-linear-gradient(45deg,#fff,#fff_5px,#000_5px,#000_10px)] opacity-30"></div>
            
            <div className="absolute right-1 md:right-2 top-1/2 -translate-y-1/2 animate-bounce">
-              <img src="https://cdn-icons-png.flaticon.com/512/2909/2909808.png" className="w-5 h-5 md:w-10 md:h-10" alt="target" />
+              {/* Bendera finis piksel — dulu gambar dari CDN yang gagal tampil tanpa sinyal. */}
+              <svg viewBox="0 0 16 16" className="w-5 h-5 md:w-10 md:h-10" style={{ imageRendering: 'pixelated' }} aria-label="finis">
+                 <rect x="2" y="1" width="2" height="14" fill="#e5e7eb" />
+                 {[0, 1, 2].map(r => [0, 1, 2].map(c => (
+                   <rect key={`${r}-${c}`} x={4 + c * 3} y={1 + r * 3} width="3" height="3" fill={(r + c) % 2 === 0 ? '#111' : '#fff'} />
+                 )))}
+              </svg>
            </div>
 
            <div 

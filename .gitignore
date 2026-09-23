@@ -12,6 +12,19 @@ dist
 dist-ssr
 *.local
 
+# Cloudflare Worker (rahasia & basis data lokal)
+.dev.vars
+server/.wrangler
+
+# Capacitor / Android build
+android/app/build
+android/build
+android/.gradle
+android/local.properties
+*.apk
+*.aab
+*.keystore
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
