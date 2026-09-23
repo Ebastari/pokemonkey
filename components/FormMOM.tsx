@@ -700,8 +700,8 @@ export const FormMOM: React.FC<Props> = ({
           </div>
 
           {/* Tabel 1: Poin Rapat (Table 0 Template: No | Minutes of Meeting | Pic | Due Date | Remark) */}
-          <div className="mb-6 overflow-x-auto">
-            <table className="w-full border-collapse border border-black text-[12px] sm:text-[13px]">
+          <div className="mb-6">
+            <table className="w-full table-fixed border-collapse border border-black text-[12px] sm:text-[13px]">
               <thead>
                 <tr className="bg-slate-100 font-bold text-center border-b border-black">
                   <th className="border border-black px-2 py-2 w-[5%]">No</th>
@@ -717,16 +717,16 @@ export const FormMOM: React.FC<Props> = ({
                     <td className="border border-black px-2 py-2 text-center align-top font-bold">
                       {p.no || idx + 1}
                     </td>
-                    <td className="border border-black px-3 py-2 align-top whitespace-pre-line">
+                    <td className="border border-black px-3 py-2 align-top whitespace-pre-line [overflow-wrap:anywhere]">
                       {p.minutesOfMeeting || '\u00A0'}
                     </td>
-                    <td className="border border-black px-2 py-2 text-center align-top font-medium">
+                    <td className="border border-black px-2 py-2 text-center align-top font-medium [overflow-wrap:anywhere]">
                       {p.pic || '\u00A0'}
                     </td>
                     <td className="border border-black px-2 py-2 text-center align-top font-mono text-[12px]">
                       {p.dueDate || '\u00A0'}
                     </td>
-                    <td className="border border-black px-2 py-2 align-top">
+                    <td className="border border-black px-2 py-2 align-top whitespace-pre-line [overflow-wrap:anywhere]">
                       {p.remark || '\u00A0'}
                     </td>
                   </tr>
@@ -760,13 +760,13 @@ export const FormMOM: React.FC<Props> = ({
               return (
                 <table
                   key={cIdx}
-                  className="w-full border-collapse border border-black text-[12px] sm:text-[13px] break-inside-avoid mb-3"
+                  className="w-full table-fixed border-collapse border border-black text-[12px] sm:text-[13px] break-inside-avoid mb-3"
                 >
                   <tbody>
                     {/* Baris Nama */}
                     <tr className="border-b border-black bg-slate-50 font-bold text-center">
                       {padded.map((p, i) => (
-                        <td key={i} className="border border-black px-2 py-1.5 w-1/4">
+                        <td key={i} className="border border-black px-2 py-1.5 w-1/4 [overflow-wrap:anywhere]">
                           {p.nama || '\u00A0'}
                         </td>
                       ))}
@@ -786,7 +786,7 @@ export const FormMOM: React.FC<Props> = ({
                     {/* Baris Jabatan */}
                     <tr className="border-b border-black text-center text-[12px]">
                       {padded.map((p, i) => (
-                        <td key={i} className="border border-black px-2 py-1 w-1/4">
+                        <td key={i} className="border border-black px-2 py-1 w-1/4 [overflow-wrap:anywhere]">
                           {p.jabatan || '\u00A0'}
                         </td>
                       ))}
@@ -794,7 +794,7 @@ export const FormMOM: React.FC<Props> = ({
                     {/* Baris Instansi */}
                     <tr className="text-center text-[12px]">
                       {padded.map((p, i) => (
-                        <td key={i} className="border border-black px-2 py-1 w-1/4">
+                        <td key={i} className="border border-black px-2 py-1 w-1/4 [overflow-wrap:anywhere]">
                           {p.instansi || '\u00A0'}
                         </td>
                       ))}
