@@ -162,8 +162,9 @@ export const FormMOM: React.FC<Props> = ({
   };
 
   const handleCetak = () => {
+    // Sama dengan Internal Memo: judul halaman dikosongkan agar tidak ikut tercetak.
     const judulAsli = document.title;
-    document.title = `Minutes of Meeting - ${data.tanggal || 'Dokumen'}`;
+    document.title = ' ';
     window.print();
     setTimeout(() => {
       document.title = judulAsli;

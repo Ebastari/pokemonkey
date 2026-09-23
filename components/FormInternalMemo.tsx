@@ -118,8 +118,10 @@ export const FormInternalMemo: React.FC<Props> = ({
   };
 
   const handleCetak = () => {
+    // Judul halaman ikut tercetak di kepala kertas oleh browser, jadi dikosongkan
+    // dulu agar nomor surat tidak muncul di luar badan memo.
     const judulAsli = document.title;
-    document.title = data.nomor ? `Internal Memo - ${data.nomor}` : 'Internal Memo Perjalanan Dinas';
+    document.title = ' ';
     window.print();
     setTimeout(() => {
       document.title = judulAsli;
@@ -194,7 +196,7 @@ export const FormInternalMemo: React.FC<Props> = ({
           <button
             onClick={handleCetak}
             className="btn-retro !bg-sky-700 hover:!bg-sky-600 !text-white !border-2 !border-white !py-1.5 !px-3 text-xs font-bold flex items-center gap-1.5 shadow-[2px_2px_0_#000]"
-            title="Cetak atau simpan ke PDF"
+            title="Cetak atau simpan ke PDF — matikan 'Header dan footer' di dialog cetak agar tanggal dan alamat situs tidak ikut"
           >
             <Printer size={14} className="text-sky-300" />
             <span className="hidden sm:inline">Cetak / PDF</span>
