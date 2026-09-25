@@ -11,6 +11,7 @@ import { AREA_EBL } from '../server/src/area-ebl';
 import { AREA_DAS } from '../server/src/area-das';
 import { tentukanZonaArea, namaSatelit, type TitikApi, type Zona, type AreaTitik } from '../server/src/titik-api-murni';
 import type { Pengguna } from './tipe-api';
+import type { IsianFormLaporan } from './form-laporan-fire';
 
 export interface TitikApiFireItem {
   id: string;
@@ -90,9 +91,28 @@ export interface LaporanKarhutla {
 
   status: 'Draf' | 'Siap Dikirim' | 'Terkirim ke KLHK';
   dibuatOleh: string;
+  /** Jabatan pembuat di kolom tanda tangan (laporan lama: kosong → teks tim bawaan). */
+  jabatanPembuat?: string;
+  /** Isian form terakhir, agar form bisa dibuka lagi dengan isi yang sama. */
+  isianForm?: IsianFormLaporan;
   dibuatPada: string;
   diubahPada: string;
 }
+
+/** Pembuat laporan bawaan; nama & jabatan bisa diganti di form. */
+export const PEMBUAT_BAWAAN = {
+  nama: 'Agung Laksono',
+  jabatan: 'Staff Revegetasi',
+  ttd: '/fire-report-assets/ttd-agung.png',
+};
+
+/** Pembuat bawaan sesuai mode (demo memakai nama contoh tanpa tanda tangan). */
+export const pembuatBawaan = () =>
+  demoAktif() ? { nama: 'Nama Pembuat', jabatan: 'Staf Lapangan (contoh)', ttd: '' } : PEMBUAT_BAWAAN;
+
+/** Tanda tangan pembuat hanya dipasang bila namanya Agung Laksono (pemilik berkas tanda tangan). */
+export const ttdPembuat = (nama: string) =>
+  !demoAktif() && nama.trim().toLowerCase() === PEMBUAT_BAWAAN.nama.toLowerCase() ? PEMBUAT_BAWAAN.ttd : '';
 
 /** Pejabat yang mengesahkan laporan karhutla (tanda tangan di akhir kronologi). */
 export const PENGESAH_LAPORAN = {
@@ -504,7 +524,7 @@ function buatLaporanOtomatisAsli(params: {
   }
 
   const titikKoordinat: KoordinatLaporan[] = titikLayak.map((t, idx) => {
-    let ket = `Area ${jenisIzin} PT Energi Batubara Lestari`;
+    let ket = `Area ${jenisIzin === 'PPKH' ? 'IPPKH' : jenisIzin} PT Energi Batubara Lestari`;
     if (t.bidang) ket += ` (${t.bidang})`;
     return {
       no: idx + 1,
@@ -528,6 +548,18 @@ function buatLaporanOtomatisAsli(params: {
     titikLayak.length,
   ).padStart(2, '0')}`;
 
+  // Tanggal deteksi (WITA) dan tingkat keyakinan diambil dari titik yang dilaporkan.
+  const BULAN_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  const tanggalDeteksi = [...new Set(titikLayak
+    .map((t) => new Date(Date.parse(t.waktu) + 8 * 3600_000).toISOString().slice(0, 10))
+    .filter((t) => /^\d{4}-\d{2}-\d{2}$/.test(t)))].sort()
+    .map((t) => `${+t.slice(8)} ${BULAN_ID[+t.slice(5, 7) - 1]} ${t.slice(0, 4)}`);
+  const tglDeteksi = tanggalDeteksi.length ? tanggalDeteksi.join(' dan ') : tglStr;
+  const klasifikasi = (['rendah', 'sedang', 'tinggi'] as const)
+    .filter((k) => titikLayak.some((t) => t.keyakinan === k))
+    .map((k) => ({ rendah: 'low', sedang: 'medium', tinggi: 'high' })[k])
+    .join(' dan ') || 'medium';
+
   // Deskripsi dan kronologi yang kontekstual sesuai wilayah
   let deskripsiUmum = '';
   let kronologiVisual = '';
@@ -535,7 +567,7 @@ function buatLaporanOtomatisAsli(params: {
   let verifikasiTeks = '';
 
   if (isDas) {
-    deskripsiUmum = `Berdasarkan hasil pemantauan titik panas (hotspot) melalui Sistem Informasi Pengendalian Kebakaran Hutan dan Lahan (SIPONGI) Kementerian Lingkungan Hidup dan Kehutanan / NASA FIRMS, terdeteksi adanya indikasi titik panas pada tanggal ${tglStr} pada areal petak tanaman Rehabilitasi DAS PT Energi Batubara Lestari di Kawasan Tahura Sultan Adam. Menindaklanjuti informasi tersebut, tim patroli pengamanan hutan dan pengawas tanaman Rehab DAS PT EBL bersama vendor pelaksana segera melakukan verifikasi lapangan (ground check) untuk memastikan kondisi tegakan tanaman dan perimeter sekat bakar.`;
+    deskripsiUmum = `Berdasarkan hasil pemantauan titik panas (hotspot) melalui Sistem Informasi Pengendalian Kebakaran Hutan dan Lahan (SIPONGI) Kementerian Lingkungan Hidup dan Kehutanan dan NASA FIRMS, terdeteksi adanya indikasi kebakaran hutan dan lahan pada tanggal ${tglDeteksi} dengan tingkat kepercayaan (confidence level) klasifikasi ${klasifikasi}. Titik panas tersebut terpantau berada pada areal petak tanaman Rehabilitasi DAS PT Energi Batubara Lestari di Kawasan Tahura Sultan Adam.`;
 
     kronologiVisual = `Berdasarkan pemeriksaan langsung di lapangan oleh tim patroli DAS PT EBL, sumber panas berasal dari ${
       params.penyebab ||
@@ -548,7 +580,7 @@ function buatLaporanOtomatisAsli(params: {
     verifikasiTeks =
       'Hasil verifikasi akhir menegaskan bahwa seluruh tanaman pohon rehabilitasi (ulin, mahoni, meranti) di dalam petak tanam dalam kondisi aman, tidak ada kerusakan tegakan bibit, nihil korban jiwa, dan sekat bakar berfungsi dengan optimal.';
   } else {
-    deskripsiUmum = `Berdasarkan hasil pemantauan titik panas (hotspot) melalui Sistem Informasi Pengendalian Kebakaran Hutan dan Lahan (SIPONGI) Kementerian Lingkungan Hidup dan Kehutanan / NASA FIRMS, terdeteksi adanya indikasi titik panas pada tanggal ${tglStr} dengan tingkat kepercayaan (confidence level) klasifikasi medium hingga tinggi. Titik panas tersebut terpantau berada pada wilayah kerja PT Energi Batubara Lestari, khususnya pada ${jenisIzin} (${skIzin}). Menindaklanjuti informasi tersebut, tim pemantau melakukan verifikasi lapangan (ground check) untuk memastikan keberadaan, penyebab, luasan, serta status titik api di lokasi terindikasi.`;
+    deskripsiUmum = `Berdasarkan hasil pemantauan titik panas (hotspot) melalui Sistem Informasi Pengendalian Kebakaran Hutan dan Lahan (SIPONGI) Kementerian Lingkungan Hidup dan Kehutanan dan NASA FIRMS, terdeteksi adanya indikasi kebakaran hutan dan lahan pada tanggal ${tglDeteksi} dengan tingkat kepercayaan (confidence level) klasifikasi ${klasifikasi}. Titik panas tersebut terpantau berada pada wilayah kerja PT Energi Batubara Lestari, khususnya pada ${isIppkh ? `Area Izin Pinjam Pakai Kawasan Hutan (IPPKH) sebagaimana ditetapkan dalam ${skIzin.split(' dan ')[0]}` : 'Area Izin Usaha Pertambangan (IUP) Operasi Produksi'}.`;
 
     kronologiVisual = `Berdasarkan pengamatan visual dan pemeriksaan kondisi lapangan, api yang timbul bukan merupakan kebakaran vegetasi liar yang meluas, melainkan berasal dari ${
       params.penyebab ||
@@ -590,40 +622,11 @@ function buatLaporanOtomatisAsli(params: {
       prosesPemadaman: `Proses pemadaman berlangsung hingga bara dan api dinyatakan padam sepenuhnya dan terkendali. Setelah pemadaman selesai, tim melakukan pendinginan (mopping up) dan pemantauan berkala untuk memastikan tidak terdapat sisa bara yang berpotensi menyala kembali.`,
       hasilVerifikasi: verifikasiTeks,
     },
-    dokumentasi: {
-      petaSipongi: ['/fire-report-assets/sipongi-titik-1.jpeg', '/fire-report-assets/sipongi-titik-2.jpeg'],
-      fotoLapangan: isDas
-        ? [
-            {
-              url: '/fire-report-assets/foto-lapangan-2.jpeg',
-              judul: 'Patroli Jalur Sekat Bakar (Fire Break) Petak Tanam DAS',
-              deskripsi: 'Pemeriksaan perimeter luar petak penanaman pohon Tahura Sultan Adam.',
-              kategori: 'umum',
-            },
-            {
-              url: '/fire-report-assets/foto-before-after.jpeg',
-              judul: 'Penyisiran & Pembasahan Tuntas (Mopping Up) di Sekitar Petak',
-              deskripsi: 'Kondisi areal aman terkendali dan tidak ada rambatan ke tanaman pokok.',
-              kategori: 'setelah',
-            },
-          ]
-        : [
-            {
-              url: '/fire-report-assets/foto-before-after.jpeg',
-              judul: 'Dokumentasi Kondisi Sebelum & Sesudah Penanganan Bara Batubara',
-              deskripsi: 'Hasil perataan bara dan pemadaman di area lereng batubara.',
-              kategori: 'umum',
-            },
-            {
-              url: '/fire-report-assets/foto-lapangan-1.jpeg',
-              judul: 'Penanganan Lapangan Menggunakan Alat Berat Excavator & Water Suppressant',
-              deskripsi: 'Tim SHE dan operator alat berat melakukan isolasi bara.',
-              kategori: 'tindakan',
-            },
-          ],
-    },
+    // Foto & screenshot diisi dari lapangan (form / tinjau), bukan foto contoh.
+    dokumentasi: { petaSipongi: [], fotoLapangan: [] },
     status: 'Draf',
-    dibuatOleh: isDas ? 'Tim Pengawas Rehab DAS PT EBL' : params.pengguna?.nama || 'Tim Patroli SHE PT EBL',
+    dibuatOleh: pembuatBawaan().nama,
+    jabatanPembuat: pembuatBawaan().jabatan,
     dibuatPada: now.toISOString(),
     diubahPada: now.toISOString(),
   };

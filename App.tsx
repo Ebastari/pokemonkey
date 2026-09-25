@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  Play, Pause, Heart, HeartOff, User, Trees, Target, Backpack, Calendar as CalendarIcon,
+  HelpCircle, Heart, HeartOff, User, Trees, Target, Backpack, Calendar as CalendarIcon,
   Gamepad2, Flame, Star, Wifi, WifiOff, Users, ShoppingBag, LogOut, ClipboardList,
   CalendarDays, Megaphone, CloudUpload, Menu, X, Maximize2, Minimize2, CalendarRange, NotebookPen, Bell,
   Sun, Moon, Presentation, Camera, Coins,
@@ -33,6 +33,7 @@ import { NotifikasiScreen } from './components/NotifikasiScreen';
 import { ModalAlarm } from './components/ModalAlarm';
 import { PanelAlarm } from './components/PanelAlarm';
 import { ModalMonkeyPoint } from './components/ModalMonkeyPoint';
+import { ModalPanduanAplikasi } from './components/ModalPanduanAplikasi';
 import { ModalStamina } from './components/ModalStamina';
 import { ModalProfil } from './components/ModalProfil';
 import { mulaiNotifikasi, hentikanNotifikasi, lupakanSesiNotifikasi, dengarKetukanNotifikasi } from './lib/notifikasi';
@@ -158,7 +159,7 @@ const App: React.FC = () => {
       const saved = localStorage.getItem(SAVE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        return { ...awal, ...parsed, missions: awal.missions, stamina: calculateStaminaHybrid(parsed.lastFeedingTime || 0), isLoggedIn: false };
+        return { ...awal, ...parsed, missions: awal.missions, stamina: calculateStaminaHybrid(parsed.lastFeedingTime || 0), isLoggedIn: false, isPaused: false };
       }
     } catch (e) { console.error('Load error:', e); }
     return awal;
@@ -179,6 +180,7 @@ const App: React.FC = () => {
   const [alarmAktif, setAlarmAktif] = useState<AlarmItem | null>(null);
   const [panelAlarmBuka, setPanelAlarmBuka] = useState(false);
   const [monkeyPointBuka, setMonkeyPointBuka] = useState(false);
+  const [panduanBuka, setPanduanBuka] = useState(false);
   const [modalStaminaBuka, setModalStaminaBuka] = useState(false);
   const [modalProfilBuka, setModalProfilBuka] = useState(false);
 
@@ -921,8 +923,8 @@ const App: React.FC = () => {
               {tema === 'gelap' ? <Sun size={16} /> : <Moon size={16} />}
             </button>
             <button onClick={() => setFokus(true)} className="btn-ikon bg-zinc-800" title="Layar penuh"><Maximize2 size={16} /></button>
-            <button onClick={() => setGameState((p) => ({ ...p, isPaused: !p.isPaused }))} className="btn-ikon bg-yellow-500 text-black" title={gameState.isPaused ? 'Lanjutkan' : 'Jeda'}>
-              {gameState.isPaused ? <Play size={16} /> : <Pause size={16} />}
+            <button onClick={() => setPanduanBuka(true)} className="btn-ikon bg-yellow-500 text-black" title="Buku panduan" aria-label="Buka buku panduan">
+              <HelpCircle size={17} />
             </button>
             <button onClick={handleLogout} className="btn-ikon bg-red-900" title="Keluar"><LogOut size={16} /></button>
           </div>
@@ -1030,7 +1032,7 @@ const App: React.FC = () => {
                 {tema === 'gelap' ? <><Sun size={14} /> Mode terang</> : <><Moon size={14} /> Mode gelap</>}
               </button>
               <button onClick={() => { setFokus(true); setMenuBuka(false); }} className="btn-retro btn-retro-sm bg-zinc-700 flex-1 min-w-[46%]"><Maximize2 size={14} /> Layar penuh</button>
-              <button onClick={() => setGameState((p) => ({ ...p, isPaused: !p.isPaused }))} className="btn-retro btn-retro-sm bg-yellow-600 flex-1">{gameState.isPaused ? <><Play size={14} /> Lanjut</> : <><Pause size={14} /> Jeda</>}</button>
+              <button onClick={() => { setPanduanBuka(true); setMenuBuka(false); }} className="btn-retro btn-retro-sm bg-yellow-600 flex-1"><HelpCircle size={14} /> Panduan</button>
               <button onClick={handleLogout} className="btn-retro btn-retro-sm bg-red-900 flex-1"><LogOut size={14} /> Keluar</button>
             </div>
             <p className="text-[11px] text-zinc-500 mt-3 text-center">{gameState.isOnline ? 'Tersambung' : 'Offline'}{demo ? ' · mode demo, data di browser ini' : ''}</p>
@@ -1083,6 +1085,8 @@ const App: React.FC = () => {
           notify={notify}
         />
       )}
+
+      <ModalPanduanAplikasi isOpen={panduanBuka} onClose={() => setPanduanBuka(false)} />
 
       {monkeyPointBuka && sesi && (
         <ModalMonkeyPoint

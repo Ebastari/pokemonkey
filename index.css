@@ -776,7 +776,32 @@ input[type='date'], input[type='time'] {
 .mode-gambar[data-gambar-lepas], .mode-gambar [data-gambar-lepas] { overflow: visible !important; height: auto !important; max-height: none !important; }
 .mode-gambar .sticky { position: static !important; }
 
-/* Cetak: elemen bertanda .no-print tidak pernah ikut ke kertas (Fire Monkey, Money Monkey). */
+/* Cetak: elemen bertanda .no-print tidak pernah ikut ke kertas (Fire Monkey, Money Monkey, Modal Panduan). */
 @media print {
   .no-print { display: none !important; }
+
+  /* Cetak Buku Panduan A4 Multi-Halaman */
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  .halaman-panduan-a4 {
+    page-break-after: always !important;
+    break-after: page !important;
+    box-shadow: none !important;
+    border: 1.5px solid #cbd5e1 !important;
+    margin: 0 !important;
+    min-height: 265mm !important;
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .halaman-panduan-a4:last-of-type {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
 }
+

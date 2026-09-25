@@ -20,11 +20,15 @@ import {
   simpanDaftarLaporanKarhutla,
   aturUlangTitikDemo,
   PENGESAH_LAPORAN,
+  ttdPembuat,
   muatTitikNasa,
   type DataTitikLive,
   type KoordinatLaporan,
 } from '../lib/fire-report';
 import { api } from '../lib/api';
+import { anonimkanDalam } from '../lib/wilayah-fire';
+import { eksporLembarPdf } from '../lib/pdf-laporan';
+import { FormLaporanFire } from './FormLaporanFire';
 import { buatScreenshotPetaOtomatis, kompresGambar } from '../lib/map-snapshot';
 import { diAplikasi } from '../lib/platform';
 import { demoAktif } from '../lib/api';
@@ -69,7 +73,7 @@ const kelompokKoordinat = (daftar: KoordinatLaporan[]) =>
 /** Kop surat, diulang di tiap halaman seperti header dokumen Word. */
 const KopLaporan: React.FC<{ demo: boolean; perusahaan: string }> = ({ demo, perusahaan }) =>
   demo ? (
-    <div className="flex items-center gap-3 pb-2 mb-5 border-b-[3px] border-[#1f3a6e]">
+    <div data-kop className="flex items-center gap-3 pb-2 mb-5 border-b-[3px] border-[#1f3a6e]">
       <div className="w-12 h-12 rounded-full border-[3px] border-zinc-400 flex items-center justify-center text-[7pt] font-bold text-zinc-500 shrink-0">LOGO</div>
       <div>
         <p className="font-bold text-[13pt] leading-tight text-[#1f3a6e]">{perusahaan.toUpperCase()}</p>
@@ -77,7 +81,7 @@ const KopLaporan: React.FC<{ demo: boolean; perusahaan: string }> = ({ demo, per
       </div>
     </div>
   ) : (
-    <img src="/fire-report-assets/kop-ebl-laporan.jpg" alt={perusahaan} className="block w-full h-auto mb-5" />
+    <img data-kop src="/fire-report-assets/kop-ebl-laporan.jpg" alt={perusahaan} className="block w-full h-auto mb-5" />
   );
 
 /** Butir bernomor dengan indentasi gantung, seperti daftar bernomor Word. */
@@ -210,6 +214,9 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
   });
 
   const [modeEditLaporan, setModeEditLaporan] = useState<boolean>(false);
+  // Alur laporan: titik terpilih → form (langkah 1) → tinjau lembar (langkah 2) → export PDF.
+  const [formLaporan, setFormLaporan] = useState<{ laporan: LaporanKarhutla; baru: boolean } | null>(null);
+  const [mengeksporPdf, setMengeksporPdf] = useState(false);
   const [draftLaporan, setDraftLaporan] = useState<LaporanKarhutla | null>(null);
   const [isGeneratingSnapshot, setIsGeneratingSnapshot] = useState<boolean>(false);
   const [isUploadingFoto, setIsUploadingFoto] = useState<boolean>(false);
@@ -347,12 +354,39 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
         console.warn('Gagal buat initial map snapshot:', errSnap);
       }
 
-      setDaftarLaporan((prev) => [laporanBaru, ...prev]);
-      setLaporanAktifId(laporanBaru.id);
-      setTabMode('laporan');
-      notify(`LAPORAN ${laporanBaru.jenisIzin.toUpperCase()} & SCREENSHOT PETA BERHASIL DIBUAT`);
+      setFormLaporan({ laporan: laporanBaru, baru: true });
     } catch (err) {
       notify(err instanceof Error ? err.message.toUpperCase() : 'GAGAL MEMBUAT LAPORAN');
+    }
+  };
+
+  /** Form selesai → laporan disimpan lalu ditampilkan untuk ditinjau. */
+  const handleTinjauForm = (hasil: LaporanKarhutla) => {
+    const siap = anonimkanDalam(hasil);
+    const baru = formLaporan?.baru;
+    setDaftarLaporan((prev) => (baru ? [siap, ...prev] : prev.map((l) => (l.id === siap.id ? siap : l))));
+    setLaporanAktifId(siap.id);
+    setModeEditLaporan(false);
+    setDraftLaporan(null);
+    setFormLaporan(null);
+    setTabMode('laporan');
+    notify('TINJAU LAPORAN, LALU EXPORT PDF');
+  };
+
+  /** Export PDF langsung (APK tidak mendukung dialog cetak browser). */
+  const handleEksporPdf = async () => {
+    if (modeEditLaporan) { notify('SIMPAN ATAU BATALKAN EDIT DULU'); return; }
+    const dok = document.getElementById('dokumen-karhutla-a4');
+    if (!dok || !laporanDitampilkan) return;
+    setMengeksporPdf(true);
+    try {
+      const nama = `Laporan Karhutla ${laporanDitampilkan.jenisIzin} ${laporanDitampilkan.tanggalLaporan}.pdf`;
+      const hasil = await eksporLembarPdf(dok, nama, laporanDitampilkan.judul);
+      notify(hasil === 'diunduh' ? 'PDF DIUNDUH' : 'PDF SIAP DIBAGIKAN');
+    } catch (e) {
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUAT PDF');
+    } finally {
+      setMengeksporPdf(false);
     }
   };
 
@@ -1489,14 +1523,37 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                 </div>
               )}
 
-              {/* Cetak PDF */}
+              {/* Kembali ke form (langkah 1) */}
               <button
-                onClick={handleCetakDokumen}
-                className="btn-retro bg-emerald-800 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 !py-1 text-[11px]"
-                title="Cetak langsung atau simpan sebagai PDF A4 resmi"
+                onClick={() => laporanAktif && setFormLaporan({ laporan: laporanAktif, baru: false })}
+                disabled={modeEditLaporan || !laporanAktif}
+                className="btn-retro bg-orange-700 hover:bg-orange-600 text-white font-bold flex items-center gap-1.5 !py-1 text-[11px] disabled:opacity-40"
+                title="Buka lagi form kronologi laporan ini"
               >
-                <Printer size={13} /> Cetak / Unduh PDF
+                <FileText size={13} /> Ubah lewat form
               </button>
+
+              {/* Export PDF langsung */}
+              <button
+                onClick={handleEksporPdf}
+                disabled={mengeksporPdf}
+                className="btn-retro bg-emerald-700 hover:bg-emerald-600 text-white font-bold flex items-center gap-1.5 !py-1 text-[11px] shadow-[2px_2px_0_#000] disabled:opacity-60"
+                title="Buat berkas PDF A4 lalu simpan atau bagikan"
+              >
+                {mengeksporPdf ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                {mengeksporPdf ? 'Membuat PDF…' : 'Export PDF'}
+              </button>
+
+              {/* Cetak lewat browser (hanya versi web; WebView APK tidak punya dialog cetak) */}
+              {!diAplikasi() && (
+                <button
+                  onClick={handleCetakDokumen}
+                  className="btn-retro bg-zinc-800 hover:bg-zinc-700 text-white flex items-center gap-1.5 !py-1 text-[11px]"
+                  title="Cetak lewat dialog cetak browser"
+                >
+                  <Printer size={13} /> Cetak
+                </button>
+              )}
             </div>
           </div>
 
@@ -1571,6 +1628,10 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           {/* hal.1 identitas + A. Deskripsi · hal.2 B. Kronologi + pengesahan  */}
           {/* hal.3 tangkapan layar peta · hal.4 foto lapangan                  */}
           {/* ================================================================= */}
+          <div className="no-print max-w-4xl mx-auto mb-2 flex flex-wrap items-center gap-2 border-2 border-orange-500 bg-orange-950/60 px-3 py-2 text-[12px] text-orange-100">
+            <b className="text-white">Langkah 2 dari 2 · Tinjau laporan.</b>
+            <span>Periksa semua halaman di bawah, lalu tekan <b>Export PDF</b>. Ada yang kurang? Tekan <b>Ubah lewat form</b>.</span>
+          </div>
           <div className="no-print max-w-4xl mx-auto mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-300 font-mono">
             <span className="flex items-center gap-1">
               <b className="text-zinc-400">Nomor</b>
@@ -1610,7 +1671,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
               {/* ------------------------------------------------------------- */}
               {/* HALAMAN 1: KOP, IDENTITAS IZIN, & A. DESKRIPSI                */}
               {/* ------------------------------------------------------------- */}
-              <section>
+              <section data-halaman="1">
                 <KopLaporan demo={modeDemo} perusahaan={idn.perusahaan} />
 
                 <table className="w-full border-collapse text-[9pt] mb-3">
@@ -1705,7 +1766,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
               {/* ------------------------------------------------------------- */}
               {/* HALAMAN 2: B. KRONOLOGI KEBAKARAN + PENGESAHAN                */}
               {/* ------------------------------------------------------------- */}
-              <section className="halaman-baru mt-8 pt-8 border-t-2 border-dashed border-zinc-300 print:mt-0 print:pt-0 print:border-none">
+              <section data-halaman="2" className="halaman-baru mt-8 pt-8 border-t-2 border-dashed border-zinc-300 print:mt-0 print:pt-0 print:border-none">
                 <KopLaporan demo={modeDemo} perusahaan={idn.perusahaan} />
 
                 <h4 className="font-bold text-[10.5pt] mb-1.5">B. KRONOLOGI KEBAKARAN</h4>
@@ -1786,7 +1847,11 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                   <div>
                     <p>&nbsp;</p>
                     <p>Dibuat oleh,</p>
-                    <div className="h-[72px]" />
+                    <div className="h-[72px] flex items-center justify-center">
+                      {ttdPembuat(laporanDitampilkan.dibuatOleh) && (
+                        <img src={ttdPembuat(laporanDitampilkan.dibuatOleh)} alt={`Tanda tangan ${laporanDitampilkan.dibuatOleh}`} className="h-[60px] w-auto" />
+                      )}
+                    </div>
                     {modeEditLaporan ? (
                       <input
                         type="text"
@@ -1798,9 +1863,10 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                       <p className="font-bold underline">{laporanDitampilkan.dibuatOleh}</p>
                     )}
                     <p>
-                      {laporanDitampilkan.jenisIzin.toLowerCase().includes('das')
-                        ? 'Pengawas Rehabilitasi DAS & Tim Patroli Hutan'
-                        : 'Tim Tanggap Darurat & SHE Department'}
+                      {laporanDitampilkan.jabatanPembuat ||
+                        (laporanDitampilkan.jenisIzin.toLowerCase().includes('das')
+                          ? 'Pengawas Rehabilitasi DAS & Tim Patroli Hutan'
+                          : 'Tim Tanggap Darurat & SHE Department')}
                     </p>
                   </div>
                   <div>
@@ -1819,6 +1885,8 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
               {/* HALAMAN 3: TANGKAPAN LAYAR PETA / SIPONGI                     */}
               {/* ------------------------------------------------------------- */}
               <section
+                data-halaman="3"
+                data-kosong={laporanDitampilkan.dokumentasi.petaSipongi.length === 0 ? '1' : '0'}
                 className={`halaman-baru mt-8 pt-8 border-t-2 border-dashed border-zinc-300 print:mt-0 print:pt-0 print:border-none ${
                   laporanDitampilkan.dokumentasi.petaSipongi.length === 0 ? 'print:hidden' : ''
                 }`}
@@ -1858,7 +1926,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                 )}
                 <div className="flex flex-col items-center gap-4">
                   {laporanDitampilkan.dokumentasi.petaSipongi.map((imgUrl, i) => (
-                    <div key={i} className="relative w-full md:w-[82%] break-inside-avoid">
+                    <div key={i} className="lebar-peta relative w-full md:w-[82%] break-inside-avoid">
                       <img src={imgUrl} alt={`Tangkapan layar titik panas ${i + 1}`} className="block w-full h-auto" />
                       <TombolHapusGambar onClick={() => handleHapusPetaSipongi(i)} judul="Hapus tangkapan layar ini" />
                     </div>
@@ -1870,6 +1938,8 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
               {/* HALAMAN 4: FOTO DOKUMENTASI LAPANGAN                          */}
               {/* ------------------------------------------------------------- */}
               <section
+                data-halaman="4"
+                data-kosong={laporanDitampilkan.dokumentasi.fotoLapangan.length === 0 ? '1' : '0'}
                 className={`halaman-baru mt-8 pt-8 border-t-2 border-dashed border-zinc-300 print:mt-0 print:pt-0 print:border-none ${
                   laporanDitampilkan.dokumentasi.fotoLapangan.length === 0 ? 'print:hidden' : ''
                 }`}
@@ -1897,7 +1967,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                     Belum ada foto lapangan. Halaman ini tidak ikut tercetak selama kosong.
                   </p>
                 )}
-                <div className="grid grid-cols-2 gap-1 w-full md:w-[80%] mx-auto">
+                <div className="lebar-foto grid grid-cols-2 gap-1 w-full md:w-[80%] mx-auto">
                   {laporanDitampilkan.dokumentasi.fotoLapangan.map((foto, idx) => (
                     <div key={idx} className="break-inside-avoid">
                       <div className="relative">
@@ -2083,8 +2153,23 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
         </div>
       )}
 
+      {formLaporan && (
+        <FormLaporanFire
+          laporan={formLaporan.laporan}
+          baru={formLaporan.baru}
+          notify={notify}
+          onBatal={() => setFormLaporan(null)}
+          onTinjau={handleTinjauForm}
+        />
+      )}
+
       {/* Gaya cetak A4: hanya lembar dokumen resmi yang keluar di kertas. */}
       <style>{`
+        #dokumen-karhutla-a4.mode-ekspor-pdf { width: 643px !important; max-width: none !important; padding: 0 !important; border: 0 !important; box-shadow: none !important; }
+        #dokumen-karhutla-a4.mode-ekspor-pdf .no-print { display: none !important; }
+        #dokumen-karhutla-a4.mode-ekspor-pdf section { margin: 0 !important; padding: 0 !important; border: 0 !important; }
+        #dokumen-karhutla-a4.mode-ekspor-pdf .lebar-peta { width: 82% !important; }
+        #dokumen-karhutla-a4.mode-ekspor-pdf .lebar-foto { width: 80% !important; }
         @media print {
           @page {
             size: A4 portrait;

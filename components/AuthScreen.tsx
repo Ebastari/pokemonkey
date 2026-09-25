@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { User, Key, ArrowRight, Wifi, AlertTriangle, Loader2, Settings, Globe, Ticket, PlayCircle, Sparkles, Fingerprint } from 'lucide-react';
+import { User, Key, ArrowRight, Wifi, AlertTriangle, Loader2, Settings, Globe, Ticket, PlayCircle, Sparkles, Fingerprint, BookOpen } from 'lucide-react';
 import {
   api, GalatApi, simpanToken, ambilServer, simpanServer, SERVER_BAWAAN,
   aktifkanDemo, matikanDemo, adaDataDemo, resetDemoDb, hitungDataDemo,
@@ -9,6 +9,7 @@ import {
 } from '../lib/biometrik';
 import type { Pengguna } from '../lib/tipe-api';
 import { TombolSidikJari } from './TombolSidikJari';
+import { ModalPanduanAplikasi } from './ModalPanduanAplikasi';
 import { tautanGabung } from '../lib/demo-contoh';
 // Diimpor (bukan dari public/) supaya Vite langsung menyajikannya dan nama berkasnya ber-hash.
 import gambarLogin from '../aset/login-hero.webp';
@@ -42,6 +43,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onMasuk }) => {
   const [dataDemo, setDataDemo] = useState(() => hitungDataDemo());
   const [konfirmasiReset, setKonfirmasiReset] = useState(false);
   const [bukaDemo, setBukaDemo] = useState(false);
+  const [bukaPanduan, setBukaPanduan] = useState(false);
   const [tampilan, setTampilan] = useState<Tampilan>('form');
   const [bioTersedia, setBioTersedia] = useState(false);
   const [bioAktif, setBioAktif] = useState(false);
@@ -246,6 +248,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onMasuk }) => {
                   <button type="button" onClick={() => { setTampilan('form'); setError(null); }} disabled={loading} className="btn-retro bg-transparent !border-zinc-500 !shadow-none w-full !py-3 text-[13px] text-zinc-200">
                     <Key size={16} /> Masuk dengan password
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setBukaPanduan(true)}
+                    className="btn-retro bg-zinc-900/90 hover:bg-zinc-800 text-yellow-300 border-yellow-500/50 w-full !py-2.5 text-[12px] font-bold flex items-center justify-center gap-2 shadow-[2px_2px_0_#000] transition-colors"
+                  >
+                    <BookOpen size={15} className="text-yellow-400" />
+                    <span>Buku Panduan Aplikasi &amp; SOP (PDF)</span>
+                  </button>
                 </div>
               )}
 
@@ -269,6 +279,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onMasuk }) => {
                   <button type="submit" disabled={loading} className="btn-retro bg-yellow-600 w-full !py-3.5 text-[14px]">
                     {loading ? <><Loader2 size={18} className="animate-spin" /> Memeriksa…</> : <>Masuk <ArrowRight size={18} /></>}
                   </button>
+
+                  {/* Tombol Akses Buku Panduan & SOP */}
+                  <button
+                    type="button"
+                    onClick={() => setBukaPanduan(true)}
+                    className="btn-retro bg-zinc-900/90 hover:bg-zinc-800 text-yellow-300 border-yellow-500/50 w-full !py-2.5 text-[12px] font-bold flex items-center justify-center gap-2 shadow-[2px_2px_0_#000] transition-colors"
+                  >
+                    <BookOpen size={15} className="text-yellow-400" />
+                    <span>Buku Panduan Aplikasi &amp; SOP (PDF)</span>
+                  </button>
+
                   {/* Di website layar lebar sidik jari tak mungkin tersedia: disembunyikan. */}
                   <div className={`space-y-4 ${bioTersedia ? '' : 'md:hidden'}`}>
                     <div className="flex items-center gap-3 pt-1 text-[10px] font-title text-zinc-500">
@@ -366,6 +387,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onMasuk }) => {
           </div>
         </div>
       </div>
+
+      {/* Modal Buku Panduan & SOP Aplikasi (Printable A4 & Export PDF) */}
+      <ModalPanduanAplikasi
+        isOpen={bukaPanduan}
+        onClose={() => setBukaPanduan(false)}
+      />
     </div>
   );
 };
