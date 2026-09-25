@@ -159,7 +159,9 @@ const App: React.FC = () => {
       const saved = localStorage.getItem(SAVE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        return { ...awal, ...parsed, missions: awal.missions, stamina: calculateStaminaHybrid(parsed.lastFeedingTime || 0), isLoggedIn: false, isPaused: false };
+        // Alamat blob: dari sesi sebelumnya sudah mati; kosongkan agar foto diambil ulang dari server.
+        const profilePhoto = String(parsed.profilePhoto ?? '').startsWith('blob:') ? '' : parsed.profilePhoto;
+        return { ...awal, ...parsed, profilePhoto, missions: awal.missions, stamina: calculateStaminaHybrid(parsed.lastFeedingTime || 0), isLoggedIn: false, isPaused: false };
       }
     } catch (e) { console.error('Load error:', e); }
     return awal;
@@ -426,7 +428,9 @@ const App: React.FC = () => {
     if (!gameState.isLoggedIn) return;
     const { missions, ...ringan } = gameState;
     void missions;
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...ringan, reports: ringan.reports.slice(0, 50) })); } catch { /* abaikan */ }
+    // Foto dari server berupa alamat blob: yang hanya hidup selama aplikasi terbuka — tidak ikut disimpan.
+    const foto = ringan.profilePhoto.startsWith('blob:') ? '' : ringan.profilePhoto;
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...ringan, profilePhoto: foto, reports: ringan.reports.slice(0, 50) })); } catch { /* abaikan */ }
   }, [gameState]);
 
   // Alamat /?tab= dari notifikasi sudah dibaca saat awal; bersihkan agar muat ulang tidak membukanya lagi.
