@@ -11,6 +11,8 @@ interface Props {
   titikFokus: TitikApiFireItem | null;
   onPilihTitik: (titik: TitikApiFireItem) => void;
   onTogglePilihLaporan: (titikId: string) => void;
+  /** Peta panas: tiap titik jadi lingkaran merah transparan; yang menumpuk tampak makin pekat. */
+  panas?: boolean;
 }
 
 export const FireMap: React.FC<Props> = ({
@@ -19,6 +21,7 @@ export const FireMap: React.FC<Props> = ({
   titikFokus,
   onPilihTitik,
   onTogglePilihLaporan,
+  panas = false,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -166,6 +169,17 @@ export const FireMap: React.FC<Props> = ({
 
     layer.clearLayers();
 
+    if (panas) {
+      titikList.forEach((t) => {
+        const wajib = t.zona === 'ippkh' || t.zona === 'iup' || t.zona === 'petak';
+        L.circle([t.lat, t.lon], { radius: 900, stroke: false, fillColor: wajib ? '#dc2626' : '#f59e0b', fillOpacity: 0.16 }).addTo(layer);
+        L.circle([t.lat, t.lon], { radius: 350, stroke: false, fillColor: wajib ? '#ef4444' : '#fbbf24', fillOpacity: 0.28 })
+          .addTo(layer)
+          .on('click', () => onPilihTitik(t));
+      });
+      return;
+    }
+
     titikList.forEach((t) => {
       const diDalam = t.zona === 'ippkh' || t.zona === 'iup' || t.zona === 'petak';
       const isWaspada = t.zona === 'waspada';
@@ -261,7 +275,7 @@ export const FireMap: React.FC<Props> = ({
         }
       });
     });
-  }, [titikList, titikTerpilihIds, onPilihTitik, onTogglePilihLaporan]);
+  }, [titikList, titikTerpilihIds, onPilihTitik, onTogglePilihLaporan, panas]);
 
   // Efek fokus bila ada titik tertentu yang dipilih dari daftar
   useEffect(() => {
@@ -343,7 +357,7 @@ export const FireMap: React.FC<Props> = ({
           </div>
           <div className="flex items-center gap-2">
             <span className="w-3.5 h-2.5 border border-emerald-400 bg-emerald-400/30 inline-block shrink-0" />
-            <span className="text-emerald-300 font-semibold">{wilayah.demo ? 'Area izin' : 'Area IPPKH (SK.78 / SK.6982)'}</span>
+            <span className="text-emerald-300 font-semibold">{wilayah.demo ? 'Area izin' : 'Area IPPKH (SK.78 / SK.892 / SK.966)'}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-3.5 h-2.5 border border-yellow-400 bg-yellow-400/30 inline-block shrink-0" />

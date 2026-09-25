@@ -144,6 +144,11 @@ export function pdfDariJpeg(halaman: { data: Uint8Array; lebar: number; tinggi: 
  * dan satu elemen `[data-kop]` untuk kop halaman lanjutan.
  */
 export async function eksporLembarPdf(dok: HTMLElement, nama: string, judul: string): Promise<'dibagikan' | 'diunduh'> {
+  return simpanBerkas(await buatPdfLembar(dok), nama, judul);
+}
+
+/** Lembar dokumen → Blob PDF A4 (tanpa menyimpan), untuk diunggah ke arsip. */
+export async function buatPdfLembar(dok: HTMLElement): Promise<Blob> {
   const { toCanvas } = await import('html-to-image');
   const halaman: HTMLCanvasElement[] = [];
   dok.classList.add('mode-ekspor-pdf');
@@ -171,5 +176,5 @@ export async function eksporLembarPdf(dok: HTMLElement, nama: string, judul: str
   if (!halaman.length) throw new Error('Tidak ada halaman untuk diekspor');
   const jpeg: { data: Uint8Array; lebar: number; tinggi: number }[] = [];
   for (const h of halaman) jpeg.push(await keJpeg(h)); // satu per satu: hemat memori WebView
-  return simpanBerkas(pdfDariJpeg(jpeg), nama, judul);
+  return pdfDariJpeg(jpeg);
 }

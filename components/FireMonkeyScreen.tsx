@@ -27,8 +27,15 @@ import {
 } from '../lib/fire-report';
 import { api } from '../lib/api';
 import { anonimkanDalam } from '../lib/wilayah-fire';
-import { eksporLembarPdf } from '../lib/pdf-laporan';
+import { buatPdfLembar } from '../lib/pdf-laporan';
 import { FormLaporanFire } from './FormLaporanFire';
+import { FireHarian } from './FireHarian';
+import { FireRiwayat } from './FireRiwayat';
+import {
+  muatBulan, bulanIni, unggahLaporan, tandaiTerkirim, ambilPdfArsip, ambilIsiArsip, kirimKeWhatsApp, pesanPengantar, namaPdf, labelArea,
+  type ArsipKarhutla, type KelompokLaporan,
+} from '../lib/karhutla';
+import { simpanBerkas } from '../lib/unduh';
 import { buatScreenshotPetaOtomatis, kompresGambar } from '../lib/map-snapshot';
 import { diAplikasi } from '../lib/platform';
 import { demoAktif } from '../lib/api';
@@ -109,7 +116,16 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
   // ---------------------------------------------------------------------------
   // STATE UTAMA
   // ---------------------------------------------------------------------------
-  const [tabMode, setTabMode] = useState<'peta' | 'laporan' | 'riwayat'>('peta');
+  // Alur: pantau (peta) → harian (tabel per hari, buat laporan) → dokumen (form, PDF, kirim) → riwayat (arsip).
+  const [tabMode, setTabMode] = useState<'pantau' | 'harian' | 'riwayat' | 'dokumen'>('pantau');
+  const [kembaliKe, setKembaliKe] = useState<'pantau' | 'harian' | 'riwayat'>('harian');
+  const [petaPanas, setPetaPanas] = useState(false);
+  const pindahTab = (t: 'pantau' | 'harian' | 'riwayat') => {
+    if (tabMode === 'dokumen' && modeEditLaporan && !confirm('Suntingan dokumen belum disimpan. Tinggalkan?')) return;
+    setModeEditLaporan(false);
+    setDraftLaporan(null);
+    setTabMode(t);
+  };
   // Titik simpanan di perangkat hanya untuk mode demo; mode kerja selalu memakai data NASA dari server.
   const [titikList, setTitikList] = useState<TitikApiFireItem[]>(() => (demoAktif() ? muatTitikApiMonitoring() : []));
   const [titikTerpilihIds, setTitikTerpilihIds] = useState<string[]>([]);
@@ -155,8 +171,8 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
     const jeda = window.setInterval(() => void segarkanNasa(true), 10 * 60_000);
     return () => window.clearInterval(jeda);
   }, [pakaiNasa, modeLive, segarkanNasa]);
-  const gantiLive = () => {
-    const nyala = !modeLive;
+  const aturLive = (nyala: boolean) => {
+    if (nyala === modeLive) return;
     setModeLive(nyala);
     setDataNasa(null);
     setTitikTerpilihIds([]);
@@ -186,32 +202,29 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
 
   // State Peta & Seleksi Titik
   const [titikFokus, setTitikFokus] = useState<TitikApiFireItem | null>(null);
-  const [filterZona, setFilterZona] = useState<string>('semua');
-  const [pencarian, setPencarian] = useState<string>('');
 
-  // Mode Edit Laporan & Draft State
-  // Pengaturan Layout Tampilan: 'seimbang' (default) | 'tabel-luas' | 'peta-luas'
-  const [modeLayout, setModeLayout] = useState<'seimbang' | 'tabel-luas' | 'peta-luas'>(() => {
-    try {
-      const t = localStorage.getItem('pokemonkey_fire_layout') as 'seimbang' | 'tabel-luas' | 'peta-luas' | null;
-      if (t) return t;
-    } catch { /* abaikan */ }
-    return 'seimbang';
-  });
-  const ubahModeLayout = (mode: 'seimbang' | 'tabel-luas' | 'peta-luas') => {
-    setModeLayout(mode);
-    try { localStorage.setItem('pokemonkey_fire_layout', mode); } catch { /* abaikan */ }
-  };
+  // Tab Harian: titik sebulan dari server + arsip laporan bulan itu.
+  const [bulanHarian, setBulanHarian] = useState(bulanIni);
+  const [dataBulan, setDataBulan] = useState<{ titik: TitikApiFireItem[]; laporan: ArsipKarhutla[] }>({ titik: [], laporan: [] });
+  const [memuatBulan, setMemuatBulan] = useState(false);
+  const [galatBulan, setGalatBulan] = useState<string | null>(null);
+  // Naik setiap ada ekspor/kirim, supaya tab Harian dan Riwayat memuat ulang.
+  const [versiArsip, setVersiArsip] = useState(0);
+  useEffect(() => {
+    let hidup = true;
+    setMemuatBulan(true);
+    setGalatBulan(null);
+    muatBulan(bulanHarian)
+      .then((d) => { if (hidup) setDataBulan(d); })
+      .catch((e) => { if (hidup) setGalatBulan(e instanceof Error ? e.message : 'Gagal memuat titik bulan ini.'); })
+      .finally(() => { if (hidup) setMemuatBulan(false); });
+    return () => { hidup = false; };
+  }, [bulanHarian, versiArsip]);
 
-  // Pengaturan Zoom Font Tabel Titik Api
-  const [zoomTabel, setZoomTabel] = useState<number>(() => {
-    try { return Number(localStorage.getItem('pokemonkey_fire_zoom')) || 1; } catch { return 1; }
-  });
-  const ubahZoom = (arah: 1 | -1) => setZoomTabel((z) => {
-    const baru = Math.min(1.4, Math.max(0.8, Math.round((z + arah * 0.05) * 100) / 100));
-    try { localStorage.setItem('pokemonkey_fire_zoom', String(baru)); } catch { /* abaikan */ }
-    return baru;
-  });
+  // Arsip server untuk laporan yang sedang dibuka (null = masih draf) + PDF terakhir di memori.
+  const [arsipAktif, setArsipAktif] = useState<ArsipKarhutla | null>(null);
+  const pdfTerakhir = useRef<{ id: string; blob: Blob } | null>(null);
+  const [mengirimWa, setMengirimWa] = useState(false);
 
   const [modeEditLaporan, setModeEditLaporan] = useState<boolean>(false);
   // Alur laporan: titik terpilih → form (langkah 1) → tinjau lembar (langkah 2) → export PDF.
@@ -242,6 +255,8 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
 
   // Dokumen yang ditampilkan (pakai draft saat mode edit aktif)
   const laporanDitampilkan = (modeEditLaporan && draftLaporan) ? draftLaporan : laporanAktif;
+  const arsipIni = arsipAktif && laporanDitampilkan && arsipAktif.id === laporanDitampilkan.id ? arsipAktif : null;
+  const langkahDokumen = !arsipIni ? 1 : arsipIni.dikirim_pada ? 3 : 2;
 
   // Metrik ringkasan titik api
   const metrik = useMemo(() => {
@@ -256,28 +271,6 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
     return { total, diDalam, ippkh, iup, das, waspada, pantau, padam };
   }, [titikAktif]);
 
-  // Titik yang terfilter di tabel bawah
-  const titikTerfilter = useMemo(() => {
-    return titikAktif.filter((t) => {
-      if (filterZona === 'didalam' && !bisaDibuatkanLaporan(t)) return false;
-      if (filterZona === 'ippkh' && t.zona !== 'ippkh') return false;
-      if (filterZona === 'iup' && t.zona !== 'iup') return false;
-      if (filterZona === 'das' && t.area !== 'das' && t.zona !== 'petak') return false;
-      if (filterZona === 'waspada' && t.zona !== 'waspada') return false;
-      if (filterZona === 'padam' && t.status !== 'padam') return false;
-
-      if (pencarian.trim()) {
-        const cari = pencarian.toLowerCase();
-        const cocokSatelit = t.sumber.toLowerCase().includes(cari);
-        const cocokZona = t.zona.toLowerCase().includes(cari);
-        const cocokBidang = (t.bidang || '').toLowerCase().includes(cari);
-        const cocokDesa = (t.desa || '').toLowerCase().includes(cari);
-        if (!cocokSatelit && !cocokZona && !cocokBidang && !cocokDesa) return false;
-      }
-      return true;
-    });
-  }, [titikAktif, filterZona, pencarian]);
-
   // ---------------------------------------------------------------------------
   // HANDLERS
   // ---------------------------------------------------------------------------
@@ -287,61 +280,17 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
     );
   };
 
-  const handlePilihSemuaDiDalam = (zonaKhusus?: 'das' | 'ippkh' | 'iup') => {
-    let ids: string[] = [];
-    if (zonaKhusus === 'das') {
-      ids = titikAktif.filter((t) => t.area === 'das' || t.zona === 'petak').map((t) => t.id);
-      notify(`${ids.length} TITIK ${modeDemo ? 'PETAK CONTOH' : 'REHAB DAS TAHURA'} DIPILIH`);
-    } else if (zonaKhusus === 'ippkh') {
-      ids = titikAktif.filter((t) => t.zona === 'ippkh').map((t) => t.id);
-      notify(`${ids.length} TITIK ${modeDemo ? 'IZIN CONTOH' : 'IPPKH TAPIN'} DIPILIH`);
-    } else if (zonaKhusus === 'iup') {
-      ids = titikAktif.filter((t) => t.zona === 'iup').map((t) => t.id);
-      notify(`${ids.length} TITIK ${modeDemo ? 'AREA KERJA CONTOH' : 'IUP TAPIN'} DIPILIH`);
-    } else {
-      ids = titikAktif.filter(bisaDibuatkanLaporan).map((t) => t.id);
-      notify(`${ids.length} TITIK DI DALAM KONSESI DIPILIH`);
-    }
-    setTitikTerpilihIds(ids);
-  };
-
   /**
-   * Membuat laporan otomatis dengan opsi target area spesifik
-   * dan langsung menghasilkan screenshot peta resmi secara otomatis
+   * Tab Harian → laporan baru untuk satu hari dan satu kelompok area
+   * (tambang = IUP/IPPKH, das = petak Rehab DAS), lalu buka form langkah 1.
+   * Screenshot peta resmi dibuat otomatis.
    */
-  const handleBuatLaporan = async (target: TargetAreaLaporan = 'auto') => {
+  const handleBuatDariHarian = async (hari: string, kelompok: KelompokLaporan, titik: TitikApiFireItem[]) => {
     try {
-      let titikUntukLaporan: TitikApiFireItem[] = [];
-
-      if (target === 'das') {
-        titikUntukLaporan = titikAktif.filter((t) => t.area === 'das' || t.zona === 'petak');
-      } else if (target === 'ippkh') {
-        titikUntukLaporan = titikAktif.filter((t) => t.zona === 'ippkh');
-      } else if (target === 'iup') {
-        titikUntukLaporan = titikAktif.filter((t) => t.zona === 'iup');
-      } else {
-        if (titikTerpilihIds.length > 0) {
-          titikUntukLaporan = titikAktif.filter(
-            (t) => titikTerpilihIds.includes(t.id) && bisaDibuatkanLaporan(t),
-          );
-        }
-        if (titikUntukLaporan.length === 0) {
-          titikUntukLaporan = titikAktif.filter(bisaDibuatkanLaporan);
-        }
-      }
-
-      if (titikUntukLaporan.length === 0) {
-        notify(`TIDAK ADA TITIK API UNTUK AREA ${target.toUpperCase()}`);
-        return;
-      }
-
-      const laporanBaru = buatLaporanOtomatis({
-        titikList: titikUntukLaporan,
-        targetArea: target,
-        pengguna,
-      });
-
-      // Otomatis buatkan screenshot peta resmi resolusi tinggi (Canvas WGS 1984)
+      const laporanBaru: LaporanKarhutla = {
+        ...buatLaporanOtomatis({ titikList: titik, targetArea: kelompok === 'das' ? 'das' : 'auto', pengguna }),
+        hariTitik: hari,
+      };
       try {
         const snapshotUrl = await buatScreenshotPetaOtomatis({
           titikKoordinat: laporanBaru.titikKoordinat,
@@ -353,40 +302,96 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
       } catch (errSnap) {
         console.warn('Gagal buat initial map snapshot:', errSnap);
       }
-
+      setKembaliKe('harian');
       setFormLaporan({ laporan: laporanBaru, baru: true });
     } catch (err) {
       notify(err instanceof Error ? err.message.toUpperCase() : 'GAGAL MEMBUAT LAPORAN');
     }
   };
 
-  /** Form selesai → laporan disimpan lalu ditampilkan untuk ditinjau. */
+  /** Tampilkan satu laporan di tab dokumen. `arsip` null = masih draf di perangkat. */
+  const bukaDokumen = (id: string, arsip: ArsipKarhutla | null, dari: 'pantau' | 'harian' | 'riwayat') => {
+    setLaporanAktifId(id);
+    setArsipAktif(arsip);
+    setModeEditLaporan(false);
+    setDraftLaporan(null);
+    setKembaliKe(dari);
+    setTabMode('dokumen');
+  };
+
+  /** Laporan yang sudah diekspor: isinya diambil dari arsip server lalu dibuka. */
+  const handleBukaArsip = async (a: ArsipKarhutla, dari: 'harian' | 'riwayat') => {
+    try {
+      const isi = { ...(await ambilIsiArsip(a)), diekspor: a.diekspor_pada };
+      setDaftarLaporan((prev) => [isi, ...prev.filter((l) => l.id !== isi.id)]);
+      pdfTerakhir.current = null;
+      bukaDokumen(isi.id, a, dari);
+    } catch (e) {
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUKA ARSIP');
+    }
+  };
+
+  /** Form selesai → laporan disimpan (draf) lalu ditampilkan untuk ditinjau. */
   const handleTinjauForm = (hasil: LaporanKarhutla) => {
     const siap = anonimkanDalam(hasil);
     const baru = formLaporan?.baru;
     setDaftarLaporan((prev) => (baru ? [siap, ...prev] : prev.map((l) => (l.id === siap.id ? siap : l))));
-    setLaporanAktifId(siap.id);
-    setModeEditLaporan(false);
-    setDraftLaporan(null);
     setFormLaporan(null);
-    setTabMode('laporan');
+    bukaDokumen(siap.id, baru ? null : arsipAktif, kembaliKe);
     notify('TINJAU LAPORAN, LALU EXPORT PDF');
   };
 
-  /** Export PDF langsung (APK tidak mendukung dialog cetak browser). */
+  /** Export PDF → unggah ke arsip server (R2) → siap dikirim ke WhatsApp. */
   const handleEksporPdf = async () => {
     if (modeEditLaporan) { notify('SIMPAN ATAU BATALKAN EDIT DULU'); return; }
     const dok = document.getElementById('dokumen-karhutla-a4');
-    if (!dok || !laporanDitampilkan) return;
+    const l = laporanDitampilkan;
+    if (!dok || !l) return;
     setMengeksporPdf(true);
     try {
-      const nama = `Laporan Karhutla ${laporanDitampilkan.jenisIzin} ${laporanDitampilkan.tanggalLaporan}.pdf`;
-      const hasil = await eksporLembarPdf(dok, nama, laporanDitampilkan.judul);
-      notify(hasil === 'diunduh' ? 'PDF DIUNDUH' : 'PDF SIAP DIBAGIKAN');
+      const pdf = await buatPdfLembar(dok);
+      const titikLaporan = dataBulan.titik.filter((t) => l.titikIds.includes(t.id));
+      const lengkap = { ...l, hariTitik: l.hariTitik ?? l.tanggalLaporan };
+      const arsip = await unggahLaporan(lengkap, titikLaporan, pdf);
+      pdfTerakhir.current = { id: l.id, blob: pdf };
+      setArsipAktif(arsip);
+      setDaftarLaporan((prev) => prev.map((x) => (x.id === l.id ? { ...lengkap, diekspor: arsip.diekspor_pada } : x)));
+      setVersiArsip((v) => v + 1);
+      notify('PDF TERSIMPAN DI ARSIP · SIAP DIKIRIM');
     } catch (e) {
       notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUAT PDF');
     } finally {
       setMengeksporPdf(false);
+    }
+  };
+
+  const pdfArsipIni = async (a: ArsipKarhutla) =>
+    pdfTerakhir.current?.id === a.id ? pdfTerakhir.current.blob : ambilPdfArsip(a);
+
+  /** Kirim manual: lembar bagikan (HP) atau unduh + WhatsApp Web (komputer), lalu dicatat terkirim. */
+  const handleKirimWa = async () => {
+    if (!arsipAktif) return;
+    setMengirimWa(true);
+    try {
+      await kirimKeWhatsApp(await pdfArsipIni(arsipAktif), namaPdf(arsipAktif), pesanPengantar(arsipAktif));
+      const b = await tandaiTerkirim(arsipAktif.id);
+      if (b) setArsipAktif(b);
+      setVersiArsip((v) => v + 1);
+      notify('DITANDAI TERKIRIM KE WHATSAPP');
+    } catch (e) {
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENGIRIM');
+    } finally {
+      setMengirimWa(false);
+    }
+  };
+
+  const handleUnduhPdf = async () => {
+    if (!arsipAktif) return;
+    try {
+      const hasil = await simpanBerkas(await pdfArsipIni(arsipAktif), namaPdf(arsipAktif), arsipAktif.judul);
+      notify(hasil === 'diunduh' ? 'PDF DIUNDUH' : 'PDF SIAP DIBAGIKAN');
+    } catch (e) {
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENGAMBIL PDF');
     }
   };
 
@@ -635,93 +640,44 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           </label>
         )}
 
-        <button
-          type="button"
-          onClick={gantiLive}
-          aria-pressed={modeLive}
-          title={modeLive ? (modeDemo ? 'Matikan LIVE: tampilkan semua titik contoh' : 'Matikan LIVE: tampilkan riwayat NASA 7 hari') : 'Tampilkan titik NASA FIRMS 24 jam terakhir'}
-          className={`flex items-center gap-1.5 px-2.5 h-8 border-2 text-[11px] font-bold uppercase ${
-            modeLive ? 'bg-red-600 border-red-300 text-white shadow-[2px_2px_0_#000]' : 'bg-zinc-900 border-white/40 text-zinc-300 hover:text-white'
-          }`}
-        >
-          <span className={`w-2.5 h-2.5 rounded-full ${modeLive ? 'bg-white animate-pulse' : 'bg-zinc-500'}`} />
-          Live
-        </button>
-
-        {/* Tab Mode Switcher */}
+        {/* Tiga tab alur kerja: pantau, harian (buat laporan), riwayat (arsip). */}
         <div className="flex border-2 border-white/40">
-          <button
-            onClick={() => setTabMode('peta')}
-            className={`px-3 py-1.5 flex items-center gap-1.5 text-[12px] font-bold uppercase transition-colors ${
-              tabMode === 'peta' ? 'bg-orange-600 text-white' : 'bg-black/40 text-zinc-300 hover:text-white'
-            }`}
-          >
-            <MapPin size={13} /> Peta Hotspot
-          </button>
-          <button
-            onClick={() => setTabMode('laporan')}
-            className={`px-3 py-1.5 flex items-center gap-1.5 text-[12px] font-bold uppercase transition-colors ${
-              tabMode === 'laporan' ? 'bg-orange-600 text-white' : 'bg-black/40 text-zinc-300 hover:text-white'
-            }`}
-          >
-            <FileText size={13} /> Dokumen Resmi KLHK
-          </button>
-          <button
-            onClick={() => setTabMode('riwayat')}
-            className={`px-3 py-1.5 flex items-center gap-1.5 text-[12px] font-bold uppercase transition-colors ${
-              tabMode === 'riwayat' ? 'bg-orange-600 text-white' : 'bg-black/40 text-zinc-300 hover:text-white'
-            }`}
-          >
-            <Calendar size={13} /> Riwayat ({daftarLaporan.length})
-          </button>
+          {([['pantau', MapPin, 'Pantau'], ['harian', Table, 'Harian'], ['riwayat', Calendar, 'Riwayat']] as const).map(([k, Ikon, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => pindahTab(k)}
+              className={`px-3 py-1.5 flex items-center gap-1.5 text-[12px] font-bold uppercase transition-colors ${
+                tabMode === k || (tabMode === 'dokumen' && kembaliKe === k) ? 'bg-orange-600 text-white' : 'bg-black/40 text-zinc-300 hover:text-white'
+              }`}
+            >
+              <Ikon size={13} /> {label}
+            </button>
+          ))}
         </div>
-
-        {/* Tombol Buat Laporan Cepat per Wilayah */}
-        <div className="flex items-center gap-1.5">
-          {/* Tombol Khusus REHAB DAS */}
-          <button
-            onClick={() => handleBuatLaporan('das')}
-            className="btn-retro bg-amber-700 hover:bg-amber-600 text-white font-bold flex items-center gap-1.5 !py-1 text-[11px] shadow-[2px_2px_0_#000]"
-            title={`Buat laporan resmi khusus petak di ${idn.kawasanDas}`}
-          >
-            <Trees size={13} className="text-yellow-300" />
-            <span>Laporan Rehab DAS</span>
-            <span className="bg-black/40 px-1 py-0.2 rounded text-[10px] font-mono text-yellow-300">
-              {metrik.das}
-            </span>
-          </button>
-
-          {/* Tombol Khusus IPPKH */}
-          <button
-            onClick={() => handleBuatLaporan('ippkh')}
-            className="btn-retro bg-emerald-800 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 !py-1 text-[11px] shadow-[2px_2px_0_#000]"
-            title={`Buat laporan resmi khusus ${idn.labelIppkh}`}
-          >
-            <Mountain size={13} className="text-emerald-300" />
-            <span>Laporan IPPKH</span>
-            <span className="bg-black/40 px-1 py-0.2 rounded text-[10px] font-mono text-emerald-300">
-              {metrik.ippkh}
-            </span>
-          </button>
-
-          {/* Tombol Buat Laporan Titik Terpilih */}
-          <button
-            onClick={() => handleBuatLaporan('auto')}
-            className="btn-retro bg-red-600 hover:bg-red-500 text-white font-bold flex items-center gap-1.5 !py-1 text-[11px] shadow-[2px_2px_0_#000]"
-            title="Buat Laporan Otomatis dari titik-titik yang dipilih"
-          >
-            <Flame size={13} className="fill-white" />
-            <span className="hidden sm:inline">Laporan Otomatis</span>
-            {titikTerpilihIds.length > 0 && (
-              <span className="bg-black/50 px-1 py-0.2 rounded text-[10px] font-mono">
-                {titikTerpilihIds.length} Titik
-              </span>
-            )}
-          </button>
-        </div>
+        {tabMode === 'pantau' && (
+          <div className="flex items-center gap-1.5">
+            <div className="flex border-2 border-white/40" role="group" aria-label="Rentang waktu titik">
+              {([[true, '24 jam'], [false, '7 hari']] as const).map(([nyala, label]) => (
+                <button key={label} type="button" onClick={() => aturLive(nyala)} aria-pressed={modeLive === nyala}
+                  className={`px-2.5 h-8 text-[11px] font-bold uppercase flex items-center gap-1.5 ${modeLive === nyala ? 'bg-red-600 text-white' : 'bg-zinc-900 text-zinc-300 hover:text-white'}`}>
+                  {nyala && <span className={`w-2 h-2 rounded-full ${modeLive ? 'bg-white animate-pulse' : 'bg-zinc-500'}`} />}{label}
+                </button>
+              ))}
+            </div>
+            <div className="flex border-2 border-white/40" role="group" aria-label="Tampilan peta">
+              {([[false, 'Titik'], [true, 'Panas']] as const).map(([pn, label]) => (
+                <button key={label} type="button" onClick={() => setPetaPanas(pn)} aria-pressed={petaPanas === pn}
+                  className={`px-2.5 h-8 text-[11px] font-bold uppercase ${petaPanas === pn ? 'bg-orange-600 text-white' : 'bg-zinc-900 text-zinc-300 hover:text-white'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      {pakaiNasa && (
+      {pakaiNasa && tabMode === 'pantau' && (
         <div
           className={`no-print mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-2 px-2 py-1.5 text-[11px] shrink-0 ${
             modeLive ? 'bg-red-950/70 border-red-500 text-red-100' : 'bg-zinc-900/80 border-zinc-500 text-zinc-200'
@@ -729,7 +685,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
         >
           <span className="flex items-center gap-1.5 font-bold uppercase text-white">
             <span className={`w-2 h-2 rounded-full ${modeLive ? 'bg-red-400 animate-pulse' : 'bg-zinc-400'}`} />
-            {modeLive ? 'Live' : 'Riwayat'}
+            {modeLive ? 'Live 24 jam' : '7 hari'}
           </span>
           {!dataNasa ? (
             <span className="flex items-center gap-1">
@@ -782,7 +738,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
       {/* ===================================================================== */}
       {/* TAMPILAN 1: PETA HOTSPOT & DAFTAR TITIK API                           */}
       {/* ===================================================================== */}
-      {tabMode === 'peta' && (
+      {tabMode === 'pantau' && (
         <div className="flex-1 flex flex-col min-h-0 overflow-y-auto custom-scrollbar px-2 pb-8 gap-3.5 no-print">
           {/* ================================================================= */}
           {/* 1. KARTU METRIK RINGKAS & INTERAKTIF (Bisa diklik untuk filter)    */}
@@ -790,13 +746,9 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 shrink-0">
             {/* Titik Di Dalam (Perlu Laporan) */}
             <div
-              onClick={() => setFilterZona((prev) => (prev === 'didalam' ? 'semua' : 'didalam'))}
-              className={`panel-retro p-2.5 flex items-center gap-3 cursor-pointer transition-all ${
-                filterZona === 'didalam'
-                  ? 'bg-red-950/80 border-2 border-red-400 shadow-[0_0_12px_rgba(239,68,68,0.5)] ring-1 ring-red-400'
-                  : 'bg-black/70 border-2 border-red-500/70 hover:border-red-400 hover:bg-red-950/30'
-              }`}
-              title="Klik untuk menyaring titik di dalam konsesi IUP/IPPKH/DAS"
+              onClick={() => pindahTab('harian')}
+              className={`panel-retro p-2.5 flex items-center gap-3 cursor-pointer transition-all ${'bg-black/70 border-2 border-red-500/70 hover:border-red-400 hover:bg-red-950/30'}`}
+              title="Buka tab Harian"
             >
               <div className="w-10 h-10 rounded bg-red-950/90 border border-red-500 flex items-center justify-center text-red-400 shrink-0 shadow-inner">
                 <Flame size={20} className="fill-red-400 animate-pulse" />
@@ -806,9 +758,6 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                   <span className="text-[10px] text-red-300 font-bold uppercase tracking-wider font-mono">
                     Di Dalam Konsesi
                   </span>
-                  {filterZona === 'didalam' && (
-                    <span className="text-[9px] bg-red-600 text-white font-mono px-1 rounded">AKTIF</span>
-                  )}
                 </div>
                 <div className="text-[18px] font-black text-white font-mono leading-tight mt-0.5">
                   {metrik.diDalam}{' '}
@@ -822,12 +771,8 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
 
             {/* Khusus REHAB DAS Highlight */}
             <div
-              onClick={() => setFilterZona((prev) => (prev === 'das' ? 'semua' : 'das'))}
-              className={`panel-retro p-2.5 flex items-center gap-3 cursor-pointer transition-all ${
-                filterZona === 'das'
-                  ? 'bg-amber-950/80 border-2 border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.5)] ring-1 ring-amber-400'
-                  : 'bg-black/70 border-2 border-amber-500/70 hover:border-amber-400 hover:bg-amber-950/30'
-              }`}
+              onClick={() => pindahTab('harian')}
+              className={`panel-retro p-2.5 flex items-center gap-3 cursor-pointer transition-all ${'bg-black/70 border-2 border-amber-500/70 hover:border-amber-400 hover:bg-amber-950/30'}`}
               title={`Klik untuk menyaring titik di ${idn.kawasanDas}`}
             >
               <div className="w-10 h-10 rounded bg-amber-950/90 border border-amber-400 flex items-center justify-center text-amber-300 shrink-0 shadow-inner">
@@ -838,9 +783,6 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                   <span className="text-[10px] text-amber-300 font-bold uppercase tracking-wider font-mono">
                     Petak Rehab DAS
                   </span>
-                  {filterZona === 'das' && (
-                    <span className="text-[9px] bg-amber-600 text-white font-mono px-1 rounded">AKTIF</span>
-                  )}
                 </div>
                 <div className="text-[18px] font-black text-amber-200 font-mono leading-tight mt-0.5">
                   {metrik.das}{' '}
@@ -854,13 +796,9 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
 
             {/* Waspada Dekat Batas */}
             <div
-              onClick={() => setFilterZona((prev) => (prev === 'waspada' ? 'semua' : 'waspada'))}
-              className={`panel-retro p-2.5 flex items-center gap-3 cursor-pointer transition-all ${
-                filterZona === 'waspada'
-                  ? 'bg-yellow-950/80 border-2 border-yellow-400 shadow-[0_0_12px_rgba(234,179,8,0.5)] ring-1 ring-yellow-400'
-                  : 'bg-black/70 border-2 border-yellow-500/60 hover:border-yellow-400 hover:bg-yellow-950/30'
-              }`}
-              title="Klik untuk menyaring titik zona waspada"
+              onClick={() => pindahTab('harian')}
+              className={`panel-retro p-2.5 flex items-center gap-3 cursor-pointer transition-all ${'bg-black/70 border-2 border-yellow-500/60 hover:border-yellow-400 hover:bg-yellow-950/30'}`}
+              title="Buka tab Harian"
             >
               <div className="w-10 h-10 rounded bg-yellow-950/90 border border-yellow-500 flex items-center justify-center text-yellow-400 shrink-0 shadow-inner">
                 <AlertTriangle size={20} />
@@ -870,9 +808,6 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                   <span className="text-[10px] text-yellow-300 font-bold uppercase tracking-wider font-mono">
                     Waspada Perimeter
                   </span>
-                  {filterZona === 'waspada' && (
-                    <span className="text-[9px] bg-yellow-600 text-black font-mono px-1 rounded font-bold">AKTIF</span>
-                  )}
                 </div>
                 <div className="text-[18px] font-black text-yellow-300 font-mono leading-tight mt-0.5">
                   {metrik.waspada}{' '}
@@ -886,13 +821,9 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
 
             {/* Status Penanganan */}
             <div
-              onClick={() => setFilterZona((prev) => (prev === 'padam' ? 'semua' : 'padam'))}
-              className={`panel-retro p-2.5 flex items-center gap-3 cursor-pointer transition-all ${
-                filterZona === 'padam'
-                  ? 'bg-emerald-950/80 border-2 border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.5)] ring-1 ring-emerald-400'
-                  : 'bg-black/70 border-2 border-emerald-500/60 hover:border-emerald-400 hover:bg-emerald-950/30'
-              }`}
-              title="Klik untuk melihat titik yang sudah padam"
+              onClick={() => pindahTab('harian')}
+              className={`panel-retro p-2.5 flex items-center gap-3 cursor-pointer transition-all ${'bg-black/70 border-2 border-emerald-500/60 hover:border-emerald-400 hover:bg-emerald-950/30'}`}
+              title="Buka tab Harian"
             >
               <div className="w-10 h-10 rounded bg-emerald-950/90 border border-emerald-500 flex items-center justify-center text-emerald-400 shrink-0 shadow-inner">
                 <ShieldCheck size={20} />
@@ -902,9 +833,6 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                   <span className="text-[10px] text-emerald-300 font-bold uppercase tracking-wider font-mono">
                     Telah Padam / Terkendali
                   </span>
-                  {filterZona === 'padam' && (
-                    <span className="text-[9px] bg-emerald-600 text-white font-mono px-1 rounded">AKTIF</span>
-                  )}
                 </div>
                 <div className="text-[18px] font-black text-emerald-400 font-mono leading-tight mt-0.5">
                   {metrik.padam}{' '}
@@ -918,16 +846,10 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           </div>
 
           {/* ================================================================= */}
-          {/* 2. PETA GIS INTERAKTIF (Tinggi dinamis berdasarkan modeLayout)    */}
+          {/* 2. PETA GIS INTERAKTIF                                          */}
           {/* ================================================================= */}
           <div
-            className={`relative rounded border-2 border-emerald-500/60 shadow-lg transition-all duration-300 overflow-hidden ${
-              modeLayout === 'peta-luas'
-                ? 'h-[500px] lg:h-[58vh] shrink-0'
-                : modeLayout === 'tabel-luas'
-                ? 'h-[190px] shrink-0'
-                : 'h-[330px] shrink-0'
-            }`}
+            className={`relative rounded border-2 border-emerald-500/60 shadow-lg transition-all duration-300 overflow-hidden h-[62vh] min-h-[320px] shrink-0`}
           >
             <FireMap
               key={modeDemo ? kotaDemo : 'kerja'}
@@ -938,489 +860,24 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                 setTitikFokus(t);
               }}
               onTogglePilihLaporan={handleTogglePilihTitik}
+              panas={petaPanas}
             />
           </div>
 
-          {/* ================================================================= */}
-          {/* 3. KOTAK TABEL TITIK API (Lebar, jelas, dan tidak terpotong)      */}
-          {/* ================================================================= */}
-          <div
-            className={`panel-retro !p-0 bg-black/80 border-2 border-emerald-500/70 rounded shadow-xl flex flex-col transition-all duration-300 ${
-              modeLayout === 'tabel-luas'
-                ? 'min-h-[580px]'
-                : modeLayout === 'peta-luas'
-                ? 'min-h-[280px]'
-                : 'min-h-[440px]'
-            }`}
+          <button
+            type="button"
+            onClick={() => pindahTab('harian')}
+            className="btn-retro bg-red-600 w-full !py-3 text-[13px] shrink-0"
           >
-            {/* Header Kontrol & Penyaring Tabel */}
-            <div className="p-3 border-b-2 border-emerald-500/40 bg-zinc-900/90 flex flex-col gap-2.5">
-              {/* Baris 1: Filter Kategori & Tombol Pilih Semua */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-emerald-300 font-mono text-[11px] font-bold flex items-center gap-1 mr-1">
-                    <Filter size={12} /> Saring:
-                  </span>
-                  <button
-                    onClick={() => setFilterZona('semua')}
-                    className={`px-2.5 py-1 text-[11px] font-bold uppercase rounded border transition-all ${
-                      filterZona === 'semua'
-                        ? 'bg-orange-600 text-white border-orange-400 shadow-[1px_1px_0_#000]'
-                        : 'bg-zinc-900 text-zinc-400 border-white/10 hover:text-white'
-                    }`}
-                  >
-                    Semua ({titikAktif.length})
-                  </button>
-                  <button
-                    onClick={() => setFilterZona('didalam')}
-                    className={`px-2.5 py-1 text-[11px] font-bold uppercase rounded border flex items-center gap-1 transition-all ${
-                      filterZona === 'didalam'
-                        ? 'bg-red-700 text-white border-red-400 shadow-[1px_1px_0_#000]'
-                        : 'bg-zinc-900 text-red-300 border-red-500/30 hover:border-red-400'
-                    }`}
-                  >
-                    <Flame size={12} className="fill-red-400" /> Di Dalam ({metrik.diDalam})
-                  </button>
-                  <button
-                    onClick={() => setFilterZona('das')}
-                    className={`px-2.5 py-1 text-[11px] font-bold uppercase rounded border flex items-center gap-1 transition-all ${
-                      filterZona === 'das'
-                        ? 'bg-amber-700 text-white border-amber-400 shadow-[1px_1px_0_#000]'
-                        : 'bg-zinc-900 text-amber-300 border-amber-500/30 hover:border-amber-400'
-                    }`}
-                  >
-                    <Trees size={12} /> Rehab DAS ({metrik.das})
-                  </button>
-                  <button
-                    onClick={() => setFilterZona('ippkh')}
-                    className={`px-2.5 py-1 text-[11px] font-bold uppercase rounded border flex items-center gap-1 transition-all ${
-                      filterZona === 'ippkh'
-                        ? 'bg-emerald-700 text-white border-emerald-400 shadow-[1px_1px_0_#000]'
-                        : 'bg-zinc-900 text-emerald-300 border-emerald-500/30 hover:border-emerald-400'
-                    }`}
-                  >
-                    <Mountain size={12} /> IPPKH ({metrik.ippkh})
-                  </button>
-                  <button
-                    onClick={() => setFilterZona('iup')}
-                    className={`px-2.5 py-1 text-[11px] font-bold uppercase rounded border flex items-center gap-1 transition-all ${
-                      filterZona === 'iup'
-                        ? 'bg-cyan-700 text-white border-cyan-400 shadow-[1px_1px_0_#000]'
-                        : 'bg-zinc-900 text-cyan-300 border-cyan-500/30 hover:border-cyan-400'
-                    }`}
-                  >
-                    <Pickaxe size={12} /> IUP ({metrik.iup})
-                  </button>
-                  <button
-                    onClick={() => setFilterZona('waspada')}
-                    className={`px-2.5 py-1 text-[11px] font-bold uppercase rounded border flex items-center gap-1 transition-all ${
-                      filterZona === 'waspada'
-                        ? 'bg-yellow-700 text-white border-yellow-400 shadow-[1px_1px_0_#000]'
-                        : 'bg-zinc-900 text-yellow-300 border-yellow-500/30 hover:border-yellow-400'
-                    }`}
-                  >
-                    <AlertTriangle size={12} /> Waspada ({metrik.waspada})
-                  </button>
-                  <button
-                    onClick={() => setFilterZona('padam')}
-                    className={`px-2.5 py-1 text-[11px] font-bold uppercase rounded border flex items-center gap-1 transition-all ${
-                      filterZona === 'padam'
-                        ? 'bg-emerald-800 text-white border-emerald-300 shadow-[1px_1px_0_#000]'
-                        : 'bg-zinc-900 text-emerald-400 border-emerald-500/30 hover:border-emerald-400'
-                    }`}
-                  >
-                    <ShieldCheck size={12} /> Padam ({metrik.padam})
-                  </button>
-                </div>
-
-                {/* Tombol Pilih Cepat untuk Laporan */}
-                <div className="flex items-center gap-2">
-                  {filterZona === 'das' ? (
-                    <button
-                      type="button"
-                      onClick={() => handlePilihSemuaDiDalam('das')}
-                      className="btn-retro bg-amber-900/60 hover:bg-amber-800 text-amber-200 border border-amber-400 !py-1 text-[11px] font-bold flex items-center gap-1"
-                    >
-                      <CheckSquare size={13} /> Pilih Semua Rehab DAS
-                    </button>
-                  ) : filterZona === 'ippkh' ? (
-                    <button
-                      type="button"
-                      onClick={() => handlePilihSemuaDiDalam('ippkh')}
-                      className="btn-retro bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 border border-emerald-400 !py-1 text-[11px] font-bold flex items-center gap-1"
-                    >
-                      <CheckSquare size={13} /> Pilih Semua IPPKH
-                    </button>
-                  ) : filterZona === 'iup' ? (
-                    <button
-                      type="button"
-                      onClick={() => handlePilihSemuaDiDalam('iup')}
-                      className="btn-retro bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200 border border-cyan-400 !py-1 text-[11px] font-bold flex items-center gap-1"
-                    >
-                      <CheckSquare size={13} /> Pilih Semua IUP
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handlePilihSemuaDiDalam()}
-                      className="btn-retro bg-red-950/60 hover:bg-red-900 text-red-200 border border-red-500 !py-1 text-[11px] font-bold flex items-center gap-1"
-                    >
-                      <CheckSquare size={13} /> Pilih Semua Titik Di Dalam
-                    </button>
-                  )}
-                  {titikTerpilihIds.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setTitikTerpilihIds([])}
-                      className="text-zinc-400 hover:text-white underline font-mono text-[10px]"
-                    >
-                      Batal Pilih
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Baris 2: Pencarian, Zoom Font & Tombol Preset Layout (Seimbang / Tabel Luas / Peta Luas) */}
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-emerald-500/20">
-                {/* Search Bar dengan tombol clear */}
-                <div className="relative flex-1 min-w-[220px] max-w-md">
-                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={pencarian}
-                    onChange={(e) => setPencarian(e.target.value)}
-                    placeholder="Cari satelit, petak DAS, blok, desa, atau koordinat..."
-                    className="input-retro !pl-8 !pr-7 !py-1 !text-[11px] w-full"
-                  />
-                  {pencarian && (
-                    <button
-                      onClick={() => setPencarian('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white p-0.5"
-                      title="Hapus pencarian"
-                    >
-                      <X size={13} />
-                    </button>
-                  )}
-                </div>
-
-                {/* Kontrol Kanan: Zoom Teks & Layout Preset Switcher */}
-                <div className="flex flex-wrap items-center gap-3">
-                  {/* Zoom Font Tabel */}
-                  <div className="flex items-center gap-1 bg-black/50 border border-white/20 px-1.5 py-0.5 rounded">
-                    <span className="text-[10px] text-zinc-400 font-mono mr-1">Teks:</span>
-                    <button
-                      type="button"
-                      onClick={() => ubahZoom(-1)}
-                      disabled={zoomTabel <= 0.8}
-                      className="btn-ikon !w-6 !h-6 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 rounded text-white"
-                      title="Perkecil teks tabel"
-                    >
-                      <ZoomOut size={12} />
-                    </button>
-                    <span className="text-[10px] font-mono text-emerald-400 w-9 text-center tabular-nums font-bold">
-                      {Math.round(zoomTabel * 100)}%
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => ubahZoom(1)}
-                      disabled={zoomTabel >= 1.4}
-                      className="btn-ikon !w-6 !h-6 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 rounded text-white"
-                      title="Perbesar teks tabel"
-                    >
-                      <ZoomIn size={12} />
-                    </button>
-                  </div>
-
-                  {/* Mode Layout Presets */}
-                  <div className="flex items-center border border-emerald-500/50 rounded overflow-hidden shadow-inner">
-                    <button
-                      type="button"
-                      onClick={() => ubahModeLayout('seimbang')}
-                      className={`px-2.5 py-1 text-[11px] font-bold flex items-center gap-1 transition-colors ${
-                        modeLayout === 'seimbang'
-                          ? 'bg-emerald-600 text-white font-black'
-                          : 'bg-zinc-800 text-zinc-300 hover:text-white'
-                      }`}
-                      title="Tampilan seimbang antara Peta dan Tabel"
-                    >
-                      <Scale size={12} /> Seimbang
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => ubahModeLayout('tabel-luas')}
-                      className={`px-2.5 py-1 text-[11px] font-bold flex items-center gap-1 border-l border-emerald-500/50 transition-colors ${
-                        modeLayout === 'tabel-luas'
-                          ? 'bg-emerald-600 text-white font-black'
-                          : 'bg-zinc-800 text-zinc-300 hover:text-white'
-                      }`}
-                      title="Tabel Luas: Peta diringkas ke atas agar tabel mendapatkan ruang maksimal"
-                    >
-                      <Table size={12} /> Tabel Luas
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => ubahModeLayout('peta-luas')}
-                      className={`px-2.5 py-1 text-[11px] font-bold flex items-center gap-1 border-l border-emerald-500/50 transition-colors ${
-                        modeLayout === 'peta-luas'
-                          ? 'bg-emerald-600 text-white font-black'
-                          : 'bg-zinc-800 text-zinc-300 hover:text-white'
-                      }`}
-                      title="Peta Luas: Ruang peta diperbesar untuk navigasi GIS intensif"
-                    >
-                      <Map size={12} /> Peta Luas
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Tabel Titik Api dengan Sticky Header & Scroll Luas */}
-            <div className="flex-1 overflow-auto custom-scrollbar">
-              <table
-                className="w-full text-[12px] border-collapse min-w-[850px]"
-                style={{ zoom: zoomTabel }}
-              >
-                <thead className="bg-emerald-950 text-emerald-300 uppercase text-[10px] tracking-wider font-mono sticky top-0 z-10 shadow-md">
-                  <tr className="border-b-2 border-emerald-500">
-                    <th className="p-2.5 border-r border-emerald-700/40 text-center w-12">Pilih</th>
-                    <th className="p-2.5 border-r border-emerald-700/40 text-left w-44">Zona & Area Izin</th>
-                    <th className="p-2.5 border-r border-emerald-700/40 text-left w-40">Koordinat (WGS84)</th>
-                    <th className="p-2.5 border-r border-emerald-700/40 text-left w-36">Satelit & Conf</th>
-                    <th className="p-2.5 border-r border-emerald-700/40 text-left w-40">Waktu Deteksi</th>
-                    <th className="p-2.5 border-r border-emerald-700/40 text-left min-w-[200px]">
-                      Keterangan / Lokasi Lapangan
-                    </th>
-                    <th className="p-2.5 border-r border-emerald-700/40 text-center w-28">Status</th>
-                    <th className="p-2.5 text-center w-36">Aksi Cepat</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {titikTerfilter.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="p-8 text-center text-zinc-400">
-                        <AlertCircle size={28} className="mx-auto text-zinc-500 mb-2" />
-                        <div className="font-bold text-zinc-300">Tidak ada titik api yang cocok dengan saringan.</div>
-                        <div className="text-[11px] text-zinc-500 mt-1">
-                          Coba ubah saringan zona atau bersihkan kata kunci pencarian.
-                        </div>
-                        {(filterZona !== 'semua' || pencarian) && (
-                          <button
-                            onClick={() => {
-                              setFilterZona('semua');
-                              setPencarian('');
-                            }}
-                            className="mt-3 btn-retro bg-zinc-800 text-zinc-200 text-[11px] !py-1 !px-3"
-                          >
-                            Reset Semua Saringan
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ) : (
-                    titikTerfilter.map((t, idx) => {
-                      const diDalam = bisaDibuatkanLaporan(t);
-                      const dicentang = titikTerpilihIds.includes(t.id);
-                      const isFokus = titikFokus?.id === t.id;
-                      const isDas = t.area === 'das' || t.zona === 'petak';
-
-                      return (
-                        <tr
-                          key={t.id}
-                          className={`transition-colors ${
-                            dicentang
-                              ? 'bg-red-950/40 hover:bg-red-950/60'
-                              : isFokus
-                              ? 'bg-amber-950/40 hover:bg-amber-950/60'
-                              : idx % 2 === 0
-                              ? 'bg-black/40 hover:bg-emerald-500/10'
-                              : 'bg-white/[0.04] hover:bg-emerald-500/10'
-                          }`}
-                        >
-                          {/* 1. Checkbox Pilih */}
-                          <td className="p-2.5 border-r border-white/5 text-center">
-                            {diDalam ? (
-                              <input
-                                type="checkbox"
-                                checked={dicentang}
-                                onChange={() => handleTogglePilihTitik(t.id)}
-                                className="w-4 h-4 accent-red-600 cursor-pointer rounded"
-                                title="Centang untuk memasukkan titik ini ke Laporan Karhutla Resmi"
-                              />
-                            ) : (
-                              <span className="text-zinc-600 text-[10px] select-none" title="Di luar konsesi (tidak perlu laporan KLHK)">—</span>
-                            )}
-                          </td>
-
-                          {/* 2. Zona & Area */}
-                          <td className="p-2.5 border-r border-white/5">
-                            {isDas && (
-                              <span className="chip-retro !text-[10px] border-amber-400 bg-amber-950/80 text-amber-300 font-bold flex items-center gap-1.5 w-fit">
-                                <Trees size={12} className="text-amber-400 shrink-0" /> {modeDemo ? 'PETAK' : 'REHAB DAS'} ({t.bidang || idn.labelDas})
-                              </span>
-                            )}
-                            {!isDas && t.zona === 'ippkh' && (
-                              <span className="chip-retro !text-[10px] border-emerald-400 bg-emerald-950/80 text-emerald-300 font-bold flex items-center gap-1.5 w-fit">
-                                <Mountain size={12} className="text-emerald-400 shrink-0" /> {modeDemo ? 'IZIN' : 'IPPKH'} ({t.bidang || idn.labelIppkh})
-                              </span>
-                            )}
-                            {!isDas && t.zona === 'iup' && (
-                              <span className="chip-retro !text-[10px] border-cyan-400 bg-cyan-950/80 text-cyan-300 font-bold flex items-center gap-1.5 w-fit">
-                                <Pickaxe size={12} className="text-cyan-400 shrink-0" /> {modeDemo ? 'AREA KERJA' : 'IUP EBL'}
-                              </span>
-                            )}
-                            {!isDas && t.zona === 'waspada' && (
-                              <span className="chip-retro !text-[10px] border-yellow-500 bg-yellow-950/80 text-yellow-300 font-bold flex items-center gap-1.5 w-fit">
-                                <AlertTriangle size={12} className="text-yellow-400 shrink-0" /> WASPADA (≤2km)
-                              </span>
-                            )}
-                            {!isDas && t.zona === 'pantau' && (
-                              <span className="chip-retro !text-[10px] border-zinc-600 bg-zinc-900 text-zinc-400 flex items-center gap-1.5 w-fit">
-                                PANTAU LUAR
-                              </span>
-                            )}
-                            {t.desa && (
-                              <span className="text-[10px] text-zinc-400 block mt-1 font-mono">
-                                Desa: {t.desa}
-                              </span>
-                            )}
-                          </td>
-
-                          {/* 3. Koordinat WGS84 */}
-                          <td className="p-2.5 border-r border-white/5 font-mono text-[11px]">
-                            <div className="text-emerald-400 font-bold">
-                              {t.lat.toFixed(5)}° S
-                            </div>
-                            <div className="text-zinc-500">
-                              {t.lon.toFixed(5)}° E
-                            </div>
-                          </td>
-
-                          {/* 4. Satelit & Tingkat Keyakinan */}
-                          <td className="p-2.5 border-r border-white/5">
-                            <span className="font-bold text-white block">{t.sumber}</span>
-                            <span className={`text-[10px] font-mono capitalize ${
-                              t.keyakinan === 'tinggi'
-                                ? 'text-red-400 font-bold'
-                                : t.keyakinan === 'sedang'
-                                ? 'text-yellow-300'
-                                : 'text-zinc-400'
-                            }`}>
-                              Conf: {t.keyakinan}
-                            </span>
-                          </td>
-
-                          {/* 5. Waktu Deteksi */}
-                          <td className="p-2.5 border-r border-white/5 text-[11px] text-zinc-300">
-                            <div className="font-mono">{new Date(t.waktu).toLocaleDateString('id-ID')}</div>
-                            <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-1 mt-0.5">
-                              <Clock size={10} /> {new Date(t.waktu).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA
-                            </div>
-                          </td>
-
-                          {/* 6. Keterangan & Catatan Lapangan */}
-                          <td className="p-2.5 border-r border-white/5 text-[11px]">
-                            <div className="font-bold text-amber-300">{t.penyebab || 'Penyebab belum tercatat'}</div>
-                            <div className="text-zinc-400 text-[11px] mt-0.5">{t.catatan}</div>
-                          </td>
-
-                          {/* 7. Status Penanganan */}
-                          <td className="p-2.5 border-r border-white/5 text-center">
-                            <span
-                              className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase rounded-full border ${
-                                t.status === 'padam'
-                                  ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500'
-                                  : t.status === 'dicek'
-                                  ? 'bg-amber-950/80 text-amber-300 border-amber-500'
-                                  : 'bg-red-950/80 text-red-300 border-red-500 animate-pulse'
-                              }`}
-                            >
-                              {t.status === 'padam'
-                                ? 'Sudah Padam'
-                                : t.status === 'dicek'
-                                ? 'Sedang Dicek'
-                                : 'Hotspot Baru'}
-                            </span>
-                          </td>
-
-                          {/* 8. Tombol Aksi */}
-                          <td className="p-2.5 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setTitikFokus(t);
-                                  // Scroll halus ke peta jika di mode tabel luas
-                                  if (modeLayout === 'tabel-luas') {
-                                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                                  }
-                                }}
-                                className="btn-retro !py-1 !px-2 bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-emerald-300 inline-flex items-center gap-1 border border-emerald-500/40"
-                                title="Arahkan dan sorot titik ini di peta"
-                              >
-                                <MapPin size={11} /> Peta
-                              </button>
-                              {diDalam && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    handleBuatLaporan(isDas ? 'das' : t.zona === 'ippkh' ? 'ippkh' : 'iup');
-                                  }}
-                                  className={`btn-retro !py-1 !px-2 text-[10px] inline-flex items-center gap-1 font-bold ${
-                                    isDas
-                                      ? 'bg-amber-700 hover:bg-amber-600 text-white'
-                                      : 'bg-emerald-700 hover:bg-emerald-600 text-white'
-                                  }`}
-                                  title="Buat berkas laporan resmi untuk titik ini"
-                                >
-                                  <Flame size={11} className="fill-white" /> Lapor
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Footer Ringkasan Tabel & Tombol Buat Laporan Cepat */}
-            <div className="p-2.5 border-t-2 border-emerald-500/40 bg-zinc-900/90 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono">
-              <div className="text-zinc-300">
-                Menampilkan <b className="text-emerald-300 font-bold">{titikTerfilter.length}</b> dari{' '}
-                <b className="text-white">{titikAktif.length}</b> total titik api terpantau
-              </div>
-
-              <div className="flex items-center gap-3">
-                {titikTerpilihIds.length > 0 ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-red-300 font-bold">
-                      {titikTerpilihIds.length} titik dipilih
-                    </span>
-                    <button
-                      onClick={() => handleBuatLaporan('auto')}
-                      className="btn-retro bg-red-600 hover:bg-red-500 text-white font-bold flex items-center gap-1.5 !py-1 !px-3 text-[11px] shadow-[2px_2px_0_#000]"
-                    >
-                      <Flame size={13} className="fill-white" />
-                      Buat Laporan Resmi ({titikTerpilihIds.length} Titik)
-                    </button>
-                  </div>
-                ) : (
-                  <span className="text-zinc-500 text-[10px]">
-                    Centang titik api di tabel untuk membuat laporan gabungan
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
+            <Flame size={16} className="fill-white" /> Lihat titik per hari &amp; buat laporan
+          </button>
         </div>
       )}
 
       {/* ===================================================================== */}
       {/* TAMPILAN 2: PRATINJAU DOKUMEN RESMI SESUAI PDF REFERENSI              */}
       {/* ===================================================================== */}
-      {tabMode === 'laporan' && laporanDitampilkan && (
+      {tabMode === 'dokumen' && laporanDitampilkan && (
         <div className="flex-1 overflow-auto custom-scrollbar px-2 pb-6 min-h-0">
           {/* Input Berkas Tersembunyi untuk Upload Foto & Screenshot Peta */}
           <input
@@ -1443,10 +900,10 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           <div className="flex flex-wrap items-center justify-between gap-2 bg-black/60 border border-white/20 p-2.5 mb-2 text-[12px] no-print">
             <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={() => setTabMode('peta')}
+                onClick={() => pindahTab(kembaliKe)}
                 className="btn-retro bg-zinc-800 text-zinc-300 flex items-center gap-1.5 !py-1 text-[11px]"
               >
-                <ArrowLeft size={13} /> Kembali ke Peta
+                <ArrowLeft size={13} /> Kembali
               </button>
               <span className="font-bold text-white font-mono text-[12px]">
                 {laporanDitampilkan.nomorLaporan}
@@ -1541,7 +998,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                 title="Buat berkas PDF A4 lalu simpan atau bagikan"
               >
                 {mengeksporPdf ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-                {mengeksporPdf ? 'Membuat PDF…' : 'Export PDF'}
+                {mengeksporPdf ? 'Membuat & mengunggah PDF…' : arsipIni ? 'Export ulang PDF' : 'Export PDF'}
               </button>
 
               {/* Cetak lewat browser (hanya versi web; WebView APK tidak punya dialog cetak) */}
@@ -1557,45 +1014,6 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
             </div>
           </div>
 
-          {/* Selector Berkas Laporan Tersedia (Bisa Beralih Antara IPPKH & Rehab DAS) */}
-          <div className="flex flex-wrap items-center gap-1.5 pb-2 mb-3 border-b border-white/20 bg-black/30 p-2 no-print">
-            <span className="text-[11px] text-zinc-400 font-mono mr-1">Pilih Dokumen Laporan:</span>
-            {daftarLaporan.map((lap) => {
-              const aktif = lap.id === laporanDitampilkan.id;
-              const isDas = lap.jenisIzin.toLowerCase().includes('das');
-              return (
-                <button
-                  key={lap.id}
-                  onClick={() => {
-                    if (modeEditLaporan) {
-                      if (
-                        confirm(
-                          'Anda sedang dalam mode edit. Beralih dokumen akan membatalkan perubahan yang belum disimpan. Lanjutkan?',
-                        )
-                      ) {
-                        setModeEditLaporan(false);
-                        setDraftLaporan(null);
-                        setLaporanAktifId(lap.id);
-                      }
-                    } else {
-                      setLaporanAktifId(lap.id);
-                    }
-                  }}
-                  className={`px-3 py-1 text-[11px] font-bold uppercase rounded border transition-all flex items-center gap-1.5 ${
-                    aktif
-                      ? isDas
-                        ? 'bg-amber-600 text-white border-amber-400 shadow-[2px_2px_0_#000]'
-                        : 'bg-emerald-700 text-white border-emerald-400 shadow-[2px_2px_0_#000]'
-                      : 'bg-zinc-900 text-zinc-300 border-white/20 hover:text-white'
-                  }`}
-                >
-                  {isDas ? <Trees size={12} className="text-yellow-300" /> : <Mountain size={12} />}
-                  <span>{isDas ? (modeDemo ? '🌲 PETAK CONTOH' : '🌲 REHAB DAS (TAHURA)') : (modeDemo ? '⛰️ IZIN CONTOH' : '⛰️ IPPKH (TAPIN)')}</span>
-                  <span className="font-mono text-[10px] opacity-80">({lap.tanggalLaporan})</span>
-                </button>
-              );
-            })}
-          </div>
 
           {/* Banner Peringatan Mode Edit Aktif */}
           {modeEditLaporan && (
@@ -1628,9 +1046,36 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           {/* hal.1 identitas + A. Deskripsi · hal.2 B. Kronologi + pengesahan  */}
           {/* hal.3 tangkapan layar peta · hal.4 foto lapangan                  */}
           {/* ================================================================= */}
-          <div className="no-print max-w-4xl mx-auto mb-2 flex flex-wrap items-center gap-2 border-2 border-orange-500 bg-orange-950/60 px-3 py-2 text-[12px] text-orange-100">
-            <b className="text-white">Langkah 2 dari 2 · Tinjau laporan.</b>
-            <span>Periksa semua halaman di bawah, lalu tekan <b>Export PDF</b>. Ada yang kurang? Tekan <b>Ubah lewat form</b>.</span>
+          <div className="no-print max-w-4xl mx-auto mb-2 border-2 border-orange-500 bg-orange-950/60 px-3 py-2 text-[12px] text-orange-100 space-y-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {['Isi form', 'Tinjau & export PDF', 'Kirim ke WhatsApp'].map((nama, i) => (
+                <span
+                  key={nama}
+                  className={`chip-retro !text-[10px] font-bold ${
+                    i < langkahDokumen ? 'border-emerald-400 bg-emerald-950 text-emerald-300' : i === langkahDokumen ? 'border-yellow-300 bg-yellow-500 text-black' : 'border-white/20 text-zinc-400'
+                  }`}
+                >
+                  {i < langkahDokumen ? '✓' : i + 1}. {nama}
+                </span>
+              ))}
+            </div>
+            {!arsipIni ? (
+              <p>Periksa semua halaman di bawah, lalu tekan <b>Export PDF</b>. PDF disimpan ke arsip server dan siap dikirim. Ada yang kurang? Tekan <b>Ubah lewat form</b>.</p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="flex-1 min-w-[180px]">
+                  {arsipIni.dikirim_pada
+                    ? <>Sudah dikirim ke WhatsApp <b className="text-white">{jamWita(new Date(arsipIni.dikirim_pada))} WITA</b>{arsipIni.jumlah_kirim > 1 ? ` (${arsipIni.jumlah_kirim}×)` : ''}.</>
+                    : <>PDF tersimpan di arsip. Kirim ke grup atau kontak WhatsApp.</>}
+                </span>
+                <button type="button" onClick={handleKirimWa} disabled={mengirimWa} className="btn-retro bg-emerald-700 !py-1.5 text-[12px] disabled:opacity-50">
+                  {mengirimWa ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} {arsipIni.dikirim_pada ? 'Kirim lagi' : 'Kirim ke WhatsApp'}
+                </button>
+                <button type="button" onClick={handleUnduhPdf} className="btn-retro bg-zinc-800 !py-1.5 text-[12px]">
+                  <Download size={13} /> Unduh PDF
+                </button>
+              </div>
+            )}
           </div>
           <div className="no-print max-w-4xl mx-auto mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-300 font-mono">
             <span className="flex items-center gap-1">
@@ -2041,115 +1486,32 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
       )}
 
       {/* ===================================================================== */}
-      {/* TAMPILAN 3: RIWAYAT LAPORAN RESMI KARHUTLA                            */}
+      {/* TAB HARIAN: titik per hari sebulan + tombol buat laporan               */}
+      {/* ===================================================================== */}
+      {tabMode === 'harian' && (
+        <div className="flex-1 overflow-auto custom-scrollbar px-2 pb-6 min-h-0 no-print">
+          <FireHarian
+            bulan={bulanHarian}
+            onGantiBulan={setBulanHarian}
+            titik={dataBulan.titik}
+            arsip={dataBulan.laporan}
+            draf={daftarLaporan.filter((l) => !l.diekspor)}
+            memuat={memuatBulan}
+            galat={galatBulan}
+            onBuat={handleBuatDariHarian}
+            onBukaDraf={(l) => bukaDokumen(l.id, null, 'harian')}
+            onBukaArsip={(a) => void handleBukaArsip(a, 'harian')}
+            onFokusTitik={(t) => { setTitikFokus(t); pindahTab('pantau'); }}
+          />
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB RIWAYAT: laporan yang sudah diekspor (PDF di arsip server)         */}
       {/* ===================================================================== */}
       {tabMode === 'riwayat' && (
-        <div className="flex-1 overflow-auto custom-scrollbar px-2 pb-4 space-y-3 min-h-0 no-print">
-          <div className="border-[3px] border-white/40 overflow-x-auto shadow-lg bg-black/60">
-            <table className="w-full text-[12px] border-collapse min-w-[850px]">
-              <thead>
-                <tr className="bg-emerald-950 text-emerald-300 uppercase text-[11px]">
-                  <th className="p-2 border border-white/20 text-center w-10">No</th>
-                  <th className="p-2 border border-white/20 text-left min-w-[200px]">
-                    Nomor & Judul Laporan
-                  </th>
-                  <th className="p-2 border border-white/20 text-left w-44">Jenis Izin & Wilayah</th>
-                  <th className="p-2 border border-white/20 text-center w-28">Jumlah Titik</th>
-                  <th className="p-2 border border-white/20 text-left w-36">Tanggal Lapor</th>
-                  <th className="p-2 border border-white/20 text-center w-36">Status</th>
-                  <th className="p-2 border border-white/20 text-center w-32">Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {daftarLaporan.map((item, idx) => {
-                  const isDas = item.jenisIzin.toLowerCase().includes('das');
-                  return (
-                    <tr
-                      key={item.id}
-                      className={`hover:bg-amber-500/10 transition-colors ${
-                        idx % 2 === 0 ? 'bg-black/40' : 'bg-white/5'
-                      }`}
-                    >
-                      <td className="p-2 border border-white/10 text-center text-zinc-400 font-mono">
-                        {idx + 1}
-                      </td>
-                      <td className="p-2 border border-white/10">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLaporanAktifId(item.id);
-                            setTabMode('laporan');
-                          }}
-                          className="font-bold text-left text-white hover:text-orange-400 block hover:underline"
-                        >
-                          {item.judul}
-                        </button>
-                        <span className="text-[11px] font-mono text-cyan-300 block">
-                          {item.nomorLaporan}
-                        </span>
-                      </td>
-                      <td className="p-2 border border-white/10 text-[11px]">
-                        <span
-                          className={`font-bold block flex items-center gap-1 ${
-                            isDas ? 'text-amber-300' : 'text-emerald-300'
-                          }`}
-                        >
-                          {isDas ? <Trees size={12} /> : <Mountain size={12} />}
-                          {item.jenisIzin}
-                        </span>
-                        <span className="text-zinc-400 text-[10px] block">{item.kabupaten}</span>
-                      </td>
-                      <td className="p-2 border border-white/10 text-center font-mono font-bold text-white">
-                        {item.titikKoordinat.length} Titik
-                      </td>
-                      <td className="p-2 border border-white/10 text-[11px] text-zinc-300 font-mono">
-                        {item.tanggalLaporan}
-                      </td>
-                      <td className="p-2 border border-white/10 text-center">
-                        <select
-                          value={item.status}
-                          onChange={(e) =>
-                            handleUbahStatusLaporan(
-                              item.id,
-                              e.target.value as LaporanKarhutla['status'],
-                            )
-                          }
-                          className="input-retro !py-0.5 !text-[10px] font-bold uppercase cursor-pointer"
-                        >
-                          <option value="Draf">Draf</option>
-                          <option value="Siap Dikirim">Siap Dikirim</option>
-                          <option value="Terkirim ke KLHK">Terkirim ke KLHK</option>
-                        </select>
-                      </td>
-                      <td className="p-2 border border-white/10 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLaporanAktifId(item.id);
-                              setTabMode('laporan');
-                            }}
-                            className="btn-retro btn-retro-sm bg-orange-600 hover:bg-orange-500 text-[10px] inline-flex items-center gap-1 font-bold"
-                            title="Buka Lembar Dokumen Resmi"
-                          >
-                            <Eye size={11} /> Buka
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleHapusLaporan(item.id)}
-                            className="btn-ikon !w-6 !h-6 bg-rose-950 hover:bg-rose-800 text-rose-300"
-                            title="Hapus Laporan"
-                          >
-                            <Trash2 size={11} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        <div className="flex-1 overflow-auto custom-scrollbar px-2 pb-6 min-h-0 no-print">
+          <FireRiwayat pengguna={pengguna} notify={notify} versi={versiArsip} onBuka={(a) => void handleBukaArsip(a, 'riwayat')} />
         </div>
       )}
 

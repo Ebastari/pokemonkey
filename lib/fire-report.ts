@@ -90,6 +90,10 @@ export interface LaporanKarhutla {
   };
 
   status: 'Draf' | 'Siap Dikirim' | 'Terkirim ke KLHK';
+  /** Tanggal deteksi titik (WITA) yang dilaporkan — baris tabel harian FIRE. */
+  hariTitik?: string;
+  /** Terisi setelah PDF diunggah ke arsip server (lib/karhutla.ts). */
+  diekspor?: string;
   dibuatOleh: string;
   /** Jabatan pembuat di kolom tanda tangan (laporan lama: kosong → teks tim bawaan). */
   jabatanPembuat?: string;
@@ -122,7 +126,8 @@ export const PENGESAH_LAPORAN = {
 };
 
 export const KUNCI_STORAGE_TITIK_FIRE = 'pokemonkey_fire_points_v1';
-export const KUNCI_STORAGE_LAPORAN_FIRE = 'pokemonkey_fire_reports_v1';
+// v2: draf versi lama (tanpa hari titik, identitas SK belum mengikuti titik) sengaja ditinggalkan.
+export const KUNCI_STORAGE_LAPORAN_FIRE = 'pokemonkey_fire_reports_v2';
 
 export type TargetAreaLaporan = 'auto' | 'das' | 'ippkh' | 'iup' | 'terpilih';
 
@@ -444,6 +449,115 @@ export const LAPORAN_REHABDAS_CONTOH: LaporanKarhutla = {
   diubahPada: '2026-09-24T11:30:00.000Z',
 };
 
+export interface InfoIzinIppkh {
+  kode: string;
+  nama: string;
+  skNomorTanggal: string;
+  luas: string;
+  luasAngka: number;
+  statusKawasanHutan: string;
+  jangkaWaktuIzin: string;
+  kabupaten: string;
+  provinsi: string;
+}
+
+/**
+ * Identitas izin per bidang IPPKH, dari salinan SK di folder "SK Update":
+ *  - SK.78  : SK.78/Menlhk/Setjen/PLA.0/1/2022 (27 Jan 2022, ±14,13 Ha, berlaku s.d. 12 Juni 2030)
+ *             + tata batas SK.6982/MENLHK-PKTL/REN/PLA.0/9/2022 (2 Sep 2022) = 13,92 Ha
+ *  - SK.966 : SK.966/MENLHK/SETJEN/PLA.0/9/2022 (6 Sep 2022, ±136,73 Ha, efektif 12 Juni 2022 s.d. 12 Juni 2030)
+ *             + tata batas Nomor 8874 Tahun 2024 (28 Juni 2024) = 134,70 Ha
+ *  - SK.892 : SK.892/MENLHK/SETJEN/PLA.0/8/2022 (16 Agu 2022, perpanjangan kedua, 182,62 Ha, efektif 12 Juni 2022 s.d. 12 Juni 2030)
+ * Luas yang dipakai = luas tata batas (areal kerja yang ditetapkan). Keduanya Hutan Produksi Tetap.
+ * Teks SK memakai "Menteri LHK" agar pemotongan " dan " (SK dasar vs SK tata batas) tidak memotong nama kementerian.
+ */
+export const DAFTAR_IPPKH: Record<string, InfoIzinIppkh> = {
+  'SK.78': {
+    kode: 'SK.78',
+    nama: 'IPPKH SK.78 · tata batas SK.6982 (13,92 Ha)',
+    skNomorTanggal:
+      'Keputusan Menteri LHK Nomor SK.78/Menlhk/Setjen/PLA.0/1/2022 tanggal 27 Januari 2022 dan SK Tata Batas Nomor SK.6982/MENLHK-PKTL/REN/PLA.0/9/2022 tanggal 2 September 2022',
+    luas: '13,92 Ha',
+    luasAngka: 13.92,
+    statusKawasanHutan: 'Hutan Produksi Tetap',
+    jangkaWaktuIzin: '27 Januari 2022-12 Juni 2030',
+    kabupaten: 'Rantau, Tapin',
+    provinsi: 'Kalimantan Selatan',
+  },
+  'SK.966': {
+    kode: 'SK.966',
+    nama: 'PPKH SK.966 · tata batas SK 8874/2024 (134,70 Ha)',
+    skNomorTanggal:
+      'Keputusan Menteri LHK Nomor SK.966/MENLHK/SETJEN/PLA.0/9/2022 tanggal 6 September 2022 dan SK Tata Batas Nomor 8874 Tahun 2024 tanggal 28 Juni 2024',
+    luas: '134,70 Ha',
+    luasAngka: 134.7,
+    statusKawasanHutan: 'Hutan Produksi Tetap',
+    jangkaWaktuIzin: '12 Juni 2022-12 Juni 2030',
+    kabupaten: 'Rantau, Tapin',
+    provinsi: 'Kalimantan Selatan',
+  },
+  'SK.892': {
+    kode: 'SK.892',
+    nama: 'PPKH SK.892 · perpanjangan kedua (182,62 Ha)',
+    skNomorTanggal:
+      'Keputusan Menteri LHK Nomor SK.892/MENLHK/SETJEN/PLA.0/8/2022 tanggal 16 Agustus 2022',
+    luas: '182,62 Ha',
+    luasAngka: 182.62,
+    statusKawasanHutan: 'Hutan Produksi Tetap',
+    jangkaWaktuIzin: '12 Juni 2022-12 Juni 2030',
+    kabupaten: 'Rantau, Tapin',
+    provinsi: 'Kalimantan Selatan',
+  },
+};
+
+/** Identitas IUP Operasi Produksi (Keputusan Kepala DPMPTSP Kalsel, perpanjangan tahap kedua). */
+export const IDENTITAS_IUP = {
+  skNomorTanggal:
+    'Keputusan Kepala DPMPTSP Provinsi Kalimantan Selatan Nomor 503/11.5-29/DPMPTSP/X/2020 tanggal 21 Oktober 2020 tentang Persetujuan Perpanjangan Tahap Kedua IUP Operasi Produksi',
+  luas: '±1.894,5 Ha',
+  jangkaWaktuIzin: '21 Oktober 2020-12 Juni 2030',
+};
+
+/** Bidang titik yang belum punya data SK di aplikasi: identitas dikosongkan untuk diisi di form, bukan ditebak. */
+const IPPKH_BELUM_TERDAFTAR = (bidang: string[]): InfoIzinIppkh => ({
+  kode: 'kustom',
+  nama: `IPPKH ${bidang.join(' + ') || 'tanpa bidang'} (isi manual)`,
+  skNomorTanggal: '',
+  luas: '',
+  luasAngka: 0,
+  statusKawasanHutan: 'Hutan Produksi Tetap',
+  jangkaWaktuIzin: '',
+  kabupaten: 'Rantau, Tapin',
+  provinsi: 'Kalimantan Selatan',
+});
+
+export function cariInfoIppkh(bidangList: (string | null | undefined)[]): InfoIzinIppkh {
+  const bidangBersih = [...new Set(bidangList.filter((b): b is string => Boolean(b)))];
+  const normal = (t: string) => t.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const cocok = (b: string) => Object.keys(DAFTAR_IPPKH).find((k) => normal(b) === normal(k) || normal(b).startsWith(normal(k)));
+
+  const tidakDikenal = bidangBersih.filter((b) => !cocok(b));
+  if (bidangBersih.length === 0 || tidakDikenal.length > 0) return IPPKH_BELUM_TERDAFTAR(tidakDikenal);
+
+  const unik = [...new Set(bidangBersih.map((b) => cocok(b) as string))].map((k) => DAFTAR_IPPKH[k]);
+  if (unik.length === 1) return unik[0];
+
+  // Titik di dua SK: identitas memuat keduanya, luas dijumlah dari luas tata batas masing-masing.
+  const totalLuas = unik.reduce((acc, curr) => acc + curr.luasAngka, 0);
+  const kodeGabungan = unik.map((u) => u.kode).join(' + ');
+  return {
+    kode: kodeGabungan,
+    nama: `Area IPPKH (${kodeGabungan})`,
+    skNomorTanggal: unik.map((u) => u.skNomorTanggal).join('; '),
+    luas: `${totalLuas.toFixed(2).replace('.', ',')} Ha (${unik.map((u) => `${u.kode} ${u.luas}`).join(', ')})`,
+    luasAngka: totalLuas,
+    statusKawasanHutan: 'Hutan Produksi Tetap',
+    jangkaWaktuIzin: unik.map((u) => `${u.kode}: ${u.jangkaWaktuIzin}`).join('; '),
+    kabupaten: unik[0].kabupaten,
+    provinsi: unik[0].provinsi,
+  };
+}
+
 /**
  * Generator otomatis: Membuat draf laporan resmi KLHK
  * Mendukung target wilayah spesifik:
@@ -502,10 +616,11 @@ function buatLaporanOtomatisAsli(params: {
   const isIppkh = !isDas && (target === 'ippkh' || titikLayak.some((t) => t.zona === 'ippkh'));
 
   let jenisIzin = 'IUP';
-  let skIzin = 'IUP Operasi Produksi PT Energi Batubara Lestari';
+  let skIzin = IDENTITAS_IUP.skNomorTanggal;
   let statusHutan = 'Bukan Kawasan Hutan (APL)';
   let kabupaten = 'Rantau, Tapin';
-  let luas = '2.073,00 Ha';
+  let luas = IDENTITAS_IUP.luas;
+  let jangkaWaktu = IDENTITAS_IUP.jangkaWaktuIzin;
 
   if (isDas) {
     jenisIzin = 'Rehabilitasi DAS';
@@ -514,18 +629,34 @@ function buatLaporanOtomatisAsli(params: {
     statusHutan = 'Taman Hutan Raya (Tahura) Sultan Adam';
     kabupaten = 'Banjar (Kec. Aranio)';
     luas = '498,00 Ha';
+    jangkaWaktu = 'Masa Penanaman & Pemeliharaan (P0 - P2)';
   } else if (isIppkh) {
     jenisIzin = 'PPKH';
-    skIzin =
-      'Keputusan Menteri Kehutanan Nomor 78/MENLHK/PLA.0/1/2022 dan SK Tata Batas SK.6982/MenLHK-PKTL/Ren/Pla.0/9/2022';
-    statusHutan = 'Hutan Produksi Terbatas';
-    kabupaten = 'Rantau, Tapin';
-    luas = '14,13 Ha';
+    const bidangIppkh = titikLayak
+      .filter((t) => t.zona === 'ippkh')
+      .map((t) => t.bidang);
+    const infoIppkh = cariInfoIppkh(bidangIppkh);
+    skIzin = infoIppkh.skNomorTanggal;
+    luas = infoIppkh.luas;
+    statusHutan = infoIppkh.statusKawasanHutan;
+    kabupaten = infoIppkh.kabupaten;
+    jangkaWaktu = infoIppkh.jangkaWaktuIzin;
   }
 
   const titikKoordinat: KoordinatLaporan[] = titikLayak.map((t, idx) => {
     let ket = `Area ${jenisIzin === 'PPKH' ? 'IPPKH' : jenisIzin} PT Energi Batubara Lestari`;
-    if (t.bidang) ket += ` (${t.bidang})`;
+    if (t.bidang) {
+      const kunciIppkh = Object.keys(DAFTAR_IPPKH).find(
+        (k) => t.bidang?.toUpperCase().includes(k.toUpperCase())
+      );
+      if (kunciIppkh) {
+        ket = `Area IPPKH PT Energi Batubara Lestari<br>${DAFTAR_IPPKH[kunciIppkh].skNomorTanggal.split(' dan ')[0]}`;
+      } else {
+        ket += ` (${t.bidang})`;
+      }
+    } else if (isIppkh) {
+      ket = `Area IPPKH PT Energi Batubara Lestari${skIzin ? `<br>${skIzin.split(' dan ')[0]}` : ''}`;
+    }
     return {
       no: idx + 1,
       xBujur: Number(t.lon.toFixed(5)),
@@ -580,7 +711,7 @@ function buatLaporanOtomatisAsli(params: {
     verifikasiTeks =
       'Hasil verifikasi akhir menegaskan bahwa seluruh tanaman pohon rehabilitasi (ulin, mahoni, meranti) di dalam petak tanam dalam kondisi aman, tidak ada kerusakan tegakan bibit, nihil korban jiwa, dan sekat bakar berfungsi dengan optimal.';
   } else {
-    deskripsiUmum = `Berdasarkan hasil pemantauan titik panas (hotspot) melalui Sistem Informasi Pengendalian Kebakaran Hutan dan Lahan (SIPONGI) Kementerian Lingkungan Hidup dan Kehutanan dan NASA FIRMS, terdeteksi adanya indikasi kebakaran hutan dan lahan pada tanggal ${tglDeteksi} dengan tingkat kepercayaan (confidence level) klasifikasi ${klasifikasi}. Titik panas tersebut terpantau berada pada wilayah kerja PT Energi Batubara Lestari, khususnya pada ${isIppkh ? `Area Izin Pinjam Pakai Kawasan Hutan (IPPKH) sebagaimana ditetapkan dalam ${skIzin.split(' dan ')[0]}` : 'Area Izin Usaha Pertambangan (IUP) Operasi Produksi'}.`;
+    deskripsiUmum = `Berdasarkan hasil pemantauan titik panas (hotspot) melalui Sistem Informasi Pengendalian Kebakaran Hutan dan Lahan (SIPONGI) Kementerian Lingkungan Hidup dan Kehutanan dan NASA FIRMS, terdeteksi adanya indikasi kebakaran hutan dan lahan pada tanggal ${tglDeteksi} dengan tingkat kepercayaan (confidence level) klasifikasi ${klasifikasi}. Titik panas tersebut terpantau berada pada wilayah kerja PT Energi Batubara Lestari, khususnya pada ${isIppkh ? `Area Izin Pinjam Pakai Kawasan Hutan (IPPKH)${skIzin ? ` sebagaimana ditetapkan dalam ${skIzin.split(' dan ')[0]}` : ''}` : 'Area Izin Usaha Pertambangan (IUP) Operasi Produksi'}.`;
 
     kronologiVisual = `Berdasarkan pengamatan visual dan pemeriksaan kondisi lapangan, api yang timbul bukan merupakan kebakaran vegetasi liar yang meluas, melainkan berasal dari ${
       params.penyebab ||
@@ -606,7 +737,7 @@ function buatLaporanOtomatisAsli(params: {
     pemegangIzin: 'PT Energi Batubara Lestari',
     jenisIzin,
     skNomorTanggal: skIzin,
-    jangkaWaktuIzin: isDas ? 'Masa Penanaman & Pemeliharaan (P0 - P2)' : '27 Januari 2022-27 Januari 2030',
+    jangkaWaktuIzin: isDas ? 'Masa Penanaman & Pemeliharaan (P0 - P2)' : jangkaWaktu,
     luas,
     statusKawasanHutan: statusHutan,
     kabupaten,
@@ -714,7 +845,8 @@ export const DAFTAR_LAPORAN_DEFAULT: LaporanKarhutla[] = [
 ];
 
 export function muatDaftarLaporanKarhutla(): LaporanKarhutla[] {
-  const bawaan = demoAktif() ? [] : DAFTAR_LAPORAN_DEFAULT;
+  // Draf saja; laporan yang sudah diekspor ada di arsip server. Laporan contoh tidak lagi dimuat.
+  const bawaan: LaporanKarhutla[] = [];
   if (typeof window === 'undefined') return bawaan;
   try {
     const raw = localStorage.getItem(kunciLaporan());

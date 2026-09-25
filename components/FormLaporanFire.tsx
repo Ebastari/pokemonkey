@@ -1,7 +1,8 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { X, FileUp, FileDown, ArrowRight, Camera, Upload, Trash2, Loader2, AlertTriangle, Info, MapPin } from 'lucide-react';
 import type { LaporanKarhutla } from '../lib/fire-report';
-import { pembuatBawaan, ttdPembuat } from '../lib/fire-report';
+import { pembuatBawaan, ttdPembuat, DAFTAR_IPPKH } from '../lib/fire-report';
+import { demoAktif } from '../lib/api';
 import {
   DAFTAR_PENYEBAB, penyebabDari, teksPenyebab, isianAwal, periksaIsian, terapkanIsian,
   imporCsvForm, templateCsvForm, daftarKoordinat, type IsianFormLaporan, type KodePenyebab,
@@ -48,6 +49,28 @@ const Label: React.FC<{ htmlFor: string; children: React.ReactNode }> = ({ htmlF
 export const FormLaporanFire: React.FC<Props> = ({ laporan, baru, notify, onBatal, onTinjau }) => {
   const pembuat = pembuatBawaan();
   const [isian, setIsian] = useState<IsianFormLaporan>(() => isianAwal(laporan, pembuat, baru));
+  const isIppkh = laporan.jenisIzin.toLowerCase().includes('ppkh') || laporan.jenisIzin.toLowerCase().includes('ippkh');
+  const [skPilihan, setSkPilihan] = useState<string>(() => {
+    const k = Object.keys(DAFTAR_IPPKH).find((key) =>
+      (isian.skNomorTanggal || laporan.skNomorTanggal).toUpperCase().includes(key.toUpperCase())
+    );
+    return k || 'kustom';
+  });
+
+  const handlePilihSk = (kode: string) => {
+    setSkPilihan(kode);
+    if (kode in DAFTAR_IPPKH) {
+      const item = DAFTAR_IPPKH[kode];
+      setIsian((i) => ({
+        ...i,
+        skNomorTanggal: item.skNomorTanggal,
+        luas: item.luas,
+        jangkaWaktuIzin: item.jangkaWaktuIzin,
+        statusKawasanHutan: item.statusKawasanHutan,
+      }));
+    }
+  };
+
   const [dokumentasi, setDokumentasi] = useState(laporan.dokumentasi);
   const [galat, setGalat] = useState<string[]>([]);
   const [galatCsv, setGalatCsv] = useState<string[]>([]);
@@ -168,6 +191,60 @@ export const FormLaporanFire: React.FC<Props> = ({ laporan, baru, notify, onBata
                 </tbody>
               </table>
             </div>
+
+            {/* Pilihan & Penyesuaian SK serta Luas IPPKH / PPKH */}
+            {isIppkh && (
+              <div className="mt-3 pt-3 border-t border-white/20 space-y-2">
+                <p className="text-[11px] font-bold uppercase text-orange-300">Penetapan SK & Luas IPPKH / PPKH</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor="form-sk-pilihan">Dasar SK Izin IPPKH</Label>
+                    <select
+                      id="form-sk-pilihan"
+                      value={skPilihan}
+                      onChange={(e) => handlePilihSk(e.target.value)}
+                      className="w-full bg-zinc-800 border border-white/30 text-white p-1.5 text-[11px] rounded"
+                    >
+                      {/* Mode demo tidak menampilkan nomor SK perusahaan. */}
+                      {(demoAktif() ? [] : Object.values(DAFTAR_IPPKH)).map((item) => (
+                        <option key={item.kode} value={item.kode}>
+                          {item.nama}
+                        </option>
+                      ))}
+                      <option value="kustom">Lainnya / Sesuaikan Manual</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label htmlFor="form-luas">Luas Area Izin</Label>
+                    <input
+                      id="form-luas"
+                      type="text"
+                      value={isian.luas ?? laporan.luas}
+                      onChange={(e) => {
+                        setSkPilihan('kustom');
+                        ubah('luas', e.target.value);
+                      }}
+                      className="w-full bg-zinc-800 border border-white/30 text-white p-1.5 text-[11px] rounded font-mono"
+                      placeholder="mis. 134,70 Ha"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="form-sk-nomor">Nomor & Tanggal SK Izin</Label>
+                  <textarea
+                    id="form-sk-nomor"
+                    rows={2}
+                    value={isian.skNomorTanggal ?? laporan.skNomorTanggal}
+                    onChange={(e) => {
+                      setSkPilihan('kustom');
+                      ubah('skNomorTanggal', e.target.value);
+                    }}
+                    className="w-full bg-zinc-800 border border-white/30 text-white p-1.5 text-[11px] rounded font-mono leading-snug"
+                    placeholder="Nomor SK dan tanggal resmi penetapan"
+                  />
+                </div>
+              </div>
+            )}
           </Bagian>
 
           <Bagian judul="Isi otomatis dari CSV" keterangan="Satu baris judul kolom + satu baris isi, seperti impor PICA. Kolom teks yang kosong memakai kalimat bawaan penyebab.">

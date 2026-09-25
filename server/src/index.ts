@@ -34,6 +34,7 @@ import { rutePersonal } from './personal';
 import { ruteCuaca } from './cuaca';
 import { halamanLihatPica, tautanLihatPica } from './lihat';
 import { periksaTitikApi, ruteTitikApi } from './titik-api';
+import { ruteLaporanKarhutla } from './laporan-karhutla';
 import { ruteDokumen } from './dokumen';
 import { siapkanNotif, siapkanRekapPica, liburPada, acaraPengingat } from './sumber';
 import { rutePush, kirimPushTerjadwal, kirimPushAcara } from './push';
@@ -128,6 +129,10 @@ export default {
       // Titik api NASA FIRMS: daftar, ubah status hasil cek lapangan, periksa manual (Admin).
       const hasilTitikApi = await ruteTitikApi(jalur, req, env, pengguna);
       if (hasilTitikApi) return hasilTitikApi;
+
+      // FIRE: titik sebulan untuk tabel harian dan arsip laporan karhutla (PDF di R2).
+      const hasilKarhutla = await ruteLaporanKarhutla(jalur, req, env, pengguna);
+      if (hasilKarhutla) return hasilKarhutla;
 
       // Dokumen administrasi (nomor surat, Internal Memo dinas, MoM) dan foto profil.
       const hasilDokumen = await ruteDokumen(jalur, req, env, pengguna);

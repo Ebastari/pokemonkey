@@ -495,7 +495,7 @@ export async function buatScreenshotPetaOtomatis(
   ctx.font = '10px monospace';
   const subJudul = isDas
     ? `Areal Rehabilitasi DAS Tahura Sultan Adam · SK.498/MenLHK-PDASRH/2021 · Sistem WGS 1984`
-    : `Area IPPKH / PPKH SK.78 & SK.6982 Tapin · Sistem Koordinat Geografis Datum WGS 1984`;
+    : `Area IPPKH / PPKH PT EBL (SK.78 / SK.892 / SK.966) · Sistem Koordinat Geografis Datum WGS 1984`;
   ctx.fillText(subJudul, marginL, 38);
 
   ctx.fillStyle = '#38bdf8';
@@ -637,7 +637,7 @@ export async function buatScreenshotPetaOtomatis(
     ctx.fillRect(legX + 10, ly - 8, 14, 10);
     ctx.strokeRect(legX + 10, ly - 8, 14, 10);
     ctx.fillStyle = '#86efac';
-    ctx.fillText('Area IPPKH (SK.78 / SK.6982)', legX + 28, ly);
+    ctx.fillText('Area IPPKH (SK.78 / SK.892 / SK.966)', legX + 28, ly);
     ly += 18;
 
     // Item 3: Batas Konsesi IUP EBL

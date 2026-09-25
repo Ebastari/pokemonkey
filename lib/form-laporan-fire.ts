@@ -164,6 +164,10 @@ export interface IsianFormLaporan {
   deskripsi: string;
   dibuatOleh: string;
   jabatanPembuat: string;
+  skNomorTanggal?: string;
+  luas?: string;
+  jangkaWaktuIzin?: string;
+  statusKawasanHutan?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +230,10 @@ export function isianAwal(l: LaporanKarhutla, pembuat: { nama: string; jabatan: 
       deskripsi: l.deskripsiUmum,
       dibuatOleh: l.dibuatOleh || pembuat.nama,
       jabatanPembuat: l.jabatanPembuat || pembuat.jabatan,
+      skNomorTanggal: l.skNomorTanggal,
+      luas: l.luas,
+      jangkaWaktuIzin: l.jangkaWaktuIzin,
+      statusKawasanHutan: l.statusKawasanHutan,
     };
   }
   return {
@@ -242,6 +250,10 @@ export function isianAwal(l: LaporanKarhutla, pembuat: { nama: string; jabatan: 
     deskripsi: l.deskripsiUmum,
     dibuatOleh: pembuat.nama,
     jabatanPembuat: pembuat.jabatan,
+    skNomorTanggal: l.skNomorTanggal,
+    luas: l.luas,
+    jangkaWaktuIzin: l.jangkaWaktuIzin,
+    statusKawasanHutan: l.statusKawasanHutan,
   };
 }
 
@@ -259,6 +271,9 @@ export function periksaIsian(i: IsianFormLaporan): string[] {
     else if (`${i.tanggalPadam}T${i.jamPadam}` < `${i.tanggalCek}T${i.jamCek}`) galat.push('Waktu padam lebih awal dari waktu ground check.');
   }
   if (!i.dibuatOleh.trim()) galat.push('Nama pembuat laporan belum diisi.');
+  // Identitas izin: kosong berarti bidang titik belum punya data SK di aplikasi.
+  if (i.skNomorTanggal !== undefined && !i.skNomorTanggal.trim()) galat.push('Nomor dan tanggal SK izin belum diisi.');
+  if (i.luas !== undefined && !i.luas.trim()) galat.push('Luas area izin belum diisi.');
   return galat;
 }
 
@@ -270,6 +285,10 @@ export function terapkanIsian(l: LaporanKarhutla, i: IsianFormLaporan): LaporanK
     : 'Tim melakukan pemantauan lanjutan pada lokasi tersebut untuk memastikan kondisi tetap aman.';
   return {
     ...l,
+    skNomorTanggal: i.skNomorTanggal !== undefined && i.skNomorTanggal.trim() !== '' ? i.skNomorTanggal.trim() : l.skNomorTanggal,
+    luas: i.luas !== undefined && i.luas.trim() !== '' ? i.luas.trim() : l.luas,
+    jangkaWaktuIzin: i.jangkaWaktuIzin !== undefined && i.jangkaWaktuIzin.trim() !== '' ? i.jangkaWaktuIzin.trim() : l.jangkaWaktuIzin,
+    statusKawasanHutan: i.statusKawasanHutan !== undefined && i.statusKawasanHutan.trim() !== '' ? i.statusKawasanHutan.trim() : l.statusKawasanHutan,
     deskripsiUmum: i.deskripsi.trim() || l.deskripsiUmum,
     kronologi: {
       waktuVerifikasi: `Pada ${waktuPanjang(i.tanggalCek, i.jamCek)}`,
