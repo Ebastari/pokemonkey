@@ -5,11 +5,11 @@
  * 2. REHAB DAS: Areal Penanaman Rehabilitasi DAS PT EBL di Kawasan Tahura Sultan Adam (SK.498/MenLHK-PDASRH/2021)
  */
 
-import { demoAktif } from './api';
+import { api, demoAktif } from './api';
 import { anonimkanDalam, kotaDemoTerpilih } from './wilayah-fire';
 import { AREA_EBL } from '../server/src/area-ebl';
 import { AREA_DAS } from '../server/src/area-das';
-import { tentukanZonaArea, type TitikApi, type Zona, type AreaTitik } from '../server/src/titik-api-murni';
+import { tentukanZonaArea, namaSatelit, type TitikApi, type Zona, type AreaTitik } from '../server/src/titik-api-murni';
 import type { Pengguna } from './tipe-api';
 
 export interface TitikApiFireItem {
@@ -93,6 +93,13 @@ export interface LaporanKarhutla {
   dibuatPada: string;
   diubahPada: string;
 }
+
+/** Pejabat yang mengesahkan laporan karhutla (tanda tangan di akhir kronologi). */
+export const PENGESAH_LAPORAN = {
+  nama: 'Bambang Octaryono',
+  jabatan: 'Kepala Teknik Tambang',
+  ttd: '/fire-report-assets/ttd-bambang.png',
+};
 
 export const KUNCI_STORAGE_TITIK_FIRE = 'pokemonkey_fire_points_v1';
 export const KUNCI_STORAGE_LAPORAN_FIRE = 'pokemonkey_fire_reports_v1';
@@ -714,16 +721,6 @@ export function muatDaftarLaporanKarhutla(): LaporanKarhutla[] {
     }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return bawaan;
-    if (demoAktif()) return parsed;
-    if (parsed.length === 0) return DAFTAR_LAPORAN_DEFAULT;
-
-    // Pastikan laporan Rehab DAS ada di dalam list riwayat
-    const adaLaporanDas = parsed.some((l: LaporanKarhutla) => l.jenisIzin.toLowerCase().includes('das'));
-    if (!adaLaporanDas) {
-      const gabung = [LAPORAN_REHABDAS_CONTOH, ...parsed];
-      localStorage.setItem(kunciLaporan(), JSON.stringify(gabung));
-      return gabung;
-    }
     return parsed;
   } catch {
     return bawaan;
@@ -743,4 +740,53 @@ export function simpanDaftarLaporanKarhutla(daftar: LaporanKarhutla[]): void {
  */
 export function buatLaporanOtomatis(params: Parameters<typeof buatLaporanOtomatisAsli>[0]): LaporanKarhutla {
   return anonimkanDalam(buatLaporanOtomatisAsli(params));
+}
+
+export interface DataTitikLive {
+  titik: TitikApiFireItem[];
+  /** Waktu server terakhir mengambil data NASA FIRMS (ISO), bila ada. */
+  terakhir: string | null;
+  galat: string | null;
+  terpasang: boolean;
+  /** Terisi bila server tak terjangkau: yang tampil salinan terakhir di perangkat (waktu ISO salinan). */
+  salinanDari?: string;
+}
+
+const KUNCI_SALINAN_NASA = 'pokemonkey_fire_nasa_v1';
+
+/**
+ * Titik api NASA FIRMS dari server (cron mengambilnya tiap jam ke tabel titik_api).
+ * `jam` = jendela waktu: 24 untuk LIVE, 168 untuk riwayat 7 hari.
+ * Bila server tak terjangkau (sinyal lapangan), salinan terakhir di perangkat
+ * dipakai dan ditandai `salinanDari`. Mode demo tidak punya server: titik
+ * contoh di kota pilihan.
+ */
+export async function muatTitikNasa(jam: number): Promise<DataTitikLive> {
+  const batas = Date.now() - jam * 3600_000;
+  const dalamJendela = (d: DataTitikLive): DataTitikLive => ({ ...d, titik: d.titik.filter((t) => Date.parse(t.waktu) >= batas) });
+  if (demoAktif()) {
+    return dalamJendela({ titik: titikApiDemo(), terakhir: new Date().toISOString(), galat: null, terpasang: true });
+  }
+  try {
+    const d = await api<{ titik: TitikApi[]; terakhir: string | null; galat: string | null; terpasang: boolean }>(
+      `/api/titik-api?hari=${Math.max(1, Math.ceil(jam / 24))}`,
+    );
+    const hasil: DataTitikLive = {
+      titik: d.titik.map((t) => ({
+        id: t.id, lat: t.lat, lon: t.lon, waktu: t.waktu, sumber: namaSatelit(t.sumber), keyakinan: t.keyakinan, frp: t.frp,
+        area: t.area ?? 'tambang', zona: t.zona, bidang: t.bidang, status: t.status, catatan: t.catatan ?? undefined,
+      })),
+      terakhir: d.terakhir,
+      galat: d.galat,
+      terpasang: d.terpasang,
+    };
+    try { localStorage.setItem(KUNCI_SALINAN_NASA, JSON.stringify({ ...hasil, diambil: new Date().toISOString() })); } catch { /* abaikan */ }
+    return dalamJendela(hasil);
+  } catch (e) {
+    try {
+      const salinan = JSON.parse(localStorage.getItem(KUNCI_SALINAN_NASA) || 'null') as (DataTitikLive & { diambil: string }) | null;
+      if (salinan?.titik) return dalamJendela({ ...salinan, salinanDari: salinan.diambil });
+    } catch { /* abaikan */ }
+    throw e;
+  }
 }

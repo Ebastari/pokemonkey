@@ -19,6 +19,14 @@ import { HARI_SENIN } from '../lib/acara';
 
 interface Props { boot: Bootstrap; pengguna: Pengguna; notify: (m: string) => void }
 
+type SaringKelompok = 'semua' | 'ebl' | 'kbs';
+const SARING_KELOMPOK: { id: SaringKelompok; label: string }[] = [
+  { id: 'semua', label: 'Semua' },
+  { id: 'ebl', label: 'PT EBL' },
+  { id: 'kbs', label: 'CV KBS' },
+];
+const KUNCI_SARING = 'pokemonkey_roster_kelompok';
+
 export const RosterScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
   const hariIni = W.hariIniWita();
   const [bulan, setBulan] = useState(hariIni.slice(0, 7));
@@ -96,14 +104,29 @@ export const RosterScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
   const liburBulanIni = tanggalList.flatMap((t) => (liburPeta.get(t) ?? []).map((l) => ({ tanggal: t, l })));
   // Kelompok perusahaan: anggota CV KBS ditampilkan terpisah di bawah tim inti.
   const kelompokDari = (bidang?: string | null) => (bidang ?? '').trim().toUpperCase() === 'CV KBS' ? 'CV KBS' : 'PT EBL / TAHURA';
+  const [saringKelompok, setSaringKelompok] = useState<SaringKelompok>(() => {
+    try { const v = localStorage.getItem(KUNCI_SARING); if (v === 'ebl' || v === 'kbs') return v; } catch { /* abaikan */ }
+    return 'semua';
+  });
+  const gantiSaring = (v: SaringKelompok) => {
+    setSaringKelompok(v);
+    try { localStorage.setItem(KUNCI_SARING, v); } catch { /* abaikan */ }
+  };
+  const lolosSaring = (bidang?: string | null) =>
+    saringKelompok === 'semua' || (kelompokDari(bidang) === 'CV KBS') === (saringKelompok === 'kbs');
+  // Tabel, grafik, ringkasan hari ini, gambar, dan Excel semuanya memakai daftar yang sudah disaring.
   const timUrut = useMemo(() => {
     const urutan = (t: Bootstrap['tim'][number]) => (kelompokDari(t.bidang) === 'CV KBS' ? 1 : 0);
-    return [...boot.tim].sort((a, b) => urutan(a) - urutan(b) || a.nama.localeCompare(b.nama));
-  }, [boot.tim]);
+    return [...boot.tim].filter((t) => lolosSaring(t.bidang)).sort((a, b) => urutan(a) - urutan(b) || a.nama.localeCompare(b.nama));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boot.tim, saringKelompok]);
+  const labelSaring = SARING_KELOMPOK.find((s) => s.id === saringKelompok)!;
+  const akhiranSaring = saringKelompok === 'semua' ? '' : ` · ${labelSaring.label}`;
 
-  const ringkasHariIni = boot.tim.map((t) => ({ t, k: peta.get(`${t.id}|${hariIni}`)?.kode }));
+  const ringkasHariIni = timUrut.map((t) => ({ t, k: peta.get(`${t.id}|${hariIni}`)?.kode }));
   const bolehUbah = (userId: string) => bolehKelola || userId === pengguna.id;
   const judulBulan = `${W.NAMA_BULAN[bln - 1]} ${tahun}`;
+  const judulBulanSaring = judulBulan + akhiranSaring;
 
   const [mengekspor, setMengekspor] = useState(false);
   /** Excel mengikuti berkas "Template Roster Kerja" milik perusahaan (lihat lib/roster-excel.ts). */
@@ -120,6 +143,7 @@ export const RosterScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
         dibuatOleh: pengguna.nama,
         departemen: 'Revegetasi & Rehabilitasi',
         kelompokUtama: 'PT EBL / TAHURA',
+        namaBerkas: `ROSTER KERJA ${bulan}${saringKelompok === 'semua' ? '' : ` ${labelSaring.label}`}.xlsx`,
       });
       notify(hasil === 'diunduh' ? 'ROSTER DIEKSPOR' : 'ROSTER SIAP DIBAGIKAN');
     } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'EKSPOR GAGAL'); }
@@ -148,7 +172,19 @@ export const RosterScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
         <button onClick={() => geserBulan(-1)} className="btn-ikon !w-8 !h-8 bg-zinc-800"><ChevronLeft size={16} /></button>
         <span className="text-[14px] font-bold text-white min-w-[120px] text-center">{judulBulan}</span>
         <button onClick={() => geserBulan(1)} className="btn-ikon !w-8 !h-8 bg-zinc-800"><ChevronRight size={16} /></button>
-        <button onClick={() => unduh(areaRoster.current, `roster-${bulan}`, `Roster · ${judulBulan}`)} disabled={mengunduh} className="btn-ikon !w-8 !h-8 bg-zinc-800" title="Unduh gambar roster">{mengunduh ? <Loader2 size={15} className="animate-spin" /> : <ImageDown size={15} />}</button>
+        <div className="flex border-2 border-white/30" role="group" aria-label="Saring kelompok">
+          {SARING_KELOMPOK.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => gantiSaring(s.id)}
+              aria-pressed={saringKelompok === s.id}
+              className={`px-2 h-7 text-[11px] font-bold uppercase ${saringKelompok === s.id ? 'bg-teal-500 text-black' : 'bg-zinc-800 text-zinc-300 hover:text-white'}`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => unduh(areaRoster.current, `roster-${bulan}${saringKelompok === 'semua' ? '' : `-${saringKelompok}`}`, `Roster · ${judulBulanSaring}`)} disabled={mengunduh} className="btn-ikon !w-8 !h-8 bg-zinc-800" title="Unduh gambar roster">{mengunduh ? <Loader2 size={15} className="animate-spin" /> : <ImageDown size={15} />}</button>
         <button onClick={eksporExcel} disabled={mengekspor} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-emerald-700" title="Ekspor ke Excel">{mengekspor ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}<span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">Excel</span></button>
         {bolehKelola && <button onClick={() => setIsiCepat(true)} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-teal-600" title="Isi cepat"><Wand2 size={15} /><span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">Isi cepat</span></button>}
       </div>
@@ -274,7 +310,7 @@ export const RosterScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
         <GrafikRoster
           tim={timUrut} kode={kode} tanggalList={tanggalList} peta={peta}
           mengunduh={mengunduh}
-          onUnduh={(el, keterangan) => unduh(el, `grafik-roster-${bulan}`, `Grafik roster tim · ${judulBulan}`, keterangan)}
+          onUnduh={(el, keterangan) => unduh(el, `grafik-roster-${bulan}${saringKelompok === 'semua' ? '' : `-${saringKelompok}`}`, `Grafik roster tim · ${judulBulanSaring}`, keterangan)}
         />
         <GrafikAnggota
           tim={timUrut} kode={kode} tanggalList={tanggalList} peta={peta} awal={pengguna.id}
@@ -419,7 +455,9 @@ const GrafikRoster: React.FC<PropsGrafik & { onUnduh: (el: HTMLElement | null, k
  */
 const GrafikAnggota: React.FC<PropsGrafik & { awal: string; onUnduh: (el: HTMLElement | null, nama: string) => void }> = ({ tim, kode, tanggalList, peta, mengunduh, awal, onUnduh }) => {
   const area = useRef<HTMLElement>(null);
-  const [pilih, setPilih] = useState(() => (tim.some((t) => t.id === awal) ? awal : tim[0]?.id ?? ''));
+  const [pilihan, setPilih] = useState(() => (tim.some((t) => t.id === awal) ? awal : tim[0]?.id ?? ''));
+  // Saringan kelompok bisa menyembunyikan orang yang sedang dipilih; pakai anggota pertama yang tersisa.
+  const pilih = tim.some((t) => t.id === pilihan) ? pilihan : tim[0]?.id ?? '';
   const orang = tim.find((t) => t.id === pilih);
 
   const kolom = kode.map((k) => ({

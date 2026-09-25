@@ -19,7 +19,12 @@ import {
   muatDaftarLaporanKarhutla,
   simpanDaftarLaporanKarhutla,
   aturUlangTitikDemo,
+  PENGESAH_LAPORAN,
+  muatTitikNasa,
+  type DataTitikLive,
+  type KoordinatLaporan,
 } from '../lib/fire-report';
+import { api } from '../lib/api';
 import { buatScreenshotPetaOtomatis, kompresGambar } from '../lib/map-snapshot';
 import { diAplikasi } from '../lib/platform';
 import { demoAktif } from '../lib/api';
@@ -31,12 +36,79 @@ interface Props {
   notify: (pesan: string) => void;
 }
 
+type KunciIdentitas = 'pemegangIzin' | 'jenisIzin' | 'skNomorTanggal' | 'jangkaWaktuIzin' | 'luas' | 'statusKawasanHutan' | 'kabupaten' | 'provinsi';
+const BARIS_IDENTITAS: { label: string; kunci: KunciIdentitas; panjang?: boolean }[] = [
+  { label: 'Nama Pemegang Izin/Pemilik Hak', kunci: 'pemegangIzin' },
+  { label: 'Jenis Izin Pemanfaatan Hutan/Penggunaan Kawasan Hutan*)', kunci: 'jenisIzin' },
+  { label: 'SK Nomor dan Tanggal*)', kunci: 'skNomorTanggal', panjang: true },
+  { label: 'Jangka Waktu Izin*)', kunci: 'jangkaWaktuIzin' },
+  { label: 'Luas', kunci: 'luas' },
+  { label: 'Status Kawasan Hutan*)', kunci: 'statusKawasanHutan' },
+  { label: 'Kabupaten/Kota', kunci: 'kabupaten' },
+  { label: 'Provinsi', kunci: 'provinsi' },
+];
+
+/** "2026-09-21" → "21 September 2026". */
+const tanggalPanjang = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+};
+
+/** Kota di baris tanggal pengesahan: "Rantau, Tapin" → "Rantau", "Banjar (Kec. Aranio)" → "Banjar". */
+const kotaPengesahan = (kabupaten: string) => kabupaten.split(',')[0].replace(/\s*\(.*\)\s*/, '').trim() || kabupaten;
+
+/** Baris koordinat dengan keterangan sama digabung (rowSpan), seperti tabel di contoh Word. */
+const kelompokKoordinat = (daftar: KoordinatLaporan[]) =>
+  daftar.map((k, i) => {
+    if (i > 0 && daftar[i - 1].keterangan === k.keterangan) return { k, rentang: 0 };
+    let rentang = 1;
+    while (i + rentang < daftar.length && daftar[i + rentang].keterangan === k.keterangan) rentang++;
+    return { k, rentang };
+  });
+
+/** Kop surat, diulang di tiap halaman seperti header dokumen Word. */
+const KopLaporan: React.FC<{ demo: boolean; perusahaan: string }> = ({ demo, perusahaan }) =>
+  demo ? (
+    <div className="flex items-center gap-3 pb-2 mb-5 border-b-[3px] border-[#1f3a6e]">
+      <div className="w-12 h-12 rounded-full border-[3px] border-zinc-400 flex items-center justify-center text-[7pt] font-bold text-zinc-500 shrink-0">LOGO</div>
+      <div>
+        <p className="font-bold text-[13pt] leading-tight text-[#1f3a6e]">{perusahaan.toUpperCase()}</p>
+        <p className="text-[8pt] text-zinc-500">Kop perusahaan contoh</p>
+      </div>
+    </div>
+  ) : (
+    <img src="/fire-report-assets/kop-ebl-laporan.jpg" alt={perusahaan} className="block w-full h-auto mb-5" />
+  );
+
+/** Butir bernomor dengan indentasi gantung, seperti daftar bernomor Word. */
+const Butir: React.FC<{ no: number; children: React.ReactNode }> = ({ no, children }) => (
+  <div className="grid grid-cols-[2.2em_minmax(0,1fr)]">
+    <span>{no}.</span>
+    <div className="text-justify">{children}</div>
+  </div>
+);
+
+/** Tombol hapus di pojok gambar; tampil di layar, tidak ikut tercetak. */
+const TombolHapusGambar: React.FC<{ onClick: () => void; judul: string }> = ({ onClick, judul }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={judul}
+    aria-label={judul}
+    className="no-print absolute top-1.5 right-1.5 flex items-center gap-1 bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold px-2 py-1 border-2 border-black shadow-[2px_2px_0_#000]"
+  >
+    <Trash2 size={12} /> Hapus
+  </button>
+);
+
 export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
   // ---------------------------------------------------------------------------
   // STATE UTAMA
   // ---------------------------------------------------------------------------
   const [tabMode, setTabMode] = useState<'peta' | 'laporan' | 'riwayat'>('peta');
-  const [titikList, setTitikList] = useState<TitikApiFireItem[]>(muatTitikApiMonitoring);
+  // Titik simpanan di perangkat hanya untuk mode demo; mode kerja selalu memakai data NASA dari server.
+  const [titikList, setTitikList] = useState<TitikApiFireItem[]>(() => (demoAktif() ? muatTitikApiMonitoring() : []));
+  const [titikTerpilihIds, setTitikTerpilihIds] = useState<string[]>([]);
 
   // Mode demo: pemakai memilih satu kota; wilayah contoh dan titik api fiktif
   // dipindah ke sana, sehingga tidak ada data konsesi perusahaan yang tampil.
@@ -49,7 +121,59 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
     notify(`PETA DEMO DIPINDAH KE ${kota.nama.toUpperCase()}`);
   };
   const idn = wilayahFire().identitas;
-  const kopPerusahaan = modeDemo ? idn.perusahaan.toUpperCase() : 'PT. ENERGI BATUBARA LESTARI';
+  const pengesah = modeDemo ? { nama: 'Nama Penyetuju', jabatan: 'Pimpinan (contoh)', ttd: '' } : PENGESAH_LAPORAN;
+
+  // Sumber titik mode kerja = data NASA FIRMS di server (diambil cron tiap jam).
+  // LIVE (bawaan): 24 jam terakhir, disegarkan tiap 10 menit. LIVE mati: riwayat 7 hari.
+  // Mode demo: LIVE = titik contoh 24 jam, mati = semua titik contoh.
+  const [modeLive, setModeLive] = useState<boolean>(() => {
+    try { return localStorage.getItem('pokemonkey_fire_live') !== '0'; } catch { return true; }
+  });
+  const [dataNasa, setDataNasa] = useState<DataTitikLive | null>(null);
+  const [memuatNasa, setMemuatNasa] = useState(false);
+  const [diambilPada, setDiambilPada] = useState<Date | null>(null);
+  const pakaiNasa = modeLive || !modeDemo;
+  const segarkanNasa = React.useCallback(async (diam = false) => {
+    setMemuatNasa(true);
+    try {
+      setDataNasa(await muatTitikNasa(modeLive ? 24 : 24 * 7));
+      setDiambilPada(new Date());
+    } catch (e) {
+      if (!diam) notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMUAT DATA NASA');
+    } finally {
+      setMemuatNasa(false);
+    }
+  }, [modeLive, notify]);
+  useEffect(() => {
+    if (!pakaiNasa) return;
+    void segarkanNasa();
+    if (!modeLive) return;
+    const jeda = window.setInterval(() => void segarkanNasa(true), 10 * 60_000);
+    return () => window.clearInterval(jeda);
+  }, [pakaiNasa, modeLive, segarkanNasa]);
+  const gantiLive = () => {
+    const nyala = !modeLive;
+    setModeLive(nyala);
+    setDataNasa(null);
+    setTitikTerpilihIds([]);
+    try { localStorage.setItem('pokemonkey_fire_live', nyala ? '1' : '0'); } catch { /* abaikan */ }
+    notify(nyala ? 'LIVE: TITIK NASA 24 JAM TERAKHIR' : modeDemo ? 'LIVE MATI: SEMUA TITIK CONTOH' : 'RIWAYAT NASA 7 HARI');
+  };
+  const [memeriksaNasa, setMemeriksaNasa] = useState(false);
+  const periksaNasaSekarang = async () => {
+    setMemeriksaNasa(true);
+    try {
+      const h = await api<{ baru: number; galat: string[] }>('/api/titik-api/periksa', { method: 'POST', body: {} });
+      notify(h.galat?.length ? h.galat[0].toUpperCase() : `NASA DIPERIKSA · ${h.baru} TITIK BARU`);
+      await segarkanNasa(true);
+    } catch (e) {
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMERIKSA NASA');
+    } finally {
+      setMemeriksaNasa(false);
+    }
+  };
+  const titikAktif = pakaiNasa ? (dataNasa?.titik ?? []) : titikList;
+  const jamWita = (d: Date) => d.toLocaleString('id-ID', { timeZone: 'Asia/Makassar', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   const [daftarLaporan, setDaftarLaporan] = useState<LaporanKarhutla[]>(muatDaftarLaporanKarhutla);
   const [laporanAktifId, setLaporanAktifId] = useState<string | null>(() => {
     const list = muatDaftarLaporanKarhutla();
@@ -57,7 +181,6 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
   });
 
   // State Peta & Seleksi Titik
-  const [titikTerpilihIds, setTitikTerpilihIds] = useState<string[]>([]);
   const [titikFokus, setTitikFokus] = useState<TitikApiFireItem | null>(null);
   const [filterZona, setFilterZona] = useState<string>('semua');
   const [pencarian, setPencarian] = useState<string>('');
@@ -97,7 +220,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
 
   // Simpan otomatis ke localStorage
   useEffect(() => {
-    simpanTitikApiMonitoring(titikList);
+    if (demoAktif()) simpanTitikApiMonitoring(titikList);
   }, [titikList]);
 
   useEffect(() => {
@@ -115,20 +238,20 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
 
   // Metrik ringkasan titik api
   const metrik = useMemo(() => {
-    const total = titikList.length;
-    const diDalam = titikList.filter((t) => bisaDibuatkanLaporan(t)).length;
-    const ippkh = titikList.filter((t) => t.zona === 'ippkh').length;
-    const iup = titikList.filter((t) => t.zona === 'iup').length;
-    const das = titikList.filter((t) => t.area === 'das' || t.zona === 'petak').length;
-    const waspada = titikList.filter((t) => t.zona === 'waspada').length;
-    const pantau = titikList.filter((t) => t.zona === 'pantau').length;
-    const padam = titikList.filter((t) => t.status === 'padam').length;
+    const total = titikAktif.length;
+    const diDalam = titikAktif.filter((t) => bisaDibuatkanLaporan(t)).length;
+    const ippkh = titikAktif.filter((t) => t.zona === 'ippkh').length;
+    const iup = titikAktif.filter((t) => t.zona === 'iup').length;
+    const das = titikAktif.filter((t) => t.area === 'das' || t.zona === 'petak').length;
+    const waspada = titikAktif.filter((t) => t.zona === 'waspada').length;
+    const pantau = titikAktif.filter((t) => t.zona === 'pantau').length;
+    const padam = titikAktif.filter((t) => t.status === 'padam').length;
     return { total, diDalam, ippkh, iup, das, waspada, pantau, padam };
-  }, [titikList]);
+  }, [titikAktif]);
 
   // Titik yang terfilter di tabel bawah
   const titikTerfilter = useMemo(() => {
-    return titikList.filter((t) => {
+    return titikAktif.filter((t) => {
       if (filterZona === 'didalam' && !bisaDibuatkanLaporan(t)) return false;
       if (filterZona === 'ippkh' && t.zona !== 'ippkh') return false;
       if (filterZona === 'iup' && t.zona !== 'iup') return false;
@@ -146,7 +269,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
       }
       return true;
     });
-  }, [titikList, filterZona, pencarian]);
+  }, [titikAktif, filterZona, pencarian]);
 
   // ---------------------------------------------------------------------------
   // HANDLERS
@@ -160,16 +283,16 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
   const handlePilihSemuaDiDalam = (zonaKhusus?: 'das' | 'ippkh' | 'iup') => {
     let ids: string[] = [];
     if (zonaKhusus === 'das') {
-      ids = titikList.filter((t) => t.area === 'das' || t.zona === 'petak').map((t) => t.id);
+      ids = titikAktif.filter((t) => t.area === 'das' || t.zona === 'petak').map((t) => t.id);
       notify(`${ids.length} TITIK ${modeDemo ? 'PETAK CONTOH' : 'REHAB DAS TAHURA'} DIPILIH`);
     } else if (zonaKhusus === 'ippkh') {
-      ids = titikList.filter((t) => t.zona === 'ippkh').map((t) => t.id);
+      ids = titikAktif.filter((t) => t.zona === 'ippkh').map((t) => t.id);
       notify(`${ids.length} TITIK ${modeDemo ? 'IZIN CONTOH' : 'IPPKH TAPIN'} DIPILIH`);
     } else if (zonaKhusus === 'iup') {
-      ids = titikList.filter((t) => t.zona === 'iup').map((t) => t.id);
+      ids = titikAktif.filter((t) => t.zona === 'iup').map((t) => t.id);
       notify(`${ids.length} TITIK ${modeDemo ? 'AREA KERJA CONTOH' : 'IUP TAPIN'} DIPILIH`);
     } else {
-      ids = titikList.filter(bisaDibuatkanLaporan).map((t) => t.id);
+      ids = titikAktif.filter(bisaDibuatkanLaporan).map((t) => t.id);
       notify(`${ids.length} TITIK DI DALAM KONSESI DIPILIH`);
     }
     setTitikTerpilihIds(ids);
@@ -184,19 +307,19 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
       let titikUntukLaporan: TitikApiFireItem[] = [];
 
       if (target === 'das') {
-        titikUntukLaporan = titikList.filter((t) => t.area === 'das' || t.zona === 'petak');
+        titikUntukLaporan = titikAktif.filter((t) => t.area === 'das' || t.zona === 'petak');
       } else if (target === 'ippkh') {
-        titikUntukLaporan = titikList.filter((t) => t.zona === 'ippkh');
+        titikUntukLaporan = titikAktif.filter((t) => t.zona === 'ippkh');
       } else if (target === 'iup') {
-        titikUntukLaporan = titikList.filter((t) => t.zona === 'iup');
+        titikUntukLaporan = titikAktif.filter((t) => t.zona === 'iup');
       } else {
         if (titikTerpilihIds.length > 0) {
-          titikUntukLaporan = titikList.filter(
+          titikUntukLaporan = titikAktif.filter(
             (t) => titikTerpilihIds.includes(t.id) && bisaDibuatkanLaporan(t),
           );
         }
         if (titikUntukLaporan.length === 0) {
-          titikUntukLaporan = titikList.filter(bisaDibuatkanLaporan);
+          titikUntukLaporan = titikAktif.filter(bisaDibuatkanLaporan);
         }
       }
 
@@ -478,6 +601,19 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           </label>
         )}
 
+        <button
+          type="button"
+          onClick={gantiLive}
+          aria-pressed={modeLive}
+          title={modeLive ? (modeDemo ? 'Matikan LIVE: tampilkan semua titik contoh' : 'Matikan LIVE: tampilkan riwayat NASA 7 hari') : 'Tampilkan titik NASA FIRMS 24 jam terakhir'}
+          className={`flex items-center gap-1.5 px-2.5 h-8 border-2 text-[11px] font-bold uppercase ${
+            modeLive ? 'bg-red-600 border-red-300 text-white shadow-[2px_2px_0_#000]' : 'bg-zinc-900 border-white/40 text-zinc-300 hover:text-white'
+          }`}
+        >
+          <span className={`w-2.5 h-2.5 rounded-full ${modeLive ? 'bg-white animate-pulse' : 'bg-zinc-500'}`} />
+          Live
+        </button>
+
         {/* Tab Mode Switcher */}
         <div className="flex border-2 border-white/40">
           <button
@@ -550,6 +686,64 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           </button>
         </div>
       </div>
+
+      {pakaiNasa && (
+        <div
+          className={`no-print mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-2 px-2 py-1.5 text-[11px] shrink-0 ${
+            modeLive ? 'bg-red-950/70 border-red-500 text-red-100' : 'bg-zinc-900/80 border-zinc-500 text-zinc-200'
+          }`}
+        >
+          <span className="flex items-center gap-1.5 font-bold uppercase text-white">
+            <span className={`w-2 h-2 rounded-full ${modeLive ? 'bg-red-400 animate-pulse' : 'bg-zinc-400'}`} />
+            {modeLive ? 'Live' : 'Riwayat'}
+          </span>
+          {!dataNasa ? (
+            <span className="flex items-center gap-1">
+              {memuatNasa ? <><Loader2 size={11} className="animate-spin" /> Memuat data NASA FIRMS…</> : 'Data NASA belum termuat.'}
+            </span>
+          ) : (
+            <span>
+              <b className="text-white">{titikAktif.length}</b> titik NASA FIRMS dalam {modeLive ? '24 jam' : '7 hari'} terakhir
+              {modeDemo && ' (contoh)'}
+              {titikAktif.length === 0 && ' · tidak ada titik api terdeteksi'}
+            </span>
+          )}
+          {dataNasa?.terakhir && !Number.isNaN(Date.parse(dataNasa.terakhir)) && (
+            <span className="opacity-75">Satelit diambil server {jamWita(new Date(dataNasa.terakhir))} WITA</span>
+          )}
+          {diambilPada && !dataNasa?.salinanDari && (
+            <span className="opacity-75">Disegarkan {jamWita(diambilPada)}{modeLive ? ' · otomatis tiap 10 menit' : ''}</span>
+          )}
+          {dataNasa?.salinanDari && (
+            <span className="text-amber-300">
+              Server tidak terjangkau · menampilkan salinan {jamWita(new Date(dataNasa.salinanDari))} WITA
+            </span>
+          )}
+          {dataNasa && !dataNasa.terpasang && <span className="text-amber-300">Kunci NASA FIRMS belum dipasang di server.</span>}
+          {dataNasa?.galat && <span className="text-amber-300">Galat terakhir: {dataNasa.galat}</span>}
+          <span className="ml-auto flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => void segarkanNasa()}
+              disabled={memuatNasa}
+              className="btn-retro btn-retro-sm bg-zinc-800 text-white !py-0.5 text-[10px] flex items-center gap-1 disabled:opacity-50"
+            >
+              <RefreshCw size={11} className={memuatNasa ? 'animate-spin' : ''} /> Segarkan
+            </button>
+            {pengguna.peran === 'admin' && !modeDemo && (
+              <button
+                type="button"
+                onClick={periksaNasaSekarang}
+                disabled={memeriksaNasa}
+                className="btn-retro btn-retro-sm bg-red-700 text-white !py-0.5 text-[10px] flex items-center gap-1 disabled:opacity-50"
+                title="Minta server mengambil data NASA FIRMS sekarang (tidak menunggu jadwal tiap jam)"
+              >
+                {memeriksaNasa ? <Loader2 size={11} className="animate-spin" /> : <Flame size={11} />} Periksa NASA sekarang
+              </button>
+            )}
+          </span>
+        </div>
+      )}
 
       {/* ===================================================================== */}
       {/* TAMPILAN 1: PETA HOTSPOT & DAFTAR TITIK API                           */}
@@ -703,7 +897,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           >
             <FireMap
               key={modeDemo ? kotaDemo : 'kerja'}
-              titikList={titikList}
+              titikList={titikAktif}
               titikTerpilihIds={titikTerpilihIds}
               titikFokus={titikFokus}
               onPilihTitik={(t) => {
@@ -741,7 +935,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                         : 'bg-zinc-900 text-zinc-400 border-white/10 hover:text-white'
                     }`}
                   >
-                    Semua ({titikList.length})
+                    Semua ({titikAktif.length})
                   </button>
                   <button
                     onClick={() => setFilterZona('didalam')}
@@ -1161,7 +1355,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
             <div className="p-2.5 border-t-2 border-emerald-500/40 bg-zinc-900/90 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono">
               <div className="text-zinc-300">
                 Menampilkan <b className="text-emerald-300 font-bold">{titikTerfilter.length}</b> dari{' '}
-                <b className="text-white">{titikList.length}</b> total titik api terpantau
+                <b className="text-white">{titikAktif.length}</b> total titik api terpantau
               </div>
 
               <div className="flex items-center gap-3">
@@ -1373,728 +1567,404 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           )}
 
           {/* ================================================================= */}
-          {/* DOKUMEN FISIK FORMAT RESMI KLHK (Multi-Page A4 Printable)         */}
+          {/* DOKUMEN RESMI A4 — tata letak mengikuti contoh laporan Word:      */}
+          {/* hal.1 identitas + A. Deskripsi · hal.2 B. Kronologi + pengesahan  */}
+          {/* hal.3 tangkapan layar peta · hal.4 foto lapangan                  */}
           {/* ================================================================= */}
+          <div className="no-print max-w-4xl mx-auto mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-300 font-mono">
+            <span className="flex items-center gap-1">
+              <b className="text-zinc-400">Nomor</b>
+              {modeEditLaporan ? (
+                <input
+                  type="text"
+                  value={laporanDitampilkan.nomorLaporan}
+                  onChange={(e) => mutateLaporan((l) => ({ ...l, nomorLaporan: e.target.value }))}
+                  className="border border-amber-400 bg-amber-50 text-black px-1 py-0.5 text-[11px] rounded"
+                />
+              ) : (
+                laporanDitampilkan.nomorLaporan
+              )}
+            </span>
+            <span className="flex items-center gap-1">
+              <b className="text-zinc-400">Tanggal</b>
+              {modeEditLaporan ? (
+                <input
+                  type="date"
+                  value={laporanDitampilkan.tanggalLaporan}
+                  onChange={(e) => mutateLaporan((l) => ({ ...l, tanggalLaporan: e.target.value }))}
+                  className="border border-amber-400 bg-amber-50 text-black px-1 py-0.5 text-[11px] rounded"
+                />
+              ) : (
+                tanggalPanjang(laporanDitampilkan.tanggalLaporan)
+              )}
+            </span>
+            <span className="text-zinc-500">Nomor tidak ikut tercetak, sesuai format laporan.</span>
+          </div>
+
           <div className="flex justify-center">
-            <div id="dokumen-karhutla-a4" className="bg-white text-black p-8 md:p-12 max-w-4xl w-full shadow-2xl rounded-sm font-sans border-2 border-zinc-400 print:border-none print:p-0 print:shadow-none print:max-w-none text-[13px] leading-relaxed">
+            <div
+              id="dokumen-karhutla-a4"
+              className="bg-white text-black px-6 py-8 md:px-14 md:py-12 max-w-4xl w-full shadow-2xl border-2 border-zinc-400 print:border-none print:p-0 print:shadow-none print:max-w-none text-[10.5pt] leading-[1.45]"
+              style={{ fontFamily: 'Tahoma, Verdana, "Segoe UI", Arial, sans-serif' }}
+            >
               {/* ------------------------------------------------------------- */}
-              {/* HALAMAN 1: KOP, IDENTITAS IZIN, & DESKRIPSI                   */}
+              {/* HALAMAN 1: KOP, IDENTITAS IZIN, & A. DESKRIPSI                */}
               {/* ------------------------------------------------------------- */}
-              <div className="border-b-2 border-black pb-2 mb-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    {!modeDemo && <img
-                      src="/fire-report-assets/kop-ebl.jpeg"
-                      alt="Logo PT Energi Batubara Lestari"
-                      className="h-10 w-auto object-contain"
-                      onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
-                      }}
-                    />}
-                    <div>
-                      <h3 className="font-black text-[15px] uppercase tracking-wider text-black">
-                        {kopPerusahaan}
-                      </h3>
-                      <p className="text-[10px] text-zinc-600 font-mono tracking-tight uppercase">
-                        LAPORAN VERIFIKASI GROUND CHECK TITIK PANAS (HOTSPOT) SIPONGI KLHK ·{' '}
-                        {laporanDitampilkan.jenisIzin}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right text-[10px] font-mono text-zinc-600">
-                    <div className="flex items-center gap-1 justify-end">
-                      <b>Nomor:</b>{' '}
-                      {modeEditLaporan ? (
-                        <input
-                          type="text"
-                          value={laporanDitampilkan.nomorLaporan}
-                          onChange={(e) =>
-                            mutateLaporan((l) => ({ ...l, nomorLaporan: e.target.value }))
-                          }
-                          className="border border-amber-400 bg-amber-50 px-1 py-0.5 font-mono text-[10px] rounded"
-                        />
-                      ) : (
-                        <span>{laporanDitampilkan.nomorLaporan}</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 justify-end mt-1">
-                      <b>Tanggal:</b>{' '}
-                      {modeEditLaporan ? (
-                        <input
-                          type="date"
-                          value={laporanDitampilkan.tanggalLaporan}
-                          onChange={(e) =>
-                            mutateLaporan((l) => ({ ...l, tanggalLaporan: e.target.value }))
-                          }
-                          className="border border-amber-400 bg-amber-50 px-1 py-0.5 font-mono text-[10px] rounded"
-                        />
-                      ) : (
-                        <span>{laporanDitampilkan.tanggalLaporan}</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <section>
+                <KopLaporan demo={modeDemo} perusahaan={idn.perusahaan} />
 
-              {/* Tabel Identitas Pemegang Izin */}
-              <div className="mb-5 overflow-x-auto">
-                <table className="w-full text-[12px] border-collapse border border-black">
+                <table className="w-full border-collapse text-[9pt] mb-3">
                   <tbody>
-                    <tr className="border-b border-black">
-                      <td className="p-1.5 border-r border-black font-semibold w-64 bg-zinc-100">
-                        Nama Pemegang Izin/Pemilik Hak
-                      </td>
-                      <td className="p-1.5 border-r border-black w-3 text-center">:</td>
-                      <td className="p-1.5 font-bold">
-                        {modeEditLaporan ? (
-                          <input
-                            type="text"
-                            value={laporanDitampilkan.pemegangIzin}
-                            onChange={(e) =>
-                              mutateLaporan((l) => ({ ...l, pemegangIzin: e.target.value }))
-                            }
-                            className="w-full border border-amber-300 bg-amber-50 p-1 text-[11px] rounded"
-                          />
-                        ) : (
-                          laporanDitampilkan.pemegangIzin
-                        )}
-                      </td>
-                    </tr>
-                    <tr className="border-b border-black">
-                      <td className="p-1.5 border-r border-black font-semibold bg-zinc-100">
-                        Jenis Izin Pemanfaatan Hutan/Penggunaan Kawasan Hutan*)
-                      </td>
-                      <td className="p-1.5 border-r border-black text-center">:</td>
-                      <td className="p-1.5 font-bold uppercase">
-                        {modeEditLaporan ? (
-                          <input
-                            type="text"
-                            value={laporanDitampilkan.jenisIzin}
-                            onChange={(e) =>
-                              mutateLaporan((l) => ({ ...l, jenisIzin: e.target.value }))
-                            }
-                            className="w-full border border-amber-300 bg-amber-50 p-1 text-[11px] rounded font-bold uppercase"
-                          />
-                        ) : (
-                          laporanDitampilkan.jenisIzin
-                        )}
-                      </td>
-                    </tr>
-                    <tr className="border-b border-black">
-                      <td className="p-1.5 border-r border-black font-semibold bg-zinc-100">
-                        SK Nomor dan Tanggal*)
-                      </td>
-                      <td className="p-1.5 border-r border-black text-center">:</td>
-                      <td className="p-1.5">
-                        {modeEditLaporan ? (
-                          <textarea
-                            rows={2}
-                            value={laporanDitampilkan.skNomorTanggal}
-                            onChange={(e) =>
-                              mutateLaporan((l) => ({ ...l, skNomorTanggal: e.target.value }))
-                            }
-                            className="w-full border border-amber-300 bg-amber-50 p-1 text-[11px] rounded"
-                          />
-                        ) : (
-                          laporanDitampilkan.skNomorTanggal
-                        )}
-                      </td>
-                    </tr>
-                    <tr className="border-b border-black">
-                      <td className="p-1.5 border-r border-black font-semibold bg-zinc-100">
-                        Jangka Waktu Izin*)
-                      </td>
-                      <td className="p-1.5 border-r border-black text-center">:</td>
-                      <td className="p-1.5 font-mono">
-                        {modeEditLaporan ? (
-                          <input
-                            type="text"
-                            value={laporanDitampilkan.jangkaWaktuIzin}
-                            onChange={(e) =>
-                              mutateLaporan((l) => ({ ...l, jangkaWaktuIzin: e.target.value }))
-                            }
-                            className="w-full border border-amber-300 bg-amber-50 p-1 text-[11px] font-mono rounded"
-                          />
-                        ) : (
-                          laporanDitampilkan.jangkaWaktuIzin
-                        )}
-                      </td>
-                    </tr>
-                    <tr className="border-b border-black">
-                      <td className="p-1.5 border-r border-black font-semibold bg-zinc-100">Luas</td>
-                      <td className="p-1.5 border-r border-black text-center">:</td>
-                      <td className="p-1.5 font-mono">
-                        {modeEditLaporan ? (
-                          <input
-                            type="text"
-                            value={laporanDitampilkan.luas}
-                            onChange={(e) =>
-                              mutateLaporan((l) => ({ ...l, luas: e.target.value }))
-                            }
-                            className="w-full border border-amber-300 bg-amber-50 p-1 text-[11px] font-mono rounded"
-                          />
-                        ) : (
-                          laporanDitampilkan.luas
-                        )}
-                      </td>
-                    </tr>
-                    <tr className="border-b border-black">
-                      <td className="p-1.5 border-r border-black font-semibold bg-zinc-100">
-                        Status Kawasan Hutan*)
-                      </td>
-                      <td className="p-1.5 border-r border-black text-center">:</td>
-                      <td className="p-1.5">
-                        {modeEditLaporan ? (
-                          <input
-                            type="text"
-                            value={laporanDitampilkan.statusKawasanHutan}
-                            onChange={(e) =>
-                              mutateLaporan((l) => ({ ...l, statusKawasanHutan: e.target.value }))
-                            }
-                            className="w-full border border-amber-300 bg-amber-50 p-1 text-[11px] rounded"
-                          />
-                        ) : (
-                          laporanDitampilkan.statusKawasanHutan
-                        )}
-                      </td>
-                    </tr>
-                    <tr className="border-b border-black">
-                      <td className="p-1.5 border-r border-black font-semibold bg-zinc-100">
-                        Kabupaten/Kota
-                      </td>
-                      <td className="p-1.5 border-r border-black text-center">:</td>
-                      <td className="p-1.5">
-                        {modeEditLaporan ? (
-                          <input
-                            type="text"
-                            value={laporanDitampilkan.kabupaten}
-                            onChange={(e) =>
-                              mutateLaporan((l) => ({ ...l, kabupaten: e.target.value }))
-                            }
-                            className="w-full border border-amber-300 bg-amber-50 p-1 text-[11px] rounded"
-                          />
-                        ) : (
-                          laporanDitampilkan.kabupaten
-                        )}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="p-1.5 border-r border-black font-semibold bg-zinc-100">
-                        Provinsi
-                      </td>
-                      <td className="p-1.5 border-r border-black text-center">:</td>
-                      <td className="p-1.5">
-                        {modeEditLaporan ? (
-                          <input
-                            type="text"
-                            value={laporanDitampilkan.provinsi}
-                            onChange={(e) =>
-                              mutateLaporan((l) => ({ ...l, provinsi: e.target.value }))
-                            }
-                            className="w-full border border-amber-300 bg-amber-50 p-1 text-[11px] rounded"
-                          />
-                        ) : (
-                          laporanDitampilkan.provinsi
-                        )}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              {/* BAGIAN A: DESKRIPSI */}
-              <div className="mb-6 space-y-3">
-                <h4 className="font-black text-[13px] uppercase tracking-wide border-b border-black pb-0.5">
-                  A. DESKRIPSI
-                </h4>
-                {modeEditLaporan ? (
-                  <div>
-                    <label className="text-[11px] font-bold text-zinc-600 block mb-1">
-                      Narasi Deskripsi Pemantauan Titik Panas (Poin 1):
-                    </label>
-                    <textarea
-                      rows={4}
-                      value={laporanDitampilkan.deskripsiUmum}
-                      onChange={(e) =>
-                        mutateLaporan((l) => ({ ...l, deskripsiUmum: e.target.value }))
-                      }
-                      className="w-full border border-amber-300 bg-amber-50 p-2 text-[12px] leading-relaxed rounded"
-                    />
-                  </div>
-                ) : (
-                  <p className="text-justify text-[12px] leading-relaxed">
-                    1. {laporanDitampilkan.deskripsiUmum}
-                  </p>
-                )}
-                <p className="text-justify text-[12px] leading-relaxed">
-                  2. Menindaklanjuti informasi tersebut, tim pemantau melakukan verifikasi lapangan{' '}
-                  <i>(ground check)</i> untuk memastikan keberadaan, penyebab, luasan, serta status titik
-                  api di lokasi terindikasi. Adapun koordinat titik panas yang terpantau adalah sebagai
-                  berikut:
-                </p>
-
-                {/* Tabel Koordinat Titik Panas Resmi */}
-                <div className="my-2 overflow-x-auto">
-                  <table className="w-full text-[11px] border-collapse border border-black">
-                    <thead>
-                      <tr className="bg-zinc-200 text-black uppercase font-bold text-center">
-                        <th className="border border-black p-1.5 w-12">Titik</th>
-                        <th className="border border-black p-1.5 w-32">X (Bujur)</th>
-                        <th className="border border-black p-1.5 w-32">Y (Lintang)</th>
-                        <th className="border border-black p-1.5 text-left">Keterangan Area</th>
-                        <th className="border border-black p-1.5 w-28">Satelit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {laporanDitampilkan.titikKoordinat.map((k) => (
-                        <tr key={k.no} className="border-b border-black">
-                          <td className="border border-black p-1.5 text-center font-bold font-mono">
-                            {k.no}
-                          </td>
-                          <td className="border border-black p-1.5 text-center font-mono font-bold">
-                            {k.xBujur.toFixed(5).replace('.', ',')}
-                          </td>
-                          <td className="border border-black p-1.5 text-center font-mono font-bold">
-                            {k.yLintang.toFixed(5).replace('.', ',')}
-                          </td>
-                          <td className="border border-black p-1.5 text-[10px]">
-                            {k.keterangan} ({k.desa})
-                          </td>
-                          <td className="border border-black p-1.5 text-center font-mono text-[10px]">
-                            {k.satelit}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <p className="text-justify text-[12px] leading-relaxed">
-                  3. Sistem koordinat yang digunakan adalah geografis{' '}
-                  <i>(Geographic Coordinate System)</i> dengan datum WGS 1984, dinyatakan dalam satuan
-                  derajat desimal. Peta sebaran titik panas dan lokasi verifikasi lapangan terlampir pada
-                  dokumen ini.
-                </p>
-              </div>
-
-              {/* Pemisah Halaman Cetak */}
-              <div className="page-break my-6 border-t-2 border-dashed border-zinc-300 print:border-none" />
-
-              {/* ------------------------------------------------------------- */}
-              {/* HALAMAN 2: KRONOLOGI KEBAKARAN & UPAYA PENANGANAN             */}
-              {/* ------------------------------------------------------------- */}
-              <div className="border-b-2 border-black pb-2 mb-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-black text-[14px] uppercase tracking-wider text-black">
-                    {kopPerusahaan}
-                  </h3>
-                  <span className="text-[10px] text-zinc-500 font-mono uppercase">
-                    Halaman 2 · Kronologi & Tindakan Penanganan ({laporanDitampilkan.jenisIzin})
-                  </span>
-                </div>
-              </div>
-
-              <div className="mb-6 space-y-3.5">
-                <h4 className="font-black text-[13px] uppercase tracking-wide border-b border-black pb-0.5">
-                  B. KRONOLOGI KEBAKARAN
-                </h4>
-
-                {/* Kronologi 1: Waktu & Lokasi Spesifik */}
-                {modeEditLaporan ? (
-                  <div className="p-2 border border-amber-300 bg-amber-50/50 rounded space-y-1">
-                    <label className="text-[11px] font-bold text-zinc-700 block">
-                      1. Waktu Ground Check & Lokasi Spesifik:
-                    </label>
-                    <input
-                      type="text"
-                      value={laporanDitampilkan.kronologi.waktuVerifikasi}
-                      onChange={(e) =>
-                        mutateLaporan((l) => ({
-                          ...l,
-                          kronologi: { ...l.kronologi, waktuVerifikasi: e.target.value },
-                        }))
-                      }
-                      className="w-full border border-amber-300 bg-white p-1 text-[11px] rounded mb-1"
-                      placeholder="Waktu verifikasi..."
-                    />
-                    <textarea
-                      rows={2}
-                      value={laporanDitampilkan.kronologi.lokasiSpesifik}
-                      onChange={(e) =>
-                        mutateLaporan((l) => ({
-                          ...l,
-                          kronologi: { ...l.kronologi, lokasiSpesifik: e.target.value },
-                        }))
-                      }
-                      className="w-full border border-amber-300 bg-white p-1 text-[11px] rounded"
-                      placeholder="Lokasi spesifik..."
-                    />
-                  </div>
-                ) : (
-                  <p className="text-justify text-[12px] leading-relaxed">
-                    1. {laporanDitampilkan.kronologi.waktuVerifikasi}, tim patroli kebakaran {idn.perusahaan} melakukan verifikasi lapangan terhadap titik panas yang terpantau pada
-                    Website SIPONGI / NASA FIRMS. Hasil verifikasi menunjukkan bahwa titik panas tersebut
-                    bersumber dari {laporanDitampilkan.kronologi.lokasiSpesifik}
-                  </p>
-                )}
-
-                {/* Kronologi 2: Pengamatan Visual (Penyebab) */}
-                {modeEditLaporan ? (
-                  <div className="p-2 border border-amber-300 bg-amber-50/50 rounded space-y-1">
-                    <label className="text-[11px] font-bold text-zinc-700 block">
-                      2. Pengamatan Visual & Penyebab Titik Panas:
-                    </label>
-                    <textarea
-                      rows={4}
-                      value={laporanDitampilkan.kronologi.pengamatanVisual}
-                      onChange={(e) =>
-                        mutateLaporan((l) => ({
-                          ...l,
-                          kronologi: { ...l.kronologi, pengamatanVisual: e.target.value },
-                        }))
-                      }
-                      className="w-full border border-amber-300 bg-white p-1 text-[11px] leading-relaxed rounded"
-                    />
-                  </div>
-                ) : (
-                  <p className="text-justify text-[12px] leading-relaxed">
-                    2. {laporanDitampilkan.kronologi.pengamatanVisual}
-                  </p>
-                )}
-
-                {/* Kronologi 3: Tindakan Penanganan */}
-                {modeEditLaporan ? (
-                  <div className="p-2 border border-amber-300 bg-amber-50/50 rounded space-y-1">
-                    <label className="text-[11px] font-bold text-zinc-700 block">
-                      3. Upaya & Tindakan Penanganan Pemadaman:
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={laporanDitampilkan.kronologi.tindakanPenanganan}
-                      onChange={(e) =>
-                        mutateLaporan((l) => ({
-                          ...l,
-                          kronologi: { ...l.kronologi, tindakanPenanganan: e.target.value },
-                        }))
-                      }
-                      className="w-full border border-amber-300 bg-white p-1 text-[11px] leading-relaxed rounded"
-                    />
-                  </div>
-                ) : (
-                  <p className="text-justify text-[12px] leading-relaxed">
-                    3. {laporanDitampilkan.kronologi.tindakanPenanganan}
-                  </p>
-                )}
-
-                {/* Kronologi 4: Proses Pemadaman & Hasil Verifikasi */}
-                {modeEditLaporan ? (
-                  <div className="p-2 border border-amber-300 bg-amber-50/50 rounded space-y-1">
-                    <label className="text-[11px] font-bold text-zinc-700 block">
-                      4. Proses Pemadaman & Hasil Verifikasi Akhir:
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={laporanDitampilkan.kronologi.prosesPemadaman}
-                      onChange={(e) =>
-                        mutateLaporan((l) => ({
-                          ...l,
-                          kronologi: { ...l.kronologi, prosesPemadaman: e.target.value },
-                        }))
-                      }
-                      className="w-full border border-amber-300 bg-white p-1 text-[11px] rounded mb-1"
-                      placeholder="Proses pemadaman..."
-                    />
-                    <textarea
-                      rows={2}
-                      value={laporanDitampilkan.kronologi.hasilVerifikasi}
-                      onChange={(e) =>
-                        mutateLaporan((l) => ({
-                          ...l,
-                          kronologi: { ...l.kronologi, hasilVerifikasi: e.target.value },
-                        }))
-                      }
-                      className="w-full border border-amber-300 bg-white p-1 text-[11px] rounded"
-                      placeholder="Hasil akhir verifikasi..."
-                    />
-                  </div>
-                ) : (
-                  <p className="text-justify text-[12px] leading-relaxed">
-                    4. {laporanDitampilkan.kronologi.prosesPemadaman}{' '}
-                    {laporanDitampilkan.kronologi.hasilVerifikasi}
-                  </p>
-                )}
-              </div>
-
-              {/* Pemisah Halaman Cetak */}
-              <div className="page-break my-6 border-t-2 border-dashed border-zinc-300 print:border-none" />
-
-              {/* ------------------------------------------------------------- */}
-              {/* HALAMAN 3 & 4: LAMPIRAN PETA SIPONGI & FOTO DOKUMENTASI       */}
-              {/* ------------------------------------------------------------- */}
-              <div className="border-b-2 border-black pb-2 mb-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-black text-[14px] uppercase tracking-wider text-black">
-                    {kopPerusahaan}
-                  </h3>
-                  <span className="text-[10px] text-zinc-500 font-mono">
-                    Halaman 3 & 4 · Lampiran Dokumentasi
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                <h4 className="font-black text-[13px] uppercase tracking-wide border-b border-black pb-0.5">
-                  C. LAMPIRAN DOKUMENTASI PEMANTAUAN & PENANGANAN
-                </h4>
-
-                {/* 1. Tangkapan Layar SiPongi+ / Peta GIS Resmi */}
-                <div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <h5 className="font-bold text-[12px] text-zinc-800">
-                      1. Tangkapan Layar Titik Panas pada Sistem Informasi SiPongi+ KLHK & Peta GIS
-                    </h5>
-                    <div className="flex items-center gap-1.5 no-print">
-                      <button
-                        type="button"
-                        onClick={handleGenerateScreenshotPeta}
-                        disabled={isGeneratingSnapshot}
-                        className="btn-retro btn-retro-sm bg-cyan-700 hover:bg-cyan-600 text-white font-bold flex items-center gap-1 text-[10px] !py-0.5"
-                        title="Otomatis buat screenshot peta WGS 1984"
-                      >
-                        {isGeneratingSnapshot ? (
-                          <Loader2 size={11} className="animate-spin" />
-                        ) : (
-                          <Sparkles size={11} />
-                        )}
-                        <span>{isGeneratingSnapshot ? 'Membuat Peta...' : '📸 Screenshot Peta Otomatis'}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => inputUploadPetaRef.current?.click()}
-                        className="btn-retro btn-retro-sm bg-zinc-700 hover:bg-zinc-600 text-white font-bold flex items-center gap-1 text-[10px] !py-0.5"
-                        title="Upload gambar screenshot SiPongi dari file manual"
-                      >
-                        <Upload size={11} />
-                        <span>Upload Peta</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {laporanDitampilkan.dokumentasi.petaSipongi.map((imgUrl, i) => (
-                      <div
-                        key={i}
-                        className="border border-black p-1 bg-zinc-50 flex flex-col items-center relative group"
-                      >
-                        <img
-                          src={imgUrl}
-                          alt={`Tangkapan Layar SiPongi Titik ${i + 1}`}
-                          className="w-full h-auto object-contain max-h-60 rounded-xs"
-                        />
-                        <p className="text-[10px] font-mono text-center text-zinc-600 mt-1">
-                          Gambar {i + 1}: Tampilan Titik Koordinat Hotspot SiPongi+ / Peta GIS (
-                          {laporanDitampilkan.titikKoordinat[i]?.satelit || 'WGS 1984'})
-                        </p>
-                        {modeEditLaporan && (
-                          <button
-                            type="button"
-                            onClick={() => handleHapusPetaSipongi(i)}
-                            className="absolute top-2 right-2 btn-retro btn-retro-sm bg-red-600 text-white !p-1 text-[10px] shadow no-print"
-                            title="Hapus gambar screenshot peta ini"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 2. Foto Dokumentasi Lapangan */}
-                <div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <h5 className="font-bold text-[12px] text-zinc-800">
-                      2. Dokumentasi Foto Lapangan Ground Check & Penanganan Tim Lapangan
-                    </h5>
-                    <div className="flex items-center gap-1.5 no-print">
-                      <button
-                        type="button"
-                        onClick={() => inputUploadFotoRef.current?.click()}
-                        disabled={isUploadingFoto}
-                        className="btn-retro btn-retro-sm bg-purple-700 hover:bg-purple-600 text-white font-bold flex items-center gap-1 text-[10px] !py-0.5"
-                        title="Unggah berkas foto dokumentasi dari kamera atau galeri"
-                      >
-                        {isUploadingFoto ? (
-                          <Loader2 size={11} className="animate-spin" />
-                        ) : (
-                          <Camera size={11} />
-                        )}
-                        <span>{isUploadingFoto ? 'Mengunggah...' : '📁 Upload Foto Dokumentasi'}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {laporanDitampilkan.dokumentasi.fotoLapangan.map((foto, idx) => (
-                      <div
-                        key={idx}
-                        className="border border-black p-2 bg-zinc-50 flex flex-col justify-between rounded-sm relative"
-                      >
-                        <div className="flex flex-col items-center">
-                          <img
-                            src={foto.url}
-                            alt={foto.judul}
-                            className="w-full h-auto object-contain max-h-64 rounded-sm border border-zinc-300"
-                          />
-                        </div>
-
-                        {modeEditLaporan ? (
-                          <div className="mt-2 space-y-1.5 text-[11px] no-print">
-                            <div>
-                              <label className="text-[10px] font-bold text-zinc-600">Judul Foto:</label>
-                              <input
-                                type="text"
-                                value={foto.judul}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  mutateLaporan((lap) => {
-                                    const fl = [...lap.dokumentasi.fotoLapangan];
-                                    fl[idx] = { ...fl[idx], judul: val };
-                                    return {
-                                      ...lap,
-                                      dokumentasi: { ...lap.dokumentasi, fotoLapangan: fl },
-                                    };
-                                  });
-                                }}
-                                className="w-full border border-amber-300 bg-white p-1 text-[11px] rounded"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold text-zinc-600">
-                                Keterangan Foto:
-                              </label>
+                    {BARIS_IDENTITAS.map(({ label, kunci, panjang }) => (
+                      <tr key={kunci}>
+                        <td className="border border-black px-2 py-1.5 font-bold w-[38%] align-middle">{label}</td>
+                        <td className="border border-black px-1 py-1.5 w-[3%] text-center align-middle">:</td>
+                        <td className="border border-black px-2 py-1.5 align-middle">
+                          {modeEditLaporan ? (
+                            panjang ? (
                               <textarea
                                 rows={2}
-                                value={foto.deskripsi || ''}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  mutateLaporan((lap) => {
-                                    const fl = [...lap.dokumentasi.fotoLapangan];
-                                    fl[idx] = { ...fl[idx], deskripsi: val };
-                                    return {
-                                      ...lap,
-                                      dokumentasi: { ...lap.dokumentasi, fotoLapangan: fl },
-                                    };
-                                  });
-                                }}
-                                className="w-full border border-amber-300 bg-white p-1 text-[10px] rounded"
+                                value={laporanDitampilkan[kunci]}
+                                onChange={(e) => mutateLaporan((l) => ({ ...l, [kunci]: e.target.value }))}
+                                className="w-full border border-amber-300 bg-amber-50 p-1 text-[9pt] rounded"
                               />
-                            </div>
-                            <div className="flex items-center justify-between gap-1 pt-1 border-t border-zinc-200">
-                              <select
-                                value={foto.kategori}
-                                onChange={(e) => {
-                                  const val = e.target.value as any;
-                                  mutateLaporan((lap) => {
-                                    const fl = [...lap.dokumentasi.fotoLapangan];
-                                    fl[idx] = { ...fl[idx], kategori: val };
-                                    return {
-                                      ...lap,
-                                      dokumentasi: { ...lap.dokumentasi, fotoLapangan: fl },
-                                    };
-                                  });
-                                }}
-                                className="border border-zinc-300 bg-white px-1.5 py-0.5 text-[10px] rounded"
-                              >
-                                <option value="sebelum">Sebelum Penanganan</option>
-                                <option value="tindakan">Tindakan Pemadaman</option>
-                                <option value="setelah">Setelah Padam (Bara Padam)</option>
-                                <option value="umum">Umum / Before-After</option>
-                              </select>
-
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleGeserFoto(idx, 'atas')}
-                                  disabled={idx === 0}
-                                  className="btn-retro btn-retro-sm bg-zinc-200 text-black !p-1 text-[9px] disabled:opacity-30"
-                                  title="Geser ke atas"
-                                >
-                                  <ArrowUp size={11} />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleGeserFoto(idx, 'bawah')}
-                                  disabled={idx === laporanDitampilkan.dokumentasi.fotoLapangan.length - 1}
-                                  className="btn-retro btn-retro-sm bg-zinc-200 text-black !p-1 text-[9px] disabled:opacity-30"
-                                  title="Geser ke bawah"
-                                >
-                                  <ArrowDown size={11} />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleHapusFotoLapangan(idx)}
-                                  className="btn-retro btn-retro-sm bg-red-600 text-white !p-1 text-[9px]"
-                                  title="Hapus foto ini"
-                                >
-                                  <Trash2 size={11} />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="mt-1.5 text-center">
-                            <p className="font-bold text-[11px] text-black">{foto.judul}</p>
-                            {foto.deskripsi && (
-                              <p className="text-[10px] text-zinc-600 mt-0.5">{foto.deskripsi}</p>
-                            )}
-                            <div className="mt-1">
-                              <span className="inline-block text-[9px] font-mono px-1.5 py-0.2 rounded bg-zinc-200 text-zinc-700 uppercase">
-                                Kategori: {foto.kategori}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                            ) : (
+                              <input
+                                type="text"
+                                value={laporanDitampilkan[kunci]}
+                                onChange={(e) => mutateLaporan((l) => ({ ...l, [kunci]: e.target.value }))}
+                                className="w-full border border-amber-300 bg-amber-50 p-1 text-[9pt] rounded"
+                              />
+                            )
+                          ) : (
+                            laporanDitampilkan[kunci]
+                          )}
+                        </td>
+                      </tr>
                     ))}
-                  </div>
+                  </tbody>
+                </table>
+
+                <h4 className="font-bold text-[10.5pt] mb-1.5">A. DESKRIPSI</h4>
+                <div className="space-y-1.5">
+                  <Butir no={1}>
+                    {modeEditLaporan ? (
+                      <textarea
+                        rows={5}
+                        value={laporanDitampilkan.deskripsiUmum}
+                        onChange={(e) => mutateLaporan((l) => ({ ...l, deskripsiUmum: e.target.value }))}
+                        className="w-full border border-amber-300 bg-amber-50 p-2 text-[10pt] leading-relaxed rounded"
+                      />
+                    ) : (
+                      laporanDitampilkan.deskripsiUmum
+                    )}
+                  </Butir>
+                  <Butir no={2}>
+                    Menindaklanjuti informasi tersebut, tim pemantau melakukan verifikasi lapangan{' '}
+                    (<i>ground check</i>) untuk memastikan keberadaan, penyebab, luasan, serta status titik api
+                    di lokasi terindikasi. Adapun koordinat titik panas yang terpantau adalah sebagai berikut:
+                    <table className="w-full border-collapse text-[9.5pt] mt-1.5 mb-0.5 break-inside-avoid">
+                      <thead>
+                        <tr className="font-bold">
+                          <th className="border border-black px-2 py-1 text-left w-[46%]">Keterangan</th>
+                          <th className="border border-black px-2 py-1 text-center w-[12%]">Titik</th>
+                          <th className="border border-black px-2 py-1 text-center">X (Bujur)</th>
+                          <th className="border border-black px-2 py-1 text-center">Y (Lintang)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {kelompokKoordinat(laporanDitampilkan.titikKoordinat).map(({ k, rentang }) => (
+                          <tr key={k.no}>
+                            {rentang > 0 && (
+                              <td rowSpan={rentang} className="border border-black px-2 py-1 align-top">
+                                {k.keterangan.split(/<br\s*\/?>/i).map((baris, i) => (
+                                  <React.Fragment key={i}>{i > 0 && <br />}{baris.trim()}</React.Fragment>
+                                ))}
+                              </td>
+                            )}
+                            <td className="border border-black px-2 py-1 text-center align-top">{k.no}</td>
+                            <td className="border border-black px-2 py-1 text-center align-top tabular-nums">
+                              {k.xBujur.toFixed(5).replace('.', ',')}
+                            </td>
+                            <td className="border border-black px-2 py-1 text-center align-top tabular-nums">
+                              {k.yLintang.toFixed(5).replace('.', ',')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Butir>
+                  <Butir no={3}>
+                    Sistem koordinat yang digunakan adalah geografis (Geographic Coordinate System) dengan datum
+                    WGS 1984, dinyatakan dalam satuan derajat desimal. Peta sebaran titik panas dan lokasi
+                    verifikasi lapangan terlampir pada dokumen ini.
+                  </Butir>
+                </div>
+              </section>
+
+              {/* ------------------------------------------------------------- */}
+              {/* HALAMAN 2: B. KRONOLOGI KEBAKARAN + PENGESAHAN                */}
+              {/* ------------------------------------------------------------- */}
+              <section className="halaman-baru mt-8 pt-8 border-t-2 border-dashed border-zinc-300 print:mt-0 print:pt-0 print:border-none">
+                <KopLaporan demo={modeDemo} perusahaan={idn.perusahaan} />
+
+                <h4 className="font-bold text-[10.5pt] mb-1.5">B. KRONOLOGI KEBAKARAN</h4>
+                <div className="space-y-1.5">
+                  <Butir no={1}>
+                    {modeEditLaporan ? (
+                      <div className="space-y-1">
+                        <label className="text-[9pt] font-bold text-zinc-600 block">Waktu ground check</label>
+                        <input
+                          type="text"
+                          value={laporanDitampilkan.kronologi.waktuVerifikasi}
+                          onChange={(e) => mutateLaporan((l) => ({ ...l, kronologi: { ...l.kronologi, waktuVerifikasi: e.target.value } }))}
+                          className="w-full border border-amber-300 bg-amber-50 p-1 text-[10pt] rounded"
+                          placeholder="Pada hari Senin, tanggal …, pukul … WITA"
+                        />
+                        <label className="text-[9pt] font-bold text-zinc-600 block">Sumber titik panas & lokasi spesifik</label>
+                        <textarea
+                          rows={3}
+                          value={laporanDitampilkan.kronologi.lokasiSpesifik}
+                          onChange={(e) => mutateLaporan((l) => ({ ...l, kronologi: { ...l.kronologi, lokasiSpesifik: e.target.value } }))}
+                          className="w-full border border-amber-300 bg-amber-50 p-1 text-[10pt] rounded"
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        {laporanDitampilkan.kronologi.waktuVerifikasi}, tim patroli kebakaran {idn.perusahaan}{' '}
+                        melakukan verifikasi lapangan terhadap titik panas yang terpantau pada Website SIPONGI. Hasil
+                        verifikasi menunjukkan bahwa titik panas tersebut bersumber dari{' '}
+                        {laporanDitampilkan.kronologi.lokasiSpesifik}
+                      </>
+                    )}
+                  </Butir>
+                  {([
+                    ['pengamatanVisual', 5],
+                    ['tindakanPenanganan', 5],
+                  ] as const).map(([kunci, baris], i) => (
+                    <Butir key={kunci} no={i + 2}>
+                      {modeEditLaporan ? (
+                        <textarea
+                          rows={baris}
+                          value={laporanDitampilkan.kronologi[kunci]}
+                          onChange={(e) => mutateLaporan((l) => ({ ...l, kronologi: { ...l.kronologi, [kunci]: e.target.value } }))}
+                          className="w-full border border-amber-300 bg-amber-50 p-1 text-[10pt] leading-relaxed rounded"
+                        />
+                      ) : (
+                        laporanDitampilkan.kronologi[kunci]
+                      )}
+                    </Butir>
+                  ))}
+                  <Butir no={4}>
+                    {modeEditLaporan ? (
+                      <div className="space-y-1">
+                        <textarea
+                          rows={2}
+                          value={laporanDitampilkan.kronologi.prosesPemadaman}
+                          onChange={(e) => mutateLaporan((l) => ({ ...l, kronologi: { ...l.kronologi, prosesPemadaman: e.target.value } }))}
+                          className="w-full border border-amber-300 bg-amber-50 p-1 text-[10pt] rounded"
+                          placeholder="Proses pemadaman…"
+                        />
+                        <textarea
+                          rows={3}
+                          value={laporanDitampilkan.kronologi.hasilVerifikasi}
+                          onChange={(e) => mutateLaporan((l) => ({ ...l, kronologi: { ...l.kronologi, hasilVerifikasi: e.target.value } }))}
+                          className="w-full border border-amber-300 bg-amber-50 p-1 text-[10pt] rounded"
+                          placeholder="Hasil verifikasi akhir…"
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        {laporanDitampilkan.kronologi.prosesPemadaman} {laporanDitampilkan.kronologi.hasilVerifikasi}
+                      </>
+                    )}
+                  </Butir>
                 </div>
 
-                {/* Kolom Tanda Tangan Resmi */}
-                <div className="grid grid-cols-2 gap-8 text-[11px] pt-6 border-t-2 border-black mt-8">
+                {/* Pengesahan: pembuat di kiri, Kepala Teknik Tambang di kanan. */}
+                <div className="grid grid-cols-2 gap-10 mt-10 text-[10pt] text-center break-inside-avoid">
                   <div>
-                    <p className="font-semibold text-zinc-700">Dibuat & Diverifikasi Oleh:</p>
-                    <p className="text-zinc-500 text-[10px] mb-12">
-                      {laporanDitampilkan.jenisIzin.toLowerCase().includes('das')
-                        ? 'Pengawas Rehabilitasi DAS & Tim Patroli Hutan'
-                        : 'Tim Tanggap Darurat & SHE Department'}
-                    </p>
+                    <p>&nbsp;</p>
+                    <p>Dibuat oleh,</p>
+                    <div className="h-[72px]" />
                     {modeEditLaporan ? (
                       <input
                         type="text"
                         value={laporanDitampilkan.dibuatOleh}
-                        onChange={(e) =>
-                          mutateLaporan((l) => ({ ...l, dibuatOleh: e.target.value }))
-                        }
-                        className="w-full border border-amber-300 bg-amber-50 p-1 text-[11px] font-bold rounded"
+                        onChange={(e) => mutateLaporan((l) => ({ ...l, dibuatOleh: e.target.value }))}
+                        className="w-full border border-amber-300 bg-amber-50 p-1 text-[10pt] font-bold text-center rounded"
                       />
                     ) : (
-                      <p className="font-bold underline text-[12px]">{laporanDitampilkan.dibuatOleh}</p>
+                      <p className="font-bold underline">{laporanDitampilkan.dibuatOleh}</p>
                     )}
-                    <p className="text-zinc-600 text-[10px]">{idn.perusahaan}</p>
+                    <p>
+                      {laporanDitampilkan.jenisIzin.toLowerCase().includes('das')
+                        ? 'Pengawas Rehabilitasi DAS & Tim Patroli Hutan'
+                        : 'Tim Tanggap Darurat & SHE Department'}
+                    </p>
                   </div>
-                  <div className="text-right">
-                    <p className="font-semibold text-zinc-700">Mengetahui / Disetujui,</p>
-                    <p className="text-zinc-500 text-[10px] mb-12">
-                      Kepala Teknik Tambang / Operation Head
-                    </p>
-                    <p className="font-bold underline text-[12px]">Rahmad Pudjotomo</p>
-                    <p className="text-zinc-600 text-[10px]">
-                      Tanggal: {laporanDitampilkan.tanggalLaporan}
-                    </p>
+                  <div>
+                    <p>{kotaPengesahan(laporanDitampilkan.kabupaten)}, {tanggalPanjang(laporanDitampilkan.tanggalLaporan)}</p>
+                    <p>Mengesahkan,</p>
+                    <div className="h-[72px] flex items-center justify-center">
+                      {pengesah.ttd && <img src={pengesah.ttd} alt={`Tanda tangan ${pengesah.nama}`} className="h-[72px] w-auto" />}
+                    </div>
+                    <p className="font-bold underline">{pengesah.nama}</p>
+                    <p>{pengesah.jabatan}</p>
                   </div>
                 </div>
-              </div>
+              </section>
+
+              {/* ------------------------------------------------------------- */}
+              {/* HALAMAN 3: TANGKAPAN LAYAR PETA / SIPONGI                     */}
+              {/* ------------------------------------------------------------- */}
+              <section
+                className={`halaman-baru mt-8 pt-8 border-t-2 border-dashed border-zinc-300 print:mt-0 print:pt-0 print:border-none ${
+                  laporanDitampilkan.dokumentasi.petaSipongi.length === 0 ? 'print:hidden' : ''
+                }`}
+              >
+                <KopLaporan demo={modeDemo} perusahaan={idn.perusahaan} />
+
+                <div className="no-print flex flex-wrap items-center justify-between gap-2 mb-3 bg-zinc-100 border border-zinc-300 px-2 py-1.5">
+                  <span className="text-[11px] font-bold text-zinc-700">
+                    Tangkapan layar peta · {laporanDitampilkan.dokumentasi.petaSipongi.length} gambar
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleGenerateScreenshotPeta}
+                      disabled={isGeneratingSnapshot}
+                      className="btn-retro btn-retro-sm bg-cyan-700 hover:bg-cyan-600 text-white font-bold flex items-center gap-1 text-[10px] !py-0.5"
+                      title="Otomatis buat screenshot peta WGS 1984"
+                    >
+                      {isGeneratingSnapshot ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                      <span>{isGeneratingSnapshot ? 'Membuat peta…' : 'Screenshot peta otomatis'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => inputUploadPetaRef.current?.click()}
+                      className="btn-retro btn-retro-sm bg-zinc-700 hover:bg-zinc-600 text-white font-bold flex items-center gap-1 text-[10px] !py-0.5"
+                      title="Upload gambar screenshot SiPongi dari berkas"
+                    >
+                      <Upload size={11} /> <span>Upload peta</span>
+                    </button>
+                  </div>
+                </div>
+
+                {laporanDitampilkan.dokumentasi.petaSipongi.length === 0 && (
+                  <p className="no-print text-center text-zinc-500 text-[10pt] py-10 border-2 border-dashed border-zinc-300">
+                    Belum ada tangkapan layar peta. Halaman ini tidak ikut tercetak selama kosong.
+                  </p>
+                )}
+                <div className="flex flex-col items-center gap-4">
+                  {laporanDitampilkan.dokumentasi.petaSipongi.map((imgUrl, i) => (
+                    <div key={i} className="relative w-full md:w-[82%] break-inside-avoid">
+                      <img src={imgUrl} alt={`Tangkapan layar titik panas ${i + 1}`} className="block w-full h-auto" />
+                      <TombolHapusGambar onClick={() => handleHapusPetaSipongi(i)} judul="Hapus tangkapan layar ini" />
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              {/* ------------------------------------------------------------- */}
+              {/* HALAMAN 4: FOTO DOKUMENTASI LAPANGAN                          */}
+              {/* ------------------------------------------------------------- */}
+              <section
+                className={`halaman-baru mt-8 pt-8 border-t-2 border-dashed border-zinc-300 print:mt-0 print:pt-0 print:border-none ${
+                  laporanDitampilkan.dokumentasi.fotoLapangan.length === 0 ? 'print:hidden' : ''
+                }`}
+              >
+                <KopLaporan demo={modeDemo} perusahaan={idn.perusahaan} />
+
+                <div className="no-print flex flex-wrap items-center justify-between gap-2 mb-3 bg-zinc-100 border border-zinc-300 px-2 py-1.5">
+                  <span className="text-[11px] font-bold text-zinc-700">
+                    Foto lapangan · {laporanDitampilkan.dokumentasi.fotoLapangan.length} foto
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => inputUploadFotoRef.current?.click()}
+                    disabled={isUploadingFoto}
+                    className="btn-retro btn-retro-sm bg-purple-700 hover:bg-purple-600 text-white font-bold flex items-center gap-1 text-[10px] !py-0.5"
+                    title="Unggah foto dokumentasi dari kamera atau galeri"
+                  >
+                    {isUploadingFoto ? <Loader2 size={11} className="animate-spin" /> : <Camera size={11} />}
+                    <span>{isUploadingFoto ? 'Mengunggah…' : 'Upload foto'}</span>
+                  </button>
+                </div>
+
+                {laporanDitampilkan.dokumentasi.fotoLapangan.length === 0 && (
+                  <p className="no-print text-center text-zinc-500 text-[10pt] py-10 border-2 border-dashed border-zinc-300">
+                    Belum ada foto lapangan. Halaman ini tidak ikut tercetak selama kosong.
+                  </p>
+                )}
+                <div className="grid grid-cols-2 gap-1 w-full md:w-[80%] mx-auto">
+                  {laporanDitampilkan.dokumentasi.fotoLapangan.map((foto, idx) => (
+                    <div key={idx} className="break-inside-avoid">
+                      <div className="relative">
+                        <img src={foto.url} alt={foto.judul} className="block w-full aspect-square object-cover" />
+                        <TombolHapusGambar onClick={() => handleHapusFotoLapangan(idx)} judul="Hapus foto ini" />
+                      </div>
+                      {modeEditLaporan && (
+                        <div className="no-print mt-1 mb-2 space-y-1 text-[10px] bg-amber-50 border border-amber-300 p-1.5">
+                          <input
+                            type="text"
+                            value={foto.judul}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              mutateLaporan((lap) => {
+                                const fl = [...lap.dokumentasi.fotoLapangan];
+                                fl[idx] = { ...fl[idx], judul: val };
+                                return { ...lap, dokumentasi: { ...lap.dokumentasi, fotoLapangan: fl } };
+                              });
+                            }}
+                            className="w-full border border-amber-300 bg-white p-1 rounded"
+                            placeholder="Judul foto (tidak tercetak)"
+                          />
+                          <div className="flex items-center justify-between gap-1">
+                            <select
+                              value={foto.kategori}
+                              onChange={(e) => {
+                                const val = e.target.value as LaporanKarhutla['dokumentasi']['fotoLapangan'][number]['kategori'];
+                                mutateLaporan((lap) => {
+                                  const fl = [...lap.dokumentasi.fotoLapangan];
+                                  fl[idx] = { ...fl[idx], kategori: val };
+                                  return { ...lap, dokumentasi: { ...lap.dokumentasi, fotoLapangan: fl } };
+                                });
+                              }}
+                              className="border border-zinc-300 bg-white px-1 py-0.5 rounded"
+                            >
+                              <option value="sebelum">Sebelum</option>
+                              <option value="tindakan">Tindakan</option>
+                              <option value="setelah">Setelah</option>
+                              <option value="umum">Umum</option>
+                            </select>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleGeserFoto(idx, 'atas')}
+                                disabled={idx === 0}
+                                className="btn-retro btn-retro-sm bg-zinc-200 text-black !p-1 disabled:opacity-30"
+                                title="Geser ke depan"
+                              >
+                                <ArrowUp size={11} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleGeserFoto(idx, 'bawah')}
+                                disabled={idx === laporanDitampilkan.dokumentasi.fotoLapangan.length - 1}
+                                className="btn-retro btn-retro-sm bg-zinc-200 text-black !p-1 disabled:opacity-30"
+                                title="Geser ke belakang"
+                              >
+                                <ArrowDown size={11} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
             </div>
           </div>
         </div>
@@ -2218,7 +2088,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
         @media print {
           @page {
             size: A4 portrait;
-            margin: 12mm 12mm 14mm 12mm;
+            margin: 12mm 18mm 14mm 22mm;
           }
           body {
             background: #ffffff !important;
@@ -2243,7 +2113,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
             background: #ffffff !important;
           }
           /* Pemisah halaman antar bagian laporan. */
-          .page-break { break-after: page; page-break-after: always; }
+          .halaman-baru { break-before: page; page-break-before: always; }
           #dokumen-karhutla-a4 img, #dokumen-karhutla-a4 table { break-inside: avoid; page-break-inside: avoid; }
         }
       `}</style>

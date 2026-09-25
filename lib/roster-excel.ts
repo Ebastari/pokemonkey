@@ -87,6 +87,8 @@ export interface OpsiEksporRoster {
   /** Nama kelompok utama pada baris judul kelompok pertama. */
   kelompokUtama?: string;
   departemen?: string;
+  /** Nama berkas; bawaan "ROSTER KERJA <bulan>.xlsx". */
+  namaBerkas?: string;
 }
 
 export async function eksporRosterKerja(o: OpsiEksporRoster): Promise<'dibagikan' | 'diunduh'> {
@@ -250,5 +252,5 @@ export async function eksporRosterKerja(o: OpsiEksporRoster): Promise<'dibagikan
   });
 
   ws.views = [{ state: 'frozen', xSplit: 3, ySplit: 5 }];
-  return simpanBuku(wb, `ROSTER KERJA ${o.bulan}.xlsx`, `Roster kerja ${o.bulan}`);
+  return simpanBuku(wb, o.namaBerkas ?? `ROSTER KERJA ${o.bulan}.xlsx`, `Roster kerja ${o.bulan}`);
 }
