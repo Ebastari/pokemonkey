@@ -11,7 +11,7 @@
 import { GalatApi } from './galat';
 import { hariIniWita, geserHari, selisihHari } from './waktu';
 import { LIBUR_BAWAAN } from './libur';
-import { REVEGETASI_BAWAAN } from './revegetasi';
+import { dataContohDemo, barisContoh, AWALAN_CONTOH } from './demo-contoh';
 import { susunJawabanCuaca, type SlotCuaca } from '../server/src/cuaca-bmkg';
 import {
   susunNotifPagi, susunNotifSiang, susunNotifSore, susunRekapPica,
@@ -22,7 +22,7 @@ import {
 const KUNCI_DEMO = 'pokemonkey_demo';
 const KUNCI_DB = 'pokemonkey_demo_db';
 /** Naikkan bila bentuk data berubah, agar demo lama di browser dibangun ulang. */
-const VERSI = 12;
+const VERSI = 16;
 
 export function demoAktif(): boolean {
   try { return localStorage.getItem(KUNCI_DEMO) === '1'; } catch { return false; }
@@ -31,7 +31,78 @@ export function aktifkanDemo(): void {
   try { localStorage.setItem(KUNCI_DEMO, '1'); } catch { /* abaikan */ }
 }
 export function matikanDemo(): void {
-  try { localStorage.removeItem(KUNCI_DEMO); localStorage.removeItem(KUNCI_DB); } catch { /* abaikan */ }
+  try {
+    localStorage.removeItem(KUNCI_DEMO);
+    // CATATAN: KUNCI_DB sengaja TIDAK dihapus agar data demo mandiri
+    // tetap tersimpan di perangkat pengguna dan tidak hilang saat logout.
+  } catch { /* abaikan */ }
+}
+/**
+ * Buang seluruh data contoh (id berawalan `contoh-`) tanpa menyentuh data yang
+ * dibuat pemakai sendiri. Dipakai tombol "Hapus data contoh" di pita mode demo.
+ */
+export function hapusDataContohDemo(): void {
+  const d = db();
+  const bukanContoh = <T extends { id?: string; user_id?: string; pica_id?: string }>(x: T) => !barisContoh(x);
+  d.tim = d.tim.filter((t) => !String(t.id).startsWith(AWALAN_CONTOH));
+  for (const kunci of Object.keys(d.profil)) {
+    if (kunci.startsWith(AWALAN_CONTOH)) delete d.profil[kunci];
+  }
+  d.pica = d.pica.filter(bukanContoh);
+  d.riwayat = d.riwayat.filter(bukanContoh);
+  d.updates = d.updates.filter(bukanContoh);
+  d.jadwal = d.jadwal.filter(bukanContoh);
+  d.memo = d.memo.filter(bukanContoh);
+  d.pengumuman = d.pengumuman.filter(bukanContoh);
+  d.laporan = d.laporan.filter(bukanContoh);
+  d.misi = d.misi.filter(bukanContoh);
+  d.surat = d.surat.filter(bukanContoh);
+  d.roster = d.roster.filter((r) => !String(r.user_id).startsWith(AWALAN_CONTOH));
+  simpan();
+}
+
+/** Masih ada data contoh yang tersisa? */
+export function adaDataContohDemo(): boolean {
+  try {
+    const d = db();
+    return d.pica.some(barisContoh) || d.jadwal.some(barisContoh) || d.memo.some(barisContoh);
+  } catch {
+    return false;
+  }
+}
+
+export function resetDemoDb(): void {
+  try {
+    localStorage.removeItem(KUNCI_DB);
+    cache = null;
+  } catch { /* abaikan */ }
+}
+export function adaDataDemo(): boolean {
+  try {
+    const s = localStorage.getItem(KUNCI_DB);
+    if (!s) return false;
+    const parsed = JSON.parse(s);
+    return Boolean(parsed && parsed.versi === VERSI);
+  } catch {
+    return false;
+  }
+}
+export function hitungDataDemo(): { pica: number; jadwal: number; memo: number; laporan: number; tim: number } {
+  try {
+    const s = localStorage.getItem(KUNCI_DB);
+    if (!s) return { pica: 0, jadwal: 0, memo: 0, laporan: 0, tim: 0 };
+    const parsed = JSON.parse(s);
+    if (!parsed || parsed.versi !== VERSI) return { pica: 0, jadwal: 0, memo: 0, laporan: 0, tim: 0 };
+    return {
+      pica: Array.isArray(parsed.pica) ? parsed.pica.filter((p: any) => !p.dihapus).length : 0,
+      jadwal: Array.isArray(parsed.jadwal) ? parsed.jadwal.length : 0,
+      memo: Array.isArray(parsed.memo) ? parsed.memo.length : 0,
+      laporan: Array.isArray(parsed.laporan) ? parsed.laporan.length : 0,
+      tim: Array.isArray(parsed.tim) ? parsed.tim.length : 0,
+    };
+  } catch {
+    return { pica: 0, jadwal: 0, memo: 0, laporan: 0, tim: 0 };
+  }
 }
 
 // ---------- Bentuk data ----------
@@ -54,6 +125,8 @@ interface Db {
   roster: Baris[];
   memo: Baris[];
   /** Dokumen administrasi (sejak 0017): nomor surat, Internal Memo dinas, MoM. */
+  /** Alarm tenggat PICA (sejak 0018). */
+  picaAlarm: Baris[];
   surat: Baris[];
   memoDinas: Baris[];
   mom: Baris[];
@@ -73,158 +146,43 @@ interface Db {
 const kini = () => new Date().toISOString();
 const idBaru = (awalan: string) => `${awalan}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-// ---------- Data awal: sama dengan server/migrations/0002_seed.sql ----------
+// ---------- Data awal (Kosongan & Umum untuk semua bidang kerja) ----------
 
 function bentukAwal(): Db {
-  const dibuat = '2026-09-05T02:00:00Z';
-  const P = (nomor: number, bidang: string, prioritas: string, judul: string, akar: string, tindakan: string,
-    pic_id: string, due_date: string, status: string, terkait_id: string | null,
-    target: number | null, realisasi: number | null, satuan: string | null, props: Baris) => ({
-    id: `PICA-26W36-${String(nomor).padStart(2, '0')}`, nomor, periode_id: '26W36', bidang, prioritas, judul, akar, tindakan,
-    pic_id, due_date, status, terkait_id, target, realisasi, satuan, terkunci: 0, props,
-    ditutup_pada: null, dibuat_oleh: 'agung', dibuat_pada: dibuat, diubah_oleh: null, diubah_pada: null, dihapus: 0,
-  });
-
-  const JUDUL_SINGKAT: Record<number, string> = {
-    1: 'lahan siap untuk target tanam MT Okt–Des 2026', 2: 'bibit nangka', 3: 'sengon potting', 4: 'tabur LCC',
-    5: 'bibit hidup di lapangan', 6: 'bibit indigofera hidup',
-    7: 'komitmen 5.000 bibit lokal untuk satgas', 8: 'surat jalan distribusi bibit belum ditutup',
-    9: 'target polybag potting belum diisi', 10: 'temuan titik api di area IPPKH',
-  };
-  const pica = [
-    P(1, 'Revegetasi', 'Tinggi',
-      'Target tanam MT Okt-Des 2026 dipangkas dari 47.120 batang (75,39 Ha) menjadi 19.125 batang (30,6 Ha). Area final OPD Blok III hanya 4 blok: 18,01 + 2,39 + 7,62 + 2,58 Ha.',
-      'Ketersediaan lahan siap tanam tidak cukup (tertulis di slide 3).',
-      'Minta jadwal pelepasan lahan tertulis dari Mine Plan/Engineering; usulkan area alternatif; ajukan revisi target resmi agar sisa 27.995 batang tidak hangus tanpa catatan.',
-      'mariano', '2026-09-30', 'Open', null, 47120, 19125, 'batang', { blok: 'OPD Blok III', luas_ha: 30.6 }),
-    P(2, 'Nursery', 'Tinggi',
-      'Nangka baru 27% - realisasi 7.013 dari target 26.250 batang, kekurangan 19.237 batang. Deviasi T1 mencapai -97%.',
-      'Nangka tidak ada sama sekali di 10 jenis stok persemaian (Smart Nursery per 04-09-2026).',
-      'Tetapkan sumber bibit nangka (semai sendiri atau beli). Bila tidak layak, ajukan substitusi jenis secara formal - jangan dibiarkan menggantung.',
-      'daniel', '2026-09-19', 'Open', null, 26250, 7013, 'batang', { jenis: 'Nangka' }),
-    P(3, 'Revegetasi', 'Tinggi',
-      'Sengon potting baru 55% - realisasi 34.312 dari 62.195 batang, kekurangan 27.883 batang. Deviasi T2 (-54%) lebih dalam daripada T1 (-34%).',
-      'Terkait ketersediaan lahan (PICA no. 1); perlu konfirmasi apakah murni lahan atau juga kapasitas tanam.',
-      'Pisahkan kekurangan akibat lahan dan akibat pasokan bibit/tenaga tanam, tampilkan terpisah di laporan minggu depan.',
-      'agung', '2026-09-12', 'Open', 'PICA-26W36-01', 62195, 34312, 'batang', { jenis: 'Sengon' }),
-    P(4, 'Revegetasi', 'Tinggi',
-      'LCC baru 11% - realisasi 10,95 dari 100 Ha, kekurangan 89,05 Ha. Realisasi T2 -100% (tidak ada penanaman sama sekali).',
-      'Belum dikonfirmasi: benih, alat tabur, atau kesiapan lahan.',
-      'Tetapkan rencana tabur LCC per blok reklamasi berikut kebutuhan benihnya. LCC penutup tanah menahan erosi, tidak bisa digeser ke 2027.',
-      'agung', '2026-09-30', 'Open', null, 100, 10.95, 'Ha', { jenis: 'LCC' }),
-    P(5, 'Revegetasi', 'Sedang',
-      'Persentase hidup bibit di lapangan 88% - dari 41.325 batang tertanam, 4.762 batang mati.',
-      'Belum ada jadwal penyulaman untuk tanaman musim tanam Jan-Jun 2026.',
-      'Susun rencana penyulaman 4.762 batang berikut kebutuhan bibitnya, masukkan ke musim tanam Okt-Des 2026.',
-      'daniel', '2026-09-30', 'Open', null, 41325, 36563, 'batang', { mati: 4762, hidup_persen: 88 }),
-    P(6, 'Nursery', 'Sedang',
-      'Mortalitas indogofera 22,2% dari 2.000 batang, sementara sembilan jenis lain 0,0%.',
-      'Belum dikonfirmasi: media semai, naungan, atau penyiraman.',
-      'Periksa media dan naungan bedeng indogofera, catat penyebab kematian, laporkan di weekly berikutnya.',
-      'daniel', '2026-09-12', 'Open', null, 2000, 1556, 'batang', { jenis: 'Indogofera', mortalitas_persen: 22.2 }),
-    P(7, 'Nursery', 'Tinggi',
-      'Komitmen 5.000 bibit lokal untuk satgas jatuh tempo 07-Sep-26, sedangkan stok jenis lokal non-sengon hanya 2.181 batang (malapari 918, tanjung 438, mahoni 302, pucuk merah 218, mangga 202, bunga sepatu 75, pete 28). Ditambah indogofera 2.000 pun baru 4.181.',
-      'Stok persemaian tidak dipetakan ke komitmen sebelum tanggalnya ditetapkan.',
-      'Konfirmasi ulang jumlah dan tanggal ke satgas hari ini, atau geser due date dengan pemberitahuan resmi.',
-      'agung', '2026-09-07', 'Open', null, 5000, 4181, 'batang', { penerima: 'Satgas' }),
-    P(8, 'Nursery', 'Rendah',
-      'Administrasi distribusi bibit belum tertutup: 1 surat jalan menggantung (0 diterima) dan PDF siap 0 dari 1.',
-      'Berkas serah terima bibit belum diunggah/ditutup di sistem.',
-      'Tutup surat jalan yang menggantung dan unggah PDF-nya.',
-      'daniel', '2026-09-12', 'Open', null, 1, 0, 'berkas', {}),
-    P(9, 'Administrasi', 'Sedang',
-      'PICA berjalan no. 2 (pengisian media polybag potting) jatuh tempo 31-Ago-26 dan sudah lewat, tanpa angka target dan tanpa status.',
-      'Format tabel PICA di deck tidak punya kolom status/realisasi.',
-      'Isi angka target polybag dan statusnya; tambahkan kolom Status pada tabel PICA di deck.',
-      'daniel', '2026-09-12', 'Open', 'PICA-26W36-02', null, null, null, {}),
-    P(10, 'Pemantauan titik Api Sipongi', 'Tinggi',
-      'Temuan titk api di area IPPKH',
-      'Banyak sumber api awal kebakaran berasal PPKH ATS',
-      'Melaporkan ke dinas terkait berkordinasi dengan KPH dan PT Dwima Intiga',
-      'daniel', '2026-09-13', 'Continue', null, null, null, null, {}),
-  ];
-
-  const J = (id: string, judul: string, tanggal: string, jam_mulai: string | null, jam_selesai: string | null,
-    jenis: string, pemilik_id: string | null, rrule: string | null, keterangan: string | null = null, pica_id: string | null = null,
-    ingatkan_menit: number | null = null) =>
-    ({ id, judul, keterangan, tanggal, tanggal_selesai: null as string | null, jam_mulai, jam_selesai, jenis, pica_id, pemilik_id, rrule, ingatkan_menit, gcal_id: null, selesai: 0, dibuat_pada: dibuat });
-
+  // Mode demo dibekali contoh fiktif berlabel "CONTOH ·" agar orang di luar
+  // departemen langsung melihat aplikasinya bekerja. Semuanya bisa dibuang
+  // sekaligus lewat hapusDataContohDemo().
+  const c = dataContohDemo();
   return {
-    sesi: 'agung',
-    tim: [
-      { id: 'agung', nama: 'Agung Laksono', jabatan: 'Supervisor Revegetasi', bidang: 'Revegetasi', wa: '6281200000001', peran: 'admin', aktif: 1 },
-      { id: 'daniel', nama: 'Daniel', jabatan: 'Staf Nursery', bidang: 'Nursery', wa: null, peran: 'anggota', aktif: 1 },
-      { id: 'mariano', nama: 'Mariano A. Simamora', jabatan: 'Koordinator Lahan', bidang: 'Revegetasi', wa: '6281200000003', peran: 'supervisor', aktif: 1 },
-    ],
-    profil: {
-      agung: { user_id: 'agung', xp: 1500, level: 2, skin_aktif: 'classic', skin_dimiliki: ['classic', 'manager'], luas_tanam: 5.2, pos_x: 40, pos_y: 55, stamina: 80, terakhir_aktif: kini() },
-      daniel: { user_id: 'daniel', xp: 4200, level: 5, skin_aktif: 'botanist', skin_dimiliki: ['classic', 'botanist'], luas_tanam: 12.5, pos_x: 70, pos_y: 35, stamina: 60, terakhir_aktif: kini(), status_teks: 'Di blok 4, cek bibit sengon' },
-      mariano: { user_id: 'mariano', xp: 2600, level: 3, skin_aktif: 'manager', skin_dimiliki: ['classic', 'manager'], luas_tanam: 8.1, pos_x: 25, pos_y: 70, stamina: 45, terakhir_aktif: kini(), status_teks: 'Rapat jam 2, jangan telat!' },
-    },
-    pica: pica.map((p) => ({ ...p, judul_singkat: JUDUL_SINGKAT[p.nomor] ?? null })),
-    riwayat: pica.map((p, i) => ({ id: i + 1, pica_id: p.id, kolom: 'dibuat', nilai_lama: null, nilai_baru: p.judul, alasan: null, oleh: 'agung', pada: dibuat })),
-    updates: [
-      { id: 1, pica_id: 'PICA-26W36-10', periode_id: '26W36', catatan: 'Sudah lapor ke KPH lewat WA, menunggu jadwal patroli bersama PT Dwima Intiga.', realisasi: null, oleh: 'daniel', pada: '2026-09-10T03:20:00Z' },
-    ],
+    sesi: 'demo',
+    tim: c.tim,
+    profil: c.profil,
+    pica: c.pica,
+    riwayat: [],
+    updates: [],
     lampiran: [],
-    pengumuman: [
-      { id: 'peng_1', judul: 'Rapat mingguan pindah ke Jumat 07:30 WITA', isi: 'Mulai minggu ini weekly Rev DAS dilaksanakan Jumat pukul 07:30 di kantor nursery. Bawa update PICA masing-masing — kolom PIC dan due date akan dikunci saat rapat.', penting: 1, kirim_wa: 1, oleh: 'agung', dibuat_pada: '2026-09-14T01:00:00Z' },
-      { id: 'peng_2', judul: 'Stok bibit lokal untuk satgas', isi: 'Konfirmasi jumlah bibit lokal non-sengon ke satgas paling lambat hari ini. Stok saat ini 2.181 batang + 2.000 indigofera.', penting: 0, kirim_wa: 1, oleh: 'agung', dibuat_pada: '2026-09-15T00:30:00Z' },
-    ],
-    baca: [{ pengumuman_id: 'peng_1', user_id: 'agung' }, { pengumuman_id: 'peng_1', user_id: 'mariano' }],
-    jadwal: [
-      J('jdw_apel', 'Apel pagi Senin', '2026-09-07', '07:00', '07:30', 'rencana', null, 'FREQ=WEEKLY', 'Lapangan nursery · seluruh tim', null, 15),
-      J('jdw_weekly', 'Weekly Rev DAS', '2026-09-04', '07:30', '09:00', 'rapat', null, 'FREQ=WEEKLY', 'Kantor nursery. Bahas PICA lewat tenggat lebih dulu.', null, 30),
-      J('jdw_1', 'Konfirmasi satgas bibit lokal', '2026-09-15', '10:00', '11:00', 'rencana', 'agung', null, 'Telepon satgas, sepakati jumlah & tanggal', 'PICA-26W36-07'),
-      J('jdw_2', 'Cek bedeng indigofera', '2026-09-16', '09:00', '11:00', 'rencana', 'daniel', null, 'Periksa media & naungan, foto bukti', 'PICA-26W36-06'),
-      J('jdw_3', 'Koordinasi Mine Plan: pelepasan lahan', '2026-09-17', '13:00', '14:30', 'rapat', 'mariano', null, 'Minta jadwal tertulis pelepasan lahan Blok III', 'PICA-26W36-01', 30),
-      J('jdw_4', 'Tabur LCC Blok III', '2026-09-18', '08:00', '12:00', 'rencana', 'agung', null, 'Bawa benih 25 kg, tim 6 orang', 'PICA-26W36-04'),
-      J('jdw_5', 'Patroli titik api bersama KPH', '2026-09-19', null, null, 'rencana', 'daniel', null, 'Sepanjang hari, area IPPKH', 'PICA-26W36-10', 1440),
-      J('jdw_6', 'Penyulaman Blok II', '2026-09-22', '08:00', '15:00', 'rencana', null, null, 'Seluruh tim'),
-      { ...J('jdw_7', 'Pelatihan K3 & P3K tim lapangan', '2026-09-21', null, null, 'rapat', null, null, 'Balai diklat, 08:00–16:00 setiap hari. Wajib untuk seluruh tim lapangan.'), tanggal_selesai: '2026-09-25' },
-      { ...J('jdw_8', 'Dinas luar: koordinasi KPH & dinas kehutanan', '2026-09-28', null, null, 'rencana', 'daniel', null, 'Laporan titik api IPPKH', 'PICA-26W36-10'), tanggal_selesai: '2026-09-30' },
-      { ...J('jdw_9', 'Audit reklamasi internal', '2026-10-05', null, null, 'rapat', null, null, 'Persiapan dokumen PICA & bukti penutupan'), tanggal_selesai: '2026-10-07' },
-      J('jdw_10', 'Tutup laporan bulanan September', '2026-09-30', '13:00', '15:00', 'rencana', 'agung', null, 'Rekap realisasi & PICA'),
-    ],
-    laporan: [
-      { id: 'lap_1', user_id: 'agung', user_nama: 'Agung Laksono', pica_id: 'PICA-26W36-04', jenis: 'Tabur LCC', capaian: 1.2, satuan: 'ha', catatan: 'Blok III sisi utara', xp: 512, dibuat_pada: '2026-09-11T08:00:00Z' },
-      { id: 'lap_2', user_id: 'daniel', user_nama: 'Daniel', pica_id: null, jenis: 'Penyiraman', capaian: 1, satuan: 'hari', catatan: 'Rutin pagi-sore', xp: 516, dibuat_pada: '2026-09-12T09:30:00Z' },
-    ],
-    misi: [
-      { id: 'm1', judul: 'Penataan Lahan (3 Bulan)', tipe: 'LAND_PREP', deskripsi: 'Menata 150ha lahan kritis agar siap ditanami. Membutuhkan waktu dan ketelitian.', target: 150, satuan: 'Ha', xp: 1000, kapasitas: 1.66, urutan: 1, aktif: 1, status: 'IN_PROGRESS', current: 23.4 },
-      { id: 'm2_1', judul: '1. Persiapan Pekerja', tipe: 'NURSERY', deskripsi: 'Rekrut dan latih tim khusus persemaian.', target: 10000, satuan: 'bibit', xp: 200, kapasitas: 2000, urutan: 2, aktif: 1, status: 'COMPLETED', current: 10000 },
-      { id: 'm2_2', judul: '2. Media Tanam', tipe: 'NURSERY', deskripsi: 'Mixing tanah topsoil, kompos, dan pasir.', target: 10000, satuan: 'bibit', xp: 300, kapasitas: 500, urutan: 3, aktif: 1, status: 'IN_PROGRESS', current: 6200 },
-      { id: 'm2_3', judul: '3. Pengisian Polybag', tipe: 'NURSERY', deskripsi: 'Mengisi polybag dengan media yang telah disiapkan.', target: 10000, satuan: 'bibit', xp: 400, kapasitas: 400, urutan: 4, aktif: 1, status: 'AVAILABLE', current: 0 },
-      { id: 'm2_6', judul: '6. Penyemaian Benih', tipe: 'NURSERY', deskripsi: 'Penanaman benih unggul Sengon ke tiap polybag.', target: 10000, satuan: 'bibit', xp: 500, kapasitas: 800, urutan: 5, aktif: 1, status: 'AVAILABLE', current: 0 },
-      { id: 'm2_7', judul: '7. Pemeliharaan Rutin', tipe: 'NURSERY', deskripsi: 'Penyiraman intensif pagi dan sore.', target: 10000, satuan: 'bibit', xp: 450, kapasitas: 10000, urutan: 6, aktif: 1, status: 'AVAILABLE', current: 0 },
-      { id: 'm2_10', judul: '10. Sertifikasi Bibit', tipe: 'NURSERY', deskripsi: 'Pemeriksaan akhir kesiapan bibit sebelum distribusi.', target: 10000, satuan: 'bibit', xp: 800, kapasitas: 2500, urutan: 7, aktif: 1, status: 'AVAILABLE', current: 0 },
-      { id: 'm3', judul: 'Penanaman Masif', tipe: 'PLANTING', deskripsi: 'Menanam seluruh bibit ke 150ha lahan yang sudah siap.', target: 150, satuan: 'Ha', xp: 2500, kapasitas: 1.66, urutan: 8, aktif: 1, status: 'IN_PROGRESS', current: 12.5 },
-    ],
-    roster: bentukRoster(),
-    memo: [
-      { id: 'memo_1', user_id: 'agung', judul: 'Rencana minggu ini', isi: '# Fokus\n- [x] Konfirmasi satgas bibit lokal\n- [ ] Rencana tabur LCC per blok\n- [ ] Pisahkan kekurangan sengon: lahan vs bibit\n\n## Catatan\nMinta jadwal pelepasan lahan tertulis ke Mine Plan sebelum Rabu.', disematkan: 1, warna: 'amber', dibuat_pada: '2026-09-14T00:00:00Z', diubah_pada: '2026-09-15T01:00:00Z' },
-      { id: 'memo_2', user_id: 'agung', judul: 'Catatan rapat 11 Sep', isi: '- Daniel: bedeng indigofera diperiksa Rabu\n- Mariano: koordinasi Mine Plan Rabu 13:00\n- Kolom PIC & due date dikunci Jumat\n\n**Ide**: XP besar untuk tutup PICA sebelum tenggat, bukan volume laporan.', disematkan: 0, warna: null, dibuat_pada: '2026-09-11T03:00:00Z', diubah_pada: null },
-      { id: 'memo_3', user_id: 'daniel', judul: 'Cek harian nursery', isi: '- [ ] Siram pagi\n- [ ] Cek naungan bedeng 3\n- [ ] Foto stok nangka', disematkan: 1, warna: 'cyan', dibuat_pada: '2026-09-15T00:00:00Z', diubah_pada: null },
-      // ---- Memo Internal (tim) ----
-      { id: 'mtim_1', user_id: 'agung', lingkup: 'tim', kategori: 'Revegetasi', tipe: 'Keputusan', status: 'Sedang berlangsung', tanggal: '2026-09-05', judul: 'Revisi target tanam MT Okt–Des 2026', ringkasan: 'Target dipangkas ke 19.125 batang karena lahan siap tanam terbatas. Sisa 27.995 batang diajukan revisi resmi.', isi: '# Keputusan\n- Target MT Okt–Des 2026: **19.125 batang (30,6 Ha)**\n- Area final OPD Blok III: 4 blok\n\n# Tindak lanjut\n- [x] Minta jadwal pelepasan lahan ke Mine Plan\n- [ ] Ajukan revisi target resmi\n- [ ] Usulkan area alternatif', disematkan: 0, warna: null, dibuat_pada: '2026-09-05T02:00:00Z', diubah_pada: null },
-      { id: 'mtim_2', user_id: 'daniel', lingkup: 'tim', kategori: 'Nursery', tipe: 'Pembaruan', status: 'Sedang berlangsung', tanggal: '2026-09-10', judul: 'Rencana sumber bibit nangka', ringkasan: 'Semai sendiri 12.000 batang, sisanya dari dua pemasok lokal. Keputusan substitusi paling lambat 19 September.', isi: '# Opsi\n- Semai sendiri: 12.000 batang (siap 10 minggu)\n- Pemasok A & B: penawaran 14.250 batang\n\n# Tenggat\nKeputusan substitusi jenis paling lambat **19 Sep 2026**.', disematkan: 0, warna: null, dibuat_pada: '2026-09-10T03:00:00Z', diubah_pada: null },
-      { id: 'mtim_3', user_id: 'agung', lingkup: 'tim', kategori: 'Administrasi', tipe: 'Perubahan Kebijakan', status: 'Selesai', tanggal: '2026-09-08', judul: 'Tabel PICA wajib kolom Status & Realisasi', ringkasan: 'Mulai weekly 26W37, setiap PICA di deck mencantumkan status, target, dan realisasi.', isi: 'Berlaku mulai weekly **26W37**.\n\n- Kolom Status wajib diisi\n- Target & realisasi ditulis sebagai angka, bukan kalimat\n- PIC dan due date dikunci saat rapat', disematkan: 0, warna: null, dibuat_pada: '2026-09-08T01:00:00Z', diubah_pada: null },
-      { id: 'mtim_4', user_id: 'mariano', lingkup: 'tim', kategori: 'Operasi & K3', tipe: 'Pengumuman', status: null, tanggal: '2026-09-12', judul: 'Pelatihan K3 & P3K 21–25 September', ringkasan: 'Wajib untuk seluruh tim lapangan di balai diklat. Bawa APD lengkap setiap hari.', isi: '# Jadwal\n21–25 Sep 2026, 08.00–16.00 WITA\n\n# Wajib dibawa\n- [ ] Helm & rompi\n- [ ] Sepatu safety\n- [ ] Buku catatan', disematkan: 0, warna: null, dibuat_pada: '2026-09-12T00:30:00Z', diubah_pada: null },
-      { id: 'mtim_5', user_id: 'daniel', lingkup: 'tim', kategori: 'Operasi & K3', tipe: 'Rekap Rapat', status: 'Selesai', tanggal: '2026-09-11', judul: 'Rekap koordinasi titik api dengan KPH', ringkasan: 'Patroli bersama PT Dwima Intiga dijadwalkan 19 September; laporan ke dinas terkait lewat KPH.', isi: '# Peserta\n- KPH\n- PT Dwima Intiga\n- Tim Rev & Rehab\n\n# Hasil\n- Sumber api awal banyak berasal dari area PPKH ATS\n- Patroli bersama **19 Sep 2026**', disematkan: 0, warna: null, dibuat_pada: '2026-09-11T06:00:00Z', diubah_pada: null },
-      { id: 'mtim_6', user_id: 'agung', lingkup: 'tim', kategori: 'Revegetasi', tipe: 'Rekap Rapat', status: 'Sedang berlangsung', tanggal: '2026-09-04', judul: 'Rekap weekly Rev DAS 4 September', ringkasan: '10 PICA diangkat. PIC dan due date masih usulan, dikunci pada rapat berikutnya.', isi: '- 10 PICA periode 26W36\n- 6 berprioritas tinggi\n- PIC & due date dikunci pada weekly 26W37', disematkan: 0, warna: null, dibuat_pada: '2026-09-04T08:00:00Z', diubah_pada: null },
-    ],
-    surat: [],
+    pengumuman: c.pengumuman,
+    baca: [],
+    jadwal: c.jadwal,
+    laporan: c.laporan,
+    misi: c.misi,
+    roster: c.roster,
+    memo: c.memo,
+    picaAlarm: [],
+    surat: c.surat,
     memoDinas: [],
     mom: [],
     foto: {},
     versi: VERSI,
     libur: LIBUR_BAWAAN.map((l, i) => ({ id: i + 1, tanggal: l.tanggal, nama: l.nama, jenis: l.jenis, perkiraan: l.perkiraan ? 1 : 0 })),
-    revegetasi: REVEGETASI_BAWAAN,
+    revegetasi: [],
     opsi: [
-      { grup: 'memo_kategori', nilai: 'Revegetasi', label: 'Revegetasi', warna: 'emerald', urutan: 1 },
-      { grup: 'memo_kategori', nilai: 'Nursery', label: 'Nursery', warna: 'cyan', urutan: 2 },
-      { grup: 'memo_kategori', nilai: 'Administrasi', label: 'Administrasi', warna: 'zinc', urutan: 3 },
-      { grup: 'memo_kategori', nilai: 'Operasi & K3', label: 'Operasi & K3', warna: 'orange', urutan: 4 },
+      { grup: 'memo_kategori', nilai: 'Operasional', label: 'Operasional', warna: 'emerald', urutan: 1 },
+      { grup: 'memo_kategori', nilai: 'Lapangan', label: 'Lapangan', warna: 'cyan', urutan: 2 },
+      { grup: 'memo_kategori', nilai: 'Perencanaan', label: 'Perencanaan', warna: 'purple', urutan: 3 },
+      { grup: 'memo_kategori', nilai: 'Administrasi', label: 'Administrasi', warna: 'zinc', urutan: 4 },
+      { grup: 'memo_kategori', nilai: 'K3 & Lingkungan', label: 'K3 & Lingkungan', warna: 'orange', urutan: 5 },
+      { grup: 'memo_kategori', nilai: 'Umum', label: 'Umum', warna: 'blue', urutan: 6 },
       { grup: 'memo_tipe', nilai: 'Perubahan Kebijakan', label: 'Perubahan Kebijakan', warna: 'purple', urutan: 1 },
       { grup: 'memo_tipe', nilai: 'Rekap Rapat', label: 'Rekap Rapat', warna: 'blue', urutan: 2 },
       { grup: 'memo_tipe', nilai: 'Pengumuman', label: 'Pengumuman', warna: 'indigo', urutan: 3 },
@@ -239,10 +197,13 @@ function bentukAwal(): Db {
       { grup: 'roster', nilai: 'L', label: 'Libur', warna: 'zinc', urutan: 4 },
       { grup: 'roster', nilai: 'C', label: 'Cuti', warna: 'amber', urutan: 5 },
       { grup: 'roster', nilai: 'I', label: 'Izin/Sakit', warna: 'red', urutan: 6 },
-      { grup: 'bidang', nilai: 'Revegetasi', label: 'Revegetasi', warna: 'emerald', urutan: 1 },
-      { grup: 'bidang', nilai: 'Nursery', label: 'Nursery', warna: 'cyan', urutan: 2 },
-      { grup: 'bidang', nilai: 'Administrasi', label: 'Administrasi', warna: 'zinc', urutan: 3 },
-      { grup: 'bidang', nilai: 'Pemantauan titik Api Sipongi', label: 'Pemantauan Titik Api', warna: 'orange', urutan: 4 },
+      { grup: 'bidang', nilai: 'Operasional', label: 'Operasional', warna: 'emerald', urutan: 1 },
+      { grup: 'bidang', nilai: 'Lapangan', label: 'Lapangan', warna: 'cyan', urutan: 2 },
+      { grup: 'bidang', nilai: 'Perencanaan', label: 'Perencanaan', warna: 'indigo', urutan: 3 },
+      { grup: 'bidang', nilai: 'Administrasi', label: 'Administrasi', warna: 'zinc', urutan: 4 },
+      { grup: 'bidang', nilai: 'K3 & Lingkungan', label: 'K3 & Lingkungan', warna: 'orange', urutan: 5 },
+      { grup: 'bidang', nilai: 'Logistik', label: 'Logistik & Pengadaan', warna: 'amber', urutan: 6 },
+      { grup: 'bidang', nilai: 'Umum', label: 'Umum', warna: 'purple', urutan: 7 },
       { grup: 'prioritas', nilai: 'Tinggi', label: 'Tinggi', warna: 'red', urutan: 1 },
       { grup: 'prioritas', nilai: 'Sedang', label: 'Sedang', warna: 'amber', urutan: 2 },
       { grup: 'prioritas', nilai: 'Rendah', label: 'Rendah', warna: 'zinc', urutan: 3 },
@@ -251,40 +212,31 @@ function bentukAwal(): Db {
       { grup: 'status', nilai: 'Continue', label: 'Continue', warna: 'indigo', urutan: 3 },
       { grup: 'status', nilai: 'Verifikasi', label: 'Menunggu Verifikasi', warna: 'purple', urutan: 4 },
       { grup: 'status', nilai: 'Closed', label: 'Selesai', warna: 'emerald', urutan: 5 },
-      { grup: 'satuan', nilai: 'batang', label: 'batang', warna: 'zinc', urutan: 1 },
-      { grup: 'satuan', nilai: 'Ha', label: 'Ha', warna: 'zinc', urutan: 2 },
-      { grup: 'satuan', nilai: '%', label: '%', warna: 'zinc', urutan: 3 },
-      { grup: 'satuan', nilai: 'berkas', label: 'berkas', warna: 'zinc', urutan: 4 },
+      { grup: 'satuan', nilai: 'unit', label: 'unit', warna: 'zinc', urutan: 1 },
+      { grup: 'satuan', nilai: 'titik', label: 'titik', warna: 'zinc', urutan: 2 },
+      { grup: 'satuan', nilai: 'ha', label: 'Ha', warna: 'zinc', urutan: 3 },
+      { grup: 'satuan', nilai: 'meter', label: 'meter', warna: 'zinc', urutan: 4 },
+      { grup: 'satuan', nilai: 'kg', label: 'kg', warna: 'zinc', urutan: 5 },
+      { grup: 'satuan', nilai: 'ton', label: 'ton', warna: 'zinc', urutan: 6 },
+      { grup: 'satuan', nilai: 'bibit', label: 'bibit', warna: 'zinc', urutan: 7 },
+      { grup: 'satuan', nilai: 'pohon', label: 'pohon', warna: 'zinc', urutan: 8 },
+      { grup: 'satuan', nilai: 'jam', label: 'jam', warna: 'zinc', urutan: 9 },
+      { grup: 'satuan', nilai: 'hari', label: 'hari', warna: 'zinc', urutan: 10 },
+      { grup: 'satuan', nilai: 'orang', label: 'orang', warna: 'zinc', urutan: 11 },
+      { grup: 'satuan', nilai: 'berkas', label: 'berkas', warna: 'zinc', urutan: 12 },
+      { grup: 'satuan', nilai: '%', label: '%', warna: 'zinc', urutan: 13 },
     ],
     properti: [
-      { id: 'blok', label: 'Blok reklamasi', tipe: 'teks', opsi_json: null, urutan: 1, tampil_di_tabel: 1, aktif: 1 },
-      { id: 'jenis', label: 'Jenis tanaman', tipe: 'teks', opsi_json: null, urutan: 2, tampil_di_tabel: 1, aktif: 1 },
-      { id: 'luas_ha', label: 'Luas (Ha)', tipe: 'angka', opsi_json: null, urutan: 3, tampil_di_tabel: 0, aktif: 1 },
-      { id: 'no_surat', label: 'Nomor surat', tipe: 'teks', opsi_json: null, urutan: 4, tampil_di_tabel: 0, aktif: 1 },
+      { id: 'lokasi', label: 'Lokasi / Area', tipe: 'teks', opsi_json: null, urutan: 1, tampil_di_tabel: 1, aktif: 1 },
+      { id: 'kategori', label: 'Kategori Kegiatan', tipe: 'teks', opsi_json: null, urutan: 2, tampil_di_tabel: 1, aktif: 1 },
+      { id: 'volume', label: 'Volume Target', tipe: 'angka', opsi_json: null, urutan: 3, tampil_di_tabel: 0, aktif: 1 },
+      { id: 'no_dokumen', label: 'Nomor Dokumen / Surat', tipe: 'teks', opsi_json: null, urutan: 4, tampil_di_tabel: 0, aktif: 1 },
     ],
-    periode: [{ id: '26W36', mulai: '2026-08-31', selesai: '2026-09-04', judul: 'Weekly Rev DAS 31 Agt - 4 Sep 2026', sumber: 'LAPORAN KINERJA REV DAS WEEKLY 05-09-26.pptx', terkunci: 0, dikunci_oleh: null, dikunci_pada: null }],
-    pengaturan: { zona_waktu: 'WITA', tz_offset_menit: '480', jam_pengingat: '07:00', jam_rekap_sore: '16:00', wa_grup_id: '', wa_aktif: '0', wa_jeda: '5-10', periode_aktif: '26W36', ambang_kpi_persen: '60', wa_pengingat_pribadi: '0', jam_notif_pagi: '07:00', jam_notif_siang: '12:00', jam_notif_sore: '17:00', cuaca_adm4: '63.05.09.2012' },
+    periode: [{ id: 'PERIODE-AKTIF', mulai: '2026-09-01', selesai: '2026-12-31', judul: 'Periode Berjalan 2026', sumber: 'Ruang Kerja Mandiri', terkunci: 0, dikunci_oleh: null, dikunci_pada: null }],
+    pengaturan: { zona_waktu: 'WITA', tz_offset_menit: '480', jam_pengingat: '07:00', jam_rekap_sore: '16:00', wa_grup_id: '', wa_aktif: '0', wa_jeda: '5-10', periode_aktif: 'PERIODE-AKTIF', ambang_kpi_persen: '60', wa_pengingat_pribadi: '0', jam_notif_pagi: '07:00', jam_notif_siang: '12:00', jam_notif_sore: '17:00', cuaca_adm4: '63.05.09.2012' },
     bagi: [],
     urut: 100,
   };
-}
-
-/** Roster contoh September 2026: akhir pekan libur, Daniel bergilir shift, cuti 24–25. */
-function bentukRoster(): Baris[] {
-  const hasil: Baris[] = [];
-  for (let h = 1; h <= 30; h++) {
-    const tanggal = `2026-09-${String(h).padStart(2, '0')}`;
-    const hari = new Date(tanggal + 'T00:00:00Z').getUTCDay();
-    const minggu = Math.ceil(h / 7);
-    for (const id of ['agung', 'daniel', 'mariano']) {
-      let kode = hari === 0 || hari === 6 ? 'L' : 'M';
-      if (id === 'daniel' && kode === 'M') kode = minggu % 2 ? 'S1' : 'S2';
-      if (id === 'daniel' && (h === 24 || h === 25)) kode = 'C';
-      if (id === 'mariano' && h === 17) kode = 'I';
-      hasil.push({ user_id: id, tanggal, kode, catatan: id === 'mariano' && h === 17 ? 'Sakit' : null });
-    }
-  }
-  return hasil;
 }
 
 // ---------- Penyimpanan ----------
@@ -428,10 +380,16 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
 
   // ----- auth -----
   if (path === '/api/auth/login') {
-    const id = String(body?.userId ?? '').toLowerCase();
-    const t = d.tim.find((x) => x.id === id);
-    if (!t) gagal('User ID atau password salah. (Demo: coba agung, daniel, atau mariano)', 401);
-    d.sesi = id; simpan();
+    const id = String(body?.userId ?? '').toLowerCase().trim();
+    let t = d.tim.find((x) => x.id === id);
+    if (!t && (id === 'demo' || id === 'admin' || !id || d.tim.length === 1)) {
+      t = d.tim[0];
+    }
+    if (!t) {
+      const daftarTim = d.tim.map((x) => x.id).join(', ');
+      gagal(`User ID "${id}" tidak ditemukan di database demo lokal. Pilihan akun yang ada: ${daftarTim || 'demo'}`, 401);
+    }
+    d.sesi = t.id; simpan();
     return { token: 'demo-token', pengguna: pengguna(d), passwordBaruDibuat: false };
   }
   if (path === '/api/auth/logout') return { ok: true };
@@ -445,6 +403,63 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
       tim: d.tim.map(({ id, nama, jabatan, bidang, peran }) => ({ id, nama, jabatan, bidang, peran, foto: d.foto[id] ?? null })),
       periode: d.periode, pengaturan: d.pengaturan, hariIni,
     };
+  }
+
+  // ----- lapisan kalender (layar + widget) -----
+  if (path === "/api/kalender/lapisan" && method === "GET") {
+    let lapisan = {};
+    try { lapisan = JSON.parse(d.pengaturan["kalender_lapisan"] ?? "{}"); } catch { lapisan = {}; }
+    return { lapisan };
+  }
+  if (path === "/api/kalender/lapisan" && method === "POST") {
+    d.pengaturan["kalender_lapisan"] = JSON.stringify(body?.lapisan ?? {});
+    simpan(); return { ok: true };
+  }
+
+  // ----- impor CSV PICA (mode demo: seluruhnya di perangkat ini, tidak ke server) -----
+  if (path === '/api/pica/impor' && method === 'POST') {
+    if (!bolehKelola(saya)) gagal('Hanya Admin/Supervisor.', 403);
+    const masuk: Baris[] = Array.isArray(body?.items) ? body.items : [];
+    if (!masuk.length) gagal('Daftar PICA untuk diimpor tidak boleh kosong.', 400);
+    if (masuk.length > 200) gagal('Maksimal 200 baris sekali impor.', 400);
+
+    const periodeId = body?.periode_id || d.pengaturan.periode_aktif || null;
+    let nomor = d.pica.filter((p: Baris) => p.periode_id === periodeId)
+      .reduce((n: number, p: Baris) => Math.max(n, Number(p.nomor) || 0), 0);
+    const ids: string[] = [];
+    for (const it of masuk) {
+      const judul = String(it.judul ?? '').trim();
+      const bidang = String(it.bidang ?? '').trim();
+      if (!judul || !bidang) continue;
+      nomor += 1;
+      const id = `PICA-${periodeId ?? 'UMUM'}-${String(nomor).padStart(2, '0')}`;
+      ids.push(id);
+      d.pica.push({
+        id, nomor, periode_id: periodeId, bidang, prioritas: it.prioritas ?? 'Sedang', judul,
+        akar: it.akar ?? null, tindakan: it.tindakan ?? null, pic_id: it.pic_id ?? null,
+        due_date: it.due_date ?? null, status: it.status ?? 'Open', terkait_id: null,
+        target: it.target ?? null, realisasi: it.realisasi ?? null, satuan: it.satuan ?? null,
+        judul_singkat: it.judul_singkat ?? null, terkunci: 0, props: {}, dihapus: 0,
+        dibuat_oleh: saya.id, dibuat_pada: kini(), ditutup_pada: null,
+      });
+      d.riwayat.push({ pica_id: id, kolom: 'dibuat', nilai_lama: null, nilai_baru: `Diimpor via CSV: ${judul}`, oleh: saya.id, pada: kini() });
+    }
+    if (!ids.length) gagal('Tidak ada data PICA yang valid untuk disimpan.', 400);
+    simpan(); return { ok: true, jumlah: ids.length, ids };
+  }
+
+  // ----- alarm tenggat PICA -----
+  if (path === "/api/pica-alarm" && method === "GET") {
+    return { alarm: d.picaAlarm ?? [], jamBawaan: d.pengaturan["alarm_pica_jam"] ?? "07:00" };
+  }
+  if (path === "/api/pica-alarm" && method === "POST") {
+    d.picaAlarm = (d.picaAlarm ?? []).filter((a: Baris) => a.pica_id !== body?.pica_id);
+    d.picaAlarm.push({ pica_id: body?.pica_id, jam: body?.jam || d.pengaturan["alarm_pica_jam"] || "07:00", aktif: body?.aktif === false ? 0 : 1 });
+    simpan(); return { ok: true };
+  }
+  if (path === "/api/pica-alarm/jam" && method === "POST") {
+    d.pengaturan["alarm_pica_jam"] = String(body?.jam ?? "07:00");
+    simpan(); return { ok: true, jamBawaan: d.pengaturan["alarm_pica_jam"] };
   }
 
   // ----- dokumen administrasi: nomor surat, Internal Memo dinas, MoM -----
@@ -542,6 +557,22 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   if (path === '/api/roster/isi' && method === 'POST') {
     if (!bolehKelola(saya)) gagal('Hanya Admin/Supervisor.', 403);
     let jumlah = 0;
+    // Mode siklus (mis. 8 minggu kerja + 2 minggu libur): Minggu dan tanggal merah
+    // di masa kerja tetap dihitung, tetapi diisi kode libur — sama dengan server.
+    if (body.mode === 'siklus') {
+      const hariKerja = Math.max(1, Math.round(body.mingguKerja ?? 8)) * 7;
+      const panjang = hariKerja + Math.max(0, Math.round(body.mingguLibur ?? 2)) * 7;
+      for (let t = body.dari; t <= body.sampai && jumlah < 400; t = geserHari(t, 1)) {
+        const ke = ((selisihHari(t, body.dari) % panjang) + panjang) % panjang;
+        const merah = d.libur.some((l) => l.tanggal === t);
+        const minggu = new Date(t + 'T00:00:00Z').getUTCDay() === 0;
+        const kode = ke < hariKerja && !minggu && !merah ? body.kode : (body.kodeLibur || 'L');
+        d.roster = d.roster.filter((r) => !(r.user_id === body.user_id && r.tanggal === t));
+        d.roster.push({ user_id: body.user_id, tanggal: t, kode, catatan: null });
+        jumlah++;
+      }
+      simpan(); return { ok: true, jumlah };
+    }
     for (let t = body.dari; t <= body.sampai && jumlah < 400; t = geserHari(t, 1)) {
       const hari = new Date(t + 'T00:00:00Z').getUTCDay();
       if (body.hari?.length && !body.hari.includes(hari)) continue;
@@ -797,7 +828,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   }
 
   // ----- realisasi revegetasi -----
-  if (path === '/api/revegetasi' && method === 'GET') return { revegetasi: d.revegetasi ?? REVEGETASI_BAWAAN, satuan: 'Ha' };
+  if (path === '/api/revegetasi' && method === 'GET') return { revegetasi: d.revegetasi ?? [], satuan: 'Ha' };
   if (path === '/api/revegetasi' && method === 'POST') {
     if (saya.peran !== 'admin') gagal('Hanya Admin yang boleh mengubah angka realisasi.', 403);
     const tahun = Number(body?.tahun);
@@ -805,7 +836,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     const n = (x: unknown) => Math.max(0, Math.round((Number(x) || 0) * 1000) / 1000);
     const blok = Object.fromEntries(Object.entries(body?.blok ?? {}).map(([nama, luas]) => [nama, n(luas)]));
     const isi = { tahun, apl: n(body.apl), hutan: n(body.hutan), ipd: n(body.ipd), opd: n(body.opd), timbunan_soil: n(body.timbunan_soil), fasilitas: n(body.fasilitas), blok };
-    d.revegetasi = [...(d.revegetasi ?? REVEGETASI_BAWAAN).filter((r) => r.tahun !== tahun), isi].sort((a, b) => a.tahun - b.tahun);
+    d.revegetasi = [...(d.revegetasi ?? []).filter((r) => r.tahun !== tahun), isi].sort((a, b) => a.tahun - b.tahun);
     simpan(); return { ok: true, tahun };
   }
 
@@ -842,20 +873,14 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     if (d.pengaturan.wa_aktif !== '1') gagal('Pengiriman WhatsApp masih dimatikan (pengaturan wa_aktif = 0).', 409);
     return { pesan, terkirim: false, demo: true };
   }
-  // Cuaca contoh: pola khas Tapin musim hujan (siang-sore hujan). Slot yang
-  // sedang berjalan sengaja dibuat hujan agar animasi hujan di KEBUN terlihat.
+  // Cuaca contoh
   if (path === '/api/cuaca' && method === 'GET') return cuacaDemo(d.pengaturan.cuaca_adm4 || '63.05.09.2012');
 
-  // Titik api contoh (data FIRMS hanya ada di server sungguhan).
+  // Titik api (dalam mode demo dimulai dari kondisi bersih 0 titik)
   if (path === '/api/titik-api' && method === 'GET') {
-    const jamLalu = (j: number) => new Date(Date.now() - j * 3600_000).toISOString();
     return {
-      terpasang: true, aktif: true, kirim_wa: true, terakhir: jamLalu(0.3), galat: null, radius: { waspada: 2, pantau: 5 }, hari: 7,
-      titik: [
-        { id: 'demo-1', sumber: 'VIIRS_NOAA20_NRT', lat: -2.9735, lon: 115.2175, waktu: jamLalu(5), keyakinan: 'tinggi', frp: 6.1, zona: 'ippkh', jarak_km: 0, bidang: 'SK.892', status: 'baru' },
-        { id: 'demo-2', sumber: 'VIIRS_SNPP_NRT', lat: -3.0095, lon: 115.1890, waktu: jamLalu(29), keyakinan: 'sedang', frp: 3.4, zona: 'waspada', jarak_km: 1.8, bidang: null, status: 'padam', dicek_nama: 'Daniel' },
-        { id: 'demo-3', sumber: 'VIIRS_NOAA21_NRT', lat: -3.5349, lon: 114.9410, waktu: jamLalu(3), keyakinan: 'tinggi', frp: 8.2, area: 'das', zona: 'petak', jarak_km: 0, bidang: 'PETAK 8 (2)', status: 'baru' },
-      ],
+      terpasang: false, aktif: false, kirim_wa: false, terakhir: null, galat: null, radius: { waspada: 2, pantau: 5 }, hari: 7,
+      titik: [],
     };
   }
   if (path.startsWith('/api/titik-api/')) return { ok: true, baru: 0, diperingatkan: 0, galat: [] };
@@ -867,7 +892,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   }
   if (path === '/api/wa/grup' && method === 'GET') {
     if (saya.peran !== 'admin') gagal('Hanya Admin.', 403);
-    return { grup: [{ id: '120363000000000001@g.us', nama: 'Revegetasi EBL (contoh)' }, { id: '120363000000000002@g.us', nama: 'Nursery EBL (contoh)' }] };
+    return { grup: [{ id: '120363000000000001@g.us', nama: 'Grup Koordinasi Lapangan' }] };
   }
   if (path === '/api/wa/uji' && method === 'POST') {
     if (saya.peran !== 'admin') gagal('Hanya Admin.', 403);
@@ -943,6 +968,6 @@ function cuacaDemo(adm4: string) {
     const [kode, ket, suhu, mm] = i === 0 ? [61, 'Hujan Sedang', 26, 3.4] as const : POLA[Number(lokal.slice(11, 13)) / 3];
     return { utc: new Date(t).toISOString(), lokal, suhu, lembap: kode >= 60 ? 92 : 70, hujanMm: mm, awan: kode >= 60 ? 95 : 40, kode, ket, angin: 6, arah: 'SE' };
   });
-  const lokasi = { adm4, desa: 'Linuh (contoh)', kecamatan: 'Bungur', kotkab: 'Tapin', provinsi: 'Kalimantan Selatan', lat: -2.983, lon: 115.238 };
+  const lokasi = { adm4, desa: 'Pusat Proyek', kecamatan: 'Wilayah Operasional', kotkab: 'Area Lapangan', provinsi: 'Indonesia', lat: -2.983, lon: 115.238 };
   return susunJawabanCuaca({ lokasi, slot }, new Date(kini).toISOString(), kini);
 }

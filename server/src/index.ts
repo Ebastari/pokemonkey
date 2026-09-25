@@ -173,6 +173,7 @@ export default {
 
       // --- PICA ---
       if (jalur === '/api/pica' && req.method === 'GET') return daftarPica(url, env);
+      if (jalur === '/api/pica/impor' && req.method === 'POST') return imporPicaBatch(req, env, pengguna);
       if (jalur === '/api/pica' && req.method === 'POST') return buatPica(req, env, pengguna);
 
       const cocokPica = jalur.match(/^\/api\/pica\/([\w-]+)$/);
@@ -501,6 +502,8 @@ async function detailPica(id: string, env: Env): Promise<Response> {
 }
 
 async function buatPica(req: Request, env: Env, pengguna: Pengguna): Promise<Response> {
+  if (pengguna.peran === 'pemantau') return galat('Peran Anda hanya bisa memantau.', 403);
+
   const b = (await req.json()) as Record<string, any>;
   if (!b.judul || !b.bidang) return galat('Bidang dan uraian masalah wajib diisi.');
 
@@ -539,6 +542,90 @@ async function buatPica(req: Request, env: Env, pengguna: Pengguna): Promise<Res
     .run();
 
   return json({ id, nomor }, 201);
+}
+
+async function imporPicaBatch(req: Request, env: Env, pengguna: Pengguna): Promise<Response> {
+  // Menambah PICA massal hanya boleh oleh Admin/Supervisor, dan dibatasi agar satu
+  // berkas keliru tidak membanjiri papan PICA.
+  if (!bolehUbahKunci(pengguna)) return galat('Hanya Admin/Supervisor yang boleh mengimpor PICA.', 403);
+
+  const b = (await req.json()) as { periode_id?: string; items?: Record<string, any>[] };
+  if (!b.items || !Array.isArray(b.items) || b.items.length === 0) {
+    return galat('Daftar PICA untuk diimpor tidak boleh kosong.');
+  }
+  if (b.items.length > 200) return galat('Maksimal 200 baris sekali impor.');
+
+  const periodeId = b.periode_id || (await ambilPengaturan(env, 'periode_aktif')) || null;
+
+  // Ambil nomor urut tertinggi saat ini untuk periode target
+  const urut = await env.DB.prepare(
+    'SELECT COALESCE(MAX(nomor), 0) AS n FROM pica WHERE periode_id = ?1',
+  )
+    .bind(periodeId)
+    .first<{ n: number }>();
+
+  let nomorSekarang = urut?.n ?? 0;
+  const dibuatPada = sekarangUtcIso();
+  const pernyataan: any[] = [];
+  const ids: string[] = [];
+
+  for (const item of b.items) {
+    const judul = String(item.judul ?? '').trim();
+    const bidang = String(item.bidang ?? '').trim();
+    if (!judul || !bidang) continue;
+
+    nomorSekarang += 1;
+    const id = `PICA-${periodeId ?? 'UMUM'}-${String(nomorSekarang).padStart(2, '0')}`;
+    ids.push(id);
+
+    pernyataan.push(
+      env.DB.prepare(
+        `INSERT INTO pica (id, nomor, periode_id, bidang, prioritas, judul, akar, tindakan,
+                           pic_id, due_date, status, terkait_id, target, realisasi, satuan,
+                           props, dibuat_oleh, dibuat_pada, judul_singkat)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)`,
+      ).bind(
+        id,
+        nomorSekarang,
+        periodeId,
+        bidang,
+        item.prioritas ?? 'Sedang',
+        judul,
+        item.akar ? String(item.akar).trim() : null,
+        item.tindakan ? String(item.tindakan).trim() : null,
+        item.pic_id ? String(item.pic_id).trim() : null,
+        item.due_date ? String(item.due_date).trim() : null,
+        item.status ?? 'Open',
+        item.terkait_id ? String(item.terkait_id).trim() : null,
+        item.target !== undefined && item.target !== null && item.target !== '' ? Number(item.target) : null,
+        item.realisasi !== undefined && item.realisasi !== null && item.realisasi !== '' ? Number(item.realisasi) : null,
+        item.satuan ? String(item.satuan).trim() : null,
+        JSON.stringify(item.props ?? {}),
+        pengguna.id,
+        dibuatPada,
+        String(item.judul_singkat ?? '').trim().slice(0, 80) || null,
+      ),
+    );
+
+    pernyataan.push(
+      env.DB.prepare(
+        `INSERT INTO pica_riwayat (pica_id, kolom, nilai_lama, nilai_baru, oleh)
+         VALUES (?1, 'dibuat', NULL, ?2, ?3)`,
+      ).bind(id, `Diimpor via CSV: ${judul}`, pengguna.id),
+    );
+  }
+
+  if (pernyataan.length === 0) {
+    return galat('Tidak ada data PICA yang valid untuk disimpan.');
+  }
+
+  // Cloudflare D1 batch chunking
+  const UKURAN_CHUNK = 50;
+  for (let i = 0; i < pernyataan.length; i += UKURAN_CHUNK) {
+    await env.DB.batch(pernyataan.slice(i, i + UKURAN_CHUNK));
+  }
+
+  return json({ ok: true, jumlah: ids.length, ids }, 201);
 }
 
 const KOLOM_BOLEH_UBAH = [

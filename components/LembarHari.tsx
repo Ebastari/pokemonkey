@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, X, Plus, Flag, Users, Clock, Sun } from 'luc
 import { type Acara, kelasAcara, sepanjangHari, urutkan } from '../lib/acara';
 import { LABEL_JENIS, type Libur } from '../lib/libur';
 import * as W from '../lib/waktu';
+import { namaDepan } from '../lib/nama';
 
 /**
  * "Hari ini ada apa?" — lembar satu tanggal: libur, siapa yang tidak masuk
@@ -66,11 +67,11 @@ export const LembarHari: React.FC<Props> = ({ tanggal, hariIni, acara, libur, ti
               <p className="label-retro flex items-center gap-1"><Users size={11} /> Tim</p>
               {tidakMasuk.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-1">
-                  {tidakMasuk.map((s) => <span key={s.nama} className="chip-retro border-amber-400 bg-amber-950/50 text-amber-200 normal-case">{s.nama.split(' ')[0]} · {s.label}</span>)}
+                  {tidakMasuk.map((s) => <span key={s.nama} className="chip-retro border-amber-400 bg-amber-950/50 text-amber-200 normal-case">{namaDepan(s.nama)} · {s.label}</span>)}
                 </div>
               )}
               <p className="text-[12px] text-zinc-300">
-                {masuk.length ? `Masuk: ${masuk.map((s) => `${s.nama.split(' ')[0]}${s.kode !== 'M' ? ` (${s.kode})` : ''}`).join(', ')}` : 'Belum ada yang dijadwalkan masuk.'}
+                {masuk.length ? `Masuk: ${masuk.map((s) => `${namaDepan(s.nama)}${s.kode !== 'M' ? ` (${s.kode})` : ''}`).join(', ')}` : 'Belum ada yang dijadwalkan masuk.'}
               </p>
             </div>
           )}

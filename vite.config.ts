@@ -8,6 +8,9 @@ export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',
+    watch: {
+      ignored: ['**/*.jpeg', '**/*.jpg', '**/*.png', '**/*.webp', '**/*.pptx', '**/.git/**'],
+    },
   },
   plugins: [react()],
   resolve: {

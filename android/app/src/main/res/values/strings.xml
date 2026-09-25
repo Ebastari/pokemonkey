@@ -6,5 +6,6 @@
     <string name="custom_url_scheme">id.ebl.pokemonkey</string>
     <string name="widget_dashboard_desc">Ringkasan Cuaca, Titik Api, Jadwal, Alarm, dan PICA POKEMONKEY</string>
     <string name="widget_pica_desc">Daftar tugas PICA yang belum selesai dan telat</string>
+    <string name="widget_kalender_desc">Kalender bulanan: libur, tenggat PICA, rapat, dan roster</string>
     <string name="widget_jadwal_desc">Agenda rapat dan alarm meeting hari ini</string>
 </resources>

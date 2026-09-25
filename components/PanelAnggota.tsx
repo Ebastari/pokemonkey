@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import type { Opsi, Pengguna } from '../lib/tipe-api';
 import { warna } from '../lib/warna';
 import { useFotoProfil } from '../lib/foto';
+import { namaTampil } from '../lib/nama';
 import * as W from '../lib/waktu';
 import { susunPesanTagihPica } from '../server/src/ringkasan';
 
@@ -100,7 +101,7 @@ export const PanelAnggota: React.FC<Props> = ({ userId, nama, pengguna, opsiRost
               : <span className="font-title text-[13px] text-black">{(a?.nama ?? nama ?? '?').slice(0, 1).toUpperCase()}</span>}
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="judul-layar truncate">{a?.nama ?? nama ?? 'Anggota'}</h2>
+            <h2 className="judul-layar truncate" title={a?.nama ?? nama ?? ''}>{namaTampil(a?.nama ?? nama) || 'Anggota'}</h2>
             <p className="text-[12px] text-zinc-300 mt-1 truncate">
               {a?.jabatan ?? '—'}{a?.bidang ? ` · ${a.bidang}` : ''}
             </p>

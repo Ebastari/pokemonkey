@@ -3,6 +3,7 @@ import {
   Bell, BellOff, BellRing, CalendarClock, ClipboardList, Loader2, Megaphone, RefreshCw, Send, Share, Smartphone, SquarePlus, Star,
 } from 'lucide-react';
 import { api, demoAktif } from '../lib/api';
+import { ambilAlarmPica, simpanJamBawaanAlarm } from '../lib/pica-alarm';
 import type { Bootstrap } from '../lib/tipe-api';
 import type { AcaraSiap } from '../server/src/ringkasan';
 import {
@@ -46,6 +47,8 @@ export const NotifikasiScreen: React.FC<Props> = ({ boot, notify }) => {
   const jam = useMemo(() => jamDariPengaturan(boot.pengaturan), [boot.pengaturan]);
   const demo = demoAktif();
 
+  const [jamAlarmPica, setJamAlarmPica] = useState('07:00');
+
   const [izin, setIzin] = useState<Izin | null>(null);
   const [slot, setSlot] = useState(bacaSlot);
   const [isi, setIsi] = useState<Partial<Record<Slot, NotifSiap>>>({});
@@ -68,6 +71,19 @@ export const NotifikasiScreen: React.FC<Props> = ({ boot, notify }) => {
       setMemuat(false);
     }
   }, [notify]);
+
+  // Jam alarm tenggat PICA tersimpan di server agar ikut walau APK dipasang ulang.
+  useEffect(() => {
+    let hidup = true;
+    ambilAlarmPica().then((d) => { if (hidup) setJamAlarmPica(d.jamBawaan); }).catch(() => undefined);
+    return () => { hidup = false; };
+  }, []);
+
+  const ubahJamAlarmPica = async (jam: string) => {
+    setJamAlarmPica(jam);
+    try { await simpanJamBawaanAlarm(jam); notify(`JAM ALARM PICA: ${jam} WITA`); }
+    catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENYIMPAN JAM ALARM'); }
+  };
 
   useEffect(() => {
     void muatIsi();
@@ -252,6 +268,27 @@ export const NotifikasiScreen: React.FC<Props> = ({ boot, notify }) => {
                   </div>
                 );
               })}
+            </div>
+          </section>
+
+          {/* Jam alarm tenggat PICA: dipakai semua PICA yang alarmnya dinyalakan di layar PICA. */}
+          <section>
+            <p className="label-retro px-1">Alarm tenggat PICA</p>
+            <div className="retro-box !p-3 !bg-zinc-900/80 border-amber-500 flex flex-wrap items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-bold text-amber-300">Jam bunyi</p>
+                <p className="text-[12px] text-zinc-400 leading-snug">
+                  Berbunyi sehari sebelum tenggat dan pada hari tenggat. Alarm dinyalakan per PICA di layar PICA;
+                  bawaannya mati agar tidak bertumpuk dengan rekap pagi.
+                </p>
+              </div>
+              <input
+                type="time"
+                value={jamAlarmPica}
+                onChange={(e) => ubahJamAlarmPica(e.target.value)}
+                className="input-retro !w-auto"
+                aria-label="Jam alarm tenggat PICA"
+              />
             </div>
           </section>
 

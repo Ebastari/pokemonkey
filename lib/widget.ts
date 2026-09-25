@@ -5,6 +5,12 @@ export interface WidgetPicaItem {
   judul: string;
   pic: string;
   due_date: string;
+  /** Label sisa waktu bergaya alarm: "TELAT 3 HARI", "HARI INI", "H-2". */
+  sisa?: string;
+  /** Jam alarm bila dinyalakan, atau tanggal tenggatnya. */
+  waktu?: string;
+  /** true bila alarm tenggat PICA ini dinyalakan pemiliknya. */
+  alarm?: boolean;
   telat: boolean;
 }
 
@@ -26,6 +32,12 @@ export interface WidgetPayload {
   jadwalIsi?: string;
   jadwalItems?: WidgetJadwalItem[];
   alarmStatus?: string;
+  /** Widget kalender: peta tanggal → kode lapisan ("L" libur, "T" tenggat, "R" rapat, "M" tim, "S" saya, "A" anggota lain, "O" roster). */
+  kalenderTitik?: Record<string, string>;
+  /** Tanggal hari ini (WITA) untuk menyorot sel dan menghitung bulan. */
+  kalenderHariIni?: string;
+  /** Ringkasan satu baris di bawah kotak bulan. */
+  kalenderRingkas?: string;
 }
 
 interface WidgetBridgePlugin {

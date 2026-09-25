@@ -289,7 +289,7 @@ export const TampilanNomorSurat: React.FC<Props> = ({
   };
 
   return (
-    <div className="h-full flex flex-col min-h-0 overflow-hidden space-y-3">
+    <div className="h-full min-h-0 overflow-y-auto custom-scrollbar pb-3 sm:overflow-hidden sm:flex sm:flex-col space-y-3">
       {/* Banner / Info & Statistik */}
       <div className="panel-retro !bg-zinc-950/90 !p-3 border-2 border-lime-500/80 flex flex-wrap items-center justify-between gap-3 shrink-0 rounded shadow-md">
         <div className="flex items-center gap-3">
@@ -305,7 +305,7 @@ export const TampilanNomorSurat: React.FC<Props> = ({
                 DEPARTEMEN RNR
               </span>
             </div>
-            <p className="text-[12px] text-zinc-400">
+            <p className="hidden sm:block text-[12px] text-zinc-400">
               Penomoran otomatis resmi, lampiran berkas opsional &amp; sinkronisasi ke template Excel
             </p>
           </div>
@@ -546,7 +546,7 @@ export const TampilanNomorSurat: React.FC<Props> = ({
       </div>
 
       {/* ================= TABEL DATA NOMOR SURAT ================= */}
-      <div className="flex-1 overflow-auto custom-scrollbar border-[3px] border-zinc-700 bg-zinc-950 min-h-0 rounded">
+      <div className="overflow-x-auto custom-scrollbar border-[3px] border-zinc-700 bg-zinc-950 rounded sm:flex-1 sm:overflow-auto sm:min-h-0">
         {tersaring.length === 0 ? (
           <div className="text-center py-16 text-zinc-500">
             <FileText size={36} className="mx-auto text-zinc-600 mb-2" />

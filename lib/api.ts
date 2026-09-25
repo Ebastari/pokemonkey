@@ -14,7 +14,7 @@ import { GalatApi } from './galat';
 import { demoAktif, demoApi } from './demo';
 
 export { GalatApi } from './galat';
-export { demoAktif, aktifkanDemo, matikanDemo } from './demo';
+export { demoAktif, aktifkanDemo, matikanDemo, adaDataDemo, resetDemoDb, hitungDataDemo } from './demo';
 
 const KUNCI_TOKEN = 'pokemonkey_token';
 const KUNCI_SERVER = 'pokemonkey_server';

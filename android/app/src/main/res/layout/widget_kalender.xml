@@ -1,0 +1,1482 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget kalender bulanan POKEMONKEY.
+
+  Kotak bulan 6 baris × 7 kolom; tiap sel berisi angka tanggal dan titik penanda
+  acara yang warnanya mengikuti lapisan kalender (libur, tenggat PICA, rapat,
+  rencana tim, rencana saya, anggota lain, roster). Lapisan yang ditampilkan
+  diatur di layar KALENDER aplikasi.
+
+  Hanya tampilan yang didukung RemoteViews yang boleh dipakai: LinearLayout,
+  FrameLayout, TextView, ImageView. <View> polos atau GridLayout membuat layar
+  depan menampilkan "Tidak dapat memuat widget".
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_kalender_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <!-- Kepala: bulan + pindah bulan -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/tv_kal_bulan"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="September 2026"
+            android:textColor="#67E8F9"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btn_kal_mundur"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/widget_badge_blue"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="1dp"
+            android:text="‹"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btn_kal_maju"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:background="@drawable/widget_badge_blue"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="1dp"
+            android:text="›"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btn_kal_atur"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:background="@drawable/widget_badge_emerald"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="1dp"
+            android:text="⚙"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- Nama hari -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="Sn"
+            android:textColor="#A1A1AA"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="Sl"
+            android:textColor="#A1A1AA"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="Rb"
+            android:textColor="#A1A1AA"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="Km"
+            android:textColor="#A1A1AA"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="Jm"
+            android:textColor="#A1A1AA"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="Sb"
+            android:textColor="#A1A1AA"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="Mg"
+            android:textColor="#F87171"
+            android:textSize="9sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="3dp"
+        android:background="#20FFFFFF" />
+
+    <!-- Kotak tanggal -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_0"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_0"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_0"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_1"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_1"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_1"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_2"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_2"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_2"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_3"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_3"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_3"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_4"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_4"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_4"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_5"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_5"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_5"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_6"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_6"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_6"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_7"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_7"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_7"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_8"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_8"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_8"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_9"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_9"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_9"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_10"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_10"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_10"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_11"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_11"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_11"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_12"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_12"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_12"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_13"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_13"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_13"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_14"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_14"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_14"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_15"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_15"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_15"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_16"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_16"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_16"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_17"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_17"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_17"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_18"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_18"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_18"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_19"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_19"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_19"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_20"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_20"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_20"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_21"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_21"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_21"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_22"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_22"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_22"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_23"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_23"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_23"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_24"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_24"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_24"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_25"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_25"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_25"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_26"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_26"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_26"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_27"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_27"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_27"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_28"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_28"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_28"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_29"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_29"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_29"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_30"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_30"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_30"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_31"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_31"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_31"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_32"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_32"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_32"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_33"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_33"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_33"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_34"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_34"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_34"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_35"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_35"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_35"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_36"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_36"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_36"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_37"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_37"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_37"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_38"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_38"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_38"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_39"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_39"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_39"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_40"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_40"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_40"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/kal_sel_41"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:paddingVertical="1dp">
+
+                    <TextView
+                        android:id="@+id/kal_tgl_41"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:minWidth="22dp"
+                        android:paddingVertical="1dp"
+                        android:text=" "
+                        android:textColor="#E4E4E7"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/kal_titik_41"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=" "
+                        android:textColor="#FBBF24"
+                        android:textSize="7sp" />
+                </LinearLayout>
+            </LinearLayout>
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="4dp"
+        android:background="#20FFFFFF" />
+
+    <!-- Ringkasan hari ini -->
+    <TextView
+        android:id="@+id/tv_kal_ringkas"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="2"
+        android:text="Tidak ada agenda hari ini"
+        android:textColor="#E4E4E7"
+        android:textSize="10sp" />
+</LinearLayout>

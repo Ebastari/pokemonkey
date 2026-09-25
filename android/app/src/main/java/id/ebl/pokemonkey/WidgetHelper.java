@@ -60,6 +60,12 @@ public class WidgetHelper {
         }
 
         // 2. PICA Widget
+        ComponentName kalComp = new ComponentName(context, KalenderWidgetProvider.class);
+        int[] kalIds = manager.getAppWidgetIds(kalComp);
+        if (kalIds != null && kalIds.length > 0) {
+            perbaruiKalender(context, manager, kalIds);
+        }
+
         ComponentName picaComp = new ComponentName(context, PicaWidgetProvider.class);
         int[] picaIds = manager.getAppWidgetIds(picaComp);
         if (picaIds != null && picaIds.length > 0) {
@@ -128,11 +134,22 @@ public class WidgetHelper {
         }
     }
 
+    /**
+     * Widget PICA bergaya daftar alarm: kiri sisa waktu, kanan judul, ujung kanan
+     * penanda alarm. Isinya hanya PICA milik pemakai yang sedang masuk.
+     */
     public static void perbaruiPica(Context context, AppWidgetManager manager, int[] ids) {
         JSONObject data = ambilData(context);
         int picaTotal = data.optInt("picaTotal", 0);
         int picaTelat = data.optInt("picaTelat", 0);
         JSONArray items = data.optJSONArray("picaItems");
+
+        int[] barisId = { R.id.pica_item_1, R.id.pica_item_2, R.id.pica_item_3, R.id.pica_item_4 };
+        int[] sisaId = { R.id.tv_pica_item_1_sisa, R.id.tv_pica_item_2_sisa, R.id.tv_pica_item_3_sisa, R.id.tv_pica_item_4_sisa };
+        int[] waktuId = { R.id.tv_pica_item_1_waktu, R.id.tv_pica_item_2_waktu, R.id.tv_pica_item_3_waktu, R.id.tv_pica_item_4_waktu };
+        int[] judulId = { R.id.tv_pica_item_1_title, R.id.tv_pica_item_2_title, R.id.tv_pica_item_3_title, R.id.tv_pica_item_4_title };
+        int[] subId = { R.id.tv_pica_item_1_sub, R.id.tv_pica_item_2_sub, R.id.tv_pica_item_3_sub, R.id.tv_pica_item_4_sub };
+        int[] alarmId = { R.id.tv_pica_item_1_alarm, R.id.tv_pica_item_2_alarm, R.id.tv_pica_item_3_alarm, R.id.tv_pica_item_4_alarm };
 
         for (int id : ids) {
             RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_pica);
@@ -148,39 +165,138 @@ public class WidgetHelper {
                 views.setInt(R.id.tv_pica_widget_badge, "setBackgroundResource", R.drawable.widget_badge_emerald);
             }
 
-            // Item 1
-            if (items != null && items.length() > 0) {
-                JSONObject it1 = items.optJSONObject(0);
-                views.setViewVisibility(R.id.pica_item_1, View.VISIBLE);
-                views.setTextViewText(R.id.tv_pica_item_1_title, it1.optString("judul", "—"));
-                views.setTextViewText(R.id.tv_pica_item_1_sub, "PIC: " + it1.optString("pic", "—") + " · Tenggat: " + it1.optString("due_date", "—"));
-            } else {
-                views.setViewVisibility(R.id.pica_item_1, View.VISIBLE);
-                views.setTextViewText(R.id.tv_pica_item_1_title, "Semua tugas PICA selesai");
-                views.setTextViewText(R.id.tv_pica_item_1_sub, "Tidak ada temuan terbuka");
-            }
+            int jumlah = items == null ? 0 : items.length();
+            for (int i = 0; i < barisId.length; i++) {
+                if (i < jumlah) {
+                    JSONObject it = items.optJSONObject(i);
+                    String sisa = it.optString("sisa", "—");
+                    boolean telat = it.optBoolean("telat", false);
+                    boolean alarm = it.optBoolean("alarm", false);
 
-            // Item 2
-            if (items != null && items.length() > 1) {
-                JSONObject it2 = items.optJSONObject(1);
-                views.setViewVisibility(R.id.pica_item_2, View.VISIBLE);
-                views.setTextViewText(R.id.tv_pica_item_2_title, it2.optString("judul", "—"));
-                views.setTextViewText(R.id.tv_pica_item_2_sub, "PIC: " + it2.optString("pic", "—") + " · Tenggat: " + it2.optString("due_date", "—"));
-            } else {
-                views.setViewVisibility(R.id.pica_item_2, View.GONE);
-            }
-
-            // Item 3
-            if (items != null && items.length() > 2) {
-                JSONObject it3 = items.optJSONObject(2);
-                views.setViewVisibility(R.id.pica_item_3, View.VISIBLE);
-                views.setTextViewText(R.id.tv_pica_item_3_title, it3.optString("judul", "—"));
-                views.setTextViewText(R.id.tv_pica_item_3_sub, "PIC: " + it3.optString("pic", "—") + " · Tenggat: " + it3.optString("due_date", "—"));
-            } else {
-                views.setViewVisibility(R.id.pica_item_3, View.GONE);
+                    views.setViewVisibility(barisId[i], View.VISIBLE);
+                    views.setTextViewText(sisaId[i], sisa);
+                    // Merah bila telat, oranye bila hari ini, abu untuk sisanya.
+                    int warna = telat ? 0xFFF87171 : (sisa.startsWith("HARI INI") ? 0xFFFBBF24 : 0xFFE4E4E7);
+                    views.setTextColor(sisaId[i], warna);
+                    views.setTextViewText(waktuId[i], it.optString("waktu", "—"));
+                    views.setTextViewText(judulId[i], it.optString("judul", "—"));
+                    views.setTextViewText(subId[i], it.optString("id", "") + " · " + it.optString("pic", "—"));
+                    views.setTextViewText(alarmId[i], alarm ? "⏰" : "○");
+                    views.setTextColor(alarmId[i], alarm ? 0xFF34D399 : 0xFF52525B);
+                } else if (i == 0) {
+                    views.setViewVisibility(barisId[0], View.VISIBLE);
+                    views.setTextViewText(sisaId[0], "AMAN");
+                    views.setTextColor(sisaId[0], 0xFF34D399);
+                    views.setTextViewText(waktuId[0], "—");
+                    views.setTextViewText(judulId[0], "Tidak ada PICA terbuka untukmu");
+                    views.setTextViewText(subId[0], "Semua tugas selesai");
+                    views.setTextViewText(alarmId[0], "");
+                } else {
+                    views.setViewVisibility(barisId[i], View.GONE);
+                }
             }
 
             views.setOnClickPendingIntent(R.id.widget_pica_root, buatPendingIntent(context, "pica", 201));
+            manager.updateAppWidget(id, views);
+        }
+    }
+
+    /** Intent untuk tombol ‹ › di widget kalender. */
+    private static PendingIntent intentBulan(Context context, String aksi, int reqCode) {
+        Intent intent = new Intent(context, KalenderWidgetProvider.class);
+        intent.setAction(aksi);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            flags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        return PendingIntent.getBroadcast(context, reqCode, intent, flags);
+    }
+
+    /** Warna titik penanda per lapisan kalender (sama dengan layar KALENDER). */
+    private static int warnaLapisan(char kode) {
+        switch (kode) {
+            case 'L': return 0xFFEF4444; // libur nasional
+            case 'T': return 0xFFF59E0B; // tenggat PICA
+            case 'R': return 0xFF818CF8; // rapat
+            case 'M': return 0xFF22D3EE; // rencana tim
+            case 'S': return 0xFF34D399; // rencana saya
+            case 'A': return 0xFFA1A1AA; // anggota lain
+            case 'O': return 0xFF2DD4BF; // roster saya
+            default: return 0xFFFBBF24;
+        }
+    }
+
+    private static final String[] NAMA_BULAN = {
+        "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+        "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+    };
+
+    /**
+     * Kotak bulan 6×7. Tanggal diambil dari kalender Jawa/Gregorian perangkat,
+     * titik penanda dari data yang dikirim aplikasi (peta tanggal → kode lapisan).
+     */
+    public static void perbaruiKalender(Context context, AppWidgetManager manager, int[] ids) {
+        JSONObject data = ambilData(context);
+        JSONObject titik = data.optJSONObject("kalenderTitik");
+        String hariIni = data.optString("kalenderHariIni", "");
+        String ringkas = data.optString("kalenderRingkas", "Buka aplikasi untuk menyegarkan");
+
+        int geser = KalenderWidgetProvider.geseranBulan(context);
+        java.util.Calendar kal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Makassar"));
+        if (hariIni.length() == 10) {
+            kal.set(Integer.parseInt(hariIni.substring(0, 4)), Integer.parseInt(hariIni.substring(5, 7)) - 1, 1);
+        } else {
+            kal.set(java.util.Calendar.DAY_OF_MONTH, 1);
+        }
+        kal.add(java.util.Calendar.MONTH, geser);
+        int tahun = kal.get(java.util.Calendar.YEAR);
+        int bulan = kal.get(java.util.Calendar.MONTH);
+
+        // Senin sebagai kolom pertama.
+        int hariPertama = (kal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7;
+        int jumlahHari = kal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH);
+
+        for (int id : ids) {
+            RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_kalender);
+            views.setTextViewText(R.id.tv_kal_bulan, NAMA_BULAN[bulan] + " " + tahun);
+            views.setTextViewText(R.id.tv_kal_ringkas, ringkas);
+
+            for (int i = 0; i < 42; i++) {
+                int idTgl = context.getResources().getIdentifier("kal_tgl_" + i, "id", context.getPackageName());
+                int idTitik = context.getResources().getIdentifier("kal_titik_" + i, "id", context.getPackageName());
+                int tanggal = i - hariPertama + 1;
+
+                if (tanggal < 1 || tanggal > jumlahHari) {
+                    views.setTextViewText(idTgl, " ");
+                    views.setTextViewText(idTitik, " ");
+                    continue;
+                }
+
+                String iso = String.format(java.util.Locale.US, "%04d-%02d-%02d", tahun, bulan + 1, tanggal);
+                String kode = titik == null ? "" : titik.optString(iso, "");
+                boolean minggu = (i % 7) == 6;
+                boolean libur = kode.indexOf('L') >= 0;
+                boolean ini = iso.equals(hariIni);
+
+                views.setTextViewText(idTgl, String.valueOf(tanggal));
+                views.setTextColor(idTgl, ini ? 0xFF000000 : (minggu || libur ? 0xFFF87171 : 0xFFE4E4E7));
+                views.setInt(idTgl, "setBackgroundResource", ini ? R.drawable.widget_badge_blue : 0);
+
+                if (kode.isEmpty()) {
+                    views.setTextViewText(idTitik, " ");
+                } else {
+                    // Satu titik per lapisan, maksimal tiga agar tidak penuh.
+                    StringBuilder t = new StringBuilder();
+                    for (int k = 0; k < kode.length() && k < 3; k++) t.append('•');
+                    views.setTextViewText(idTitik, t.toString());
+                    views.setTextColor(idTitik, warnaLapisan(kode.charAt(0)));
+                }
+            }
+
+            views.setOnClickPendingIntent(R.id.btn_kal_mundur, intentBulan(context, KalenderWidgetProvider.AKSI_MUNDUR, 301));
+            views.setOnClickPendingIntent(R.id.btn_kal_maju, intentBulan(context, KalenderWidgetProvider.AKSI_MAJU, 302));
+            views.setOnClickPendingIntent(R.id.btn_kal_atur, buatPendingIntent(context, "jadwal", 303));
+            views.setOnClickPendingIntent(R.id.widget_kalender_root, buatPendingIntent(context, "jadwal", 304));
             manager.updateAppWidget(id, views);
         }
     }

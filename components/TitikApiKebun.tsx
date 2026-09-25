@@ -79,7 +79,8 @@ export const PanelTitikApi: React.FC<{
   onMuatUlang: () => void;
   onTutup: () => void;
   notify?: (m: string) => void;
-}> = ({ data, admin, onMuatUlang, onTutup, notify }) => {
+  onBukaFire?: () => void;
+}> = ({ data, admin, onMuatUlang, onTutup, notify, onBukaFire }) => {
   const [sibuk, setSibuk] = useState<string | null>(null);
   const [saring, setSaring] = useState<SaringArea>('semua');
 
@@ -119,6 +120,11 @@ export const PanelTitikApi: React.FC<{
       <div className="retro-box !bg-zinc-900 border-red-500 w-full sm:max-w-xl max-h-[90vh] overflow-auto custom-scrollbar !p-3" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b-4 border-white pb-2 mb-3">
           <h2 className="judul-layar flex items-center gap-2 mr-auto"><Flame size={16} className="text-orange-400" /> Titik Api</h2>
+          {onBukaFire && (
+            <button onClick={onBukaFire} className="btn-retro btn-retro-sm bg-orange-700 hover:bg-orange-600 text-white font-bold flex items-center gap-1" title="Buka Layar Peta Fire Monkey Lengkap">
+              <Flame size={12} /> Buka Fire Monkey
+            </button>
+          )}
           {admin && (
             <div className="flex gap-1.5">
               <button onClick={periksa} disabled={sibuk !== null || !data?.terpasang} className="btn-retro btn-retro-sm bg-zinc-700" title="Ambil data FIRMS 7 hari">

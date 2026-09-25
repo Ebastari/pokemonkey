@@ -306,6 +306,19 @@ input[type='date'], input[type='time'] {
 [data-tema='terang'] ::-webkit-scrollbar-track { background: #d3d9cf; }
 [data-tema='terang'] ::-webkit-scrollbar-thumb { background: #15181c; border: 2px solid #e6eae3; }
 
+/* Gambar pembuka layar masuk memudar ke warna latar tema (AuthScreen). */
+.pudar-login { background: linear-gradient(to bottom, transparent, rgb(9 9 11 / 0.7) 55%, #09090b); }
+[data-tema='terang'] .pudar-login { background: linear-gradient(to bottom, transparent, rgb(230 234 227 / 0.7) 55%, #e6eae3); }
+.pudar-login-kanan { background: linear-gradient(to right, transparent, #09090b); }
+[data-tema='terang'] .pudar-login-kanan { background: linear-gradient(to right, transparent, #e6eae3); }
+
+/* Tombol sidik jari piksel (TombolSidikJari). */
+@keyframes pindai-sidik { 0%, 100% { top: 10%; } 50% { top: 86%; } }
+.pindai-sidik { animation: pindai-sidik 2.4s steps(24) infinite; box-shadow: 0 0 6px #6ee7b7; }
+@keyframes kedip-press { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0; } }
+.kedip-press { animation: kedip-press 1.1s steps(1) infinite; }
+.garis-crt { background: repeating-linear-gradient(to bottom, rgb(0 0 0 / 0.28) 0 1px, transparent 1px 3px); }
+
 /* ---- Permukaan netral ---- */
 [data-tema='terang'] [class~="bg-zinc-950"], [data-tema='terang'] [class~="!bg-zinc-950"] { background-color: #e6eae3 !important; }
 [data-tema='terang'] [class~="bg-zinc-900"], [data-tema='terang'] [class~="!bg-zinc-900"] { background-color: #ffffff !important; }
@@ -762,3 +775,8 @@ input[type='date'], input[type='time'] {
 /* Unduh gambar (lib/gambar.ts): wadah bergulir dibuka penuh selama pemotretan. */
 .mode-gambar[data-gambar-lepas], .mode-gambar [data-gambar-lepas] { overflow: visible !important; height: auto !important; max-height: none !important; }
 .mode-gambar .sticky { position: static !important; }
+
+/* Cetak: elemen bertanda .no-print tidak pernah ikut ke kertas (Fire Monkey, Money Monkey). */
+@media print {
+  .no-print { display: none !important; }
+}

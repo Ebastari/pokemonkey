@@ -9,7 +9,7 @@
  * kosong, lalu kunci localStorage-nya dihapus agar tidak terkirim dua kali.
  */
 
-import { api } from './api';
+import { api, demoAktif } from './api';
 import type { ItemSurat } from './tipe-surat';
 import { DATA_SURAT_AWAL } from './data-surat-awal';
 import type { DataMemoDinas } from './ekspor-memo-dinas';
@@ -65,8 +65,14 @@ async function muatDenganPindahan<T extends { id?: string }>(
 
 export const simpanSuratKeServer = (item: ItemSurat) => api<{ id: string }>('/api/surat', { body: item });
 export const hapusSuratDiServer = (id: string) => api<{ ok: boolean }>(`/api/surat/${encodeURIComponent(id)}`, { method: 'DELETE' });
-/** Register surat bawaan aplikasi ikut naik ke server saat pertama kali dipakai. */
-export const muatSurat = () => muatDenganPindahan<ItemSurat & JejakDokumen>('/api/surat', 'surat', KUNCI_NOMOR_SURAT, DATA_SURAT_AWAL);
+/**
+ * Register surat bawaan perusahaan ikut naik ke server saat pertama kali dipakai.
+ * Di mode demo mandiri daftar itu sengaja tidak diisikan: demo harus bersih dari
+ * data perusahaan, jadi pemakai luar memulai dari nol.
+ */
+export const muatSurat = () => muatDenganPindahan<ItemSurat & JejakDokumen>(
+  '/api/surat', 'surat', KUNCI_NOMOR_SURAT, demoAktif() ? [] : DATA_SURAT_AWAL,
+);
 
 // -------------------------------------------------------- Internal Memo dinas
 

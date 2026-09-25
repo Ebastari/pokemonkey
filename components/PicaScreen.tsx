@@ -3,15 +3,19 @@ import {
   ClipboardList, Plus, Search, Table2, KanbanSquare, X, Lock, Unlock, Paperclip, History,
   MessageSquarePlus, Pencil, Trash2, Settings2, Loader2, Link2, ExternalLink, FileSpreadsheet,
   Maximize2, Minimize2, Eye, Send, Download, Users, RefreshCw, Presentation,
+  BellRing, BellOff, Upload, Sparkles,
 } from 'lucide-react';
 import { api, GalatApi, ambilBerkas } from '../lib/api';
 import { simpanBerkas } from '../lib/unduh';
 import { bukuBaru, gayakan, gayakanChip, lembarBaru, pasangSaringan, simpanBuku, tanggalExcel, FORMAT_TANGGAL, MERAH, HIJAU, JINGGA, ABU } from '../lib/excel';
+import { ambilAlarmPica, simpanAlarmPica } from '../lib/pica-alarm';
+import { namaTampil, namaDepan } from '../lib/nama';
 import { diAplikasi } from '../lib/platform';
 import type { Bootstrap, PicaItem, RiwayatPica, UpdatePica, Lampiran, Pengguna } from '../lib/tipe-api';
 import { warna } from '../lib/warna';
 import * as W from '../lib/waktu';
 import { ModalMonkeyPoint } from './ModalMonkeyPoint';
+import { ModalImporPica } from './ModalImporPica';
 
 /** Mengecek apakah suatu PICA sudah berstatus progress / sedang dikerjakan */
 export const cekSudahProgress = (p: PicaItem): boolean => {
@@ -53,6 +57,7 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
   const [aturBuka, setAturBuka] = useState(false);
   const [mengekspor, setMengekspor] = useState(false);
   const [monkeyPointBuka, setMonkeyPointBuka] = useState(false);
+  const [imporBuka, setImporBuka] = useState(false);
 
   const opsi = (grup: string) => boot.opsi.filter((o) => o.grup === grup);
   const bolehKelola = pengguna.peran === 'admin' || pengguna.peran === 'supervisor';
@@ -207,6 +212,7 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
           <button onClick={() => setTampilan('papan')} className={`px-2 py-1.5 flex items-center gap-1 text-[12px] font-bold uppercase ${tampilan === 'papan' ? 'bg-amber-600' : 'bg-black/40 text-zinc-300'}`}><KanbanSquare size={13} /><span className="hidden sm:inline">Papan</span></button>
         </div>
         <button onClick={() => setFormBaru(true)} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-amber-600" title="PICA baru"><Plus size={16} /><span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">PICA</span></button>
+        <button onClick={() => setImporBuka(true)} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-teal-700 hover:bg-teal-600" title="Impor CSV & Format AI (Mode Append)"><Upload size={15} /><span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">Impor CSV</span></button>
         <button onClick={eksporExcel} disabled={mengekspor} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-emerald-700" title="Ekspor ke Excel">{mengekspor ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}<span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">Excel</span></button>
         <button onClick={() => setMonkeyPointBuka(true)} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-bold" title="Monkey Point - Ekspor PowerPoint"><Presentation size={15} /><span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">Monkey Point</span></button>
         {bolehKelola && <button onClick={() => setAturBuka((v) => !v)} className={`btn-ikon !w-8 !h-8 ${aturBuka ? 'bg-zinc-600' : 'bg-zinc-800'}`} title="Atur"><Settings2 size={15} /></button>}
@@ -267,7 +273,7 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
                           <span className="text-zinc-500">—</span>
                         )}
                       </td>
-                      <td className="p-2 border border-white/10 whitespace-nowrap">{p.pic_nama ?? <span className="text-zinc-500">—</span>}</td>
+                      <td className="p-2 border border-white/10 whitespace-nowrap">{p.pic_nama ? namaTampil(p.pic_nama) : <span className="text-zinc-500">—</span>}</td>
                       <td className="p-2 border border-white/10 whitespace-nowrap">{p.due_date ? W.formatPendek(p.due_date) : '—'}</td>
                       <td className="p-2 border border-white/10"><Pill nilai={p.status} grup="status" boot={boot} /></td>
                       <td className="p-2 border border-white/10 whitespace-nowrap">
@@ -317,8 +323,56 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
 
       {terpilih && <DetailPica id={terpilih} boot={boot} pengguna={pengguna} daftar={daftar} onTutup={tutupDetail} onUbah={muat} notify={notify} />}
       {formBaru && <FormPica boot={boot} daftar={daftar} onTutup={() => setFormBaru(false)} onSimpan={(id) => { setFormBaru(false); muat(); notify(`${id} DIBUAT`); }} />}
+      {imporBuka && <ModalImporPica boot={boot} pengguna={pengguna} onTutup={() => setImporBuka(false)} onSelesai={() => { setImporBuka(false); muat(); }} notify={notify} />}
       {monkeyPointBuka && <ModalMonkeyPoint boot={boot} pengguna={pengguna} onTutup={() => setMonkeyPointBuka(false)} notify={notify} />}
     </div>
+  );
+};
+
+/**
+ * Sakelar alarm tenggat PICA. Bawaannya mati; kalau dinyalakan, HP berbunyi
+ * sehari sebelum tenggat dan pada hari tenggat, pada jam yang diatur pemakai
+ * (bawaan 07.00 WITA di layar Notifikasi). Hanya untuk PICA milik sendiri.
+ */
+const TombolAlarmPica: React.FC<{ pica: PicaItem; milikSaya: boolean; notify: (p: string) => void }> = ({ pica, milikSaya, notify }) => {
+  const [aktif, setAktif] = useState<boolean | null>(null);
+  const [jam, setJam] = useState('07:00');
+  const [sibuk, setSibuk] = useState(false);
+
+  useEffect(() => {
+    if (!milikSaya) return;
+    let hidup = true;
+    ambilAlarmPica()
+      .then((d) => {
+        if (!hidup) return;
+        const a = d.alarm.find((x) => x.pica_id === pica.id);
+        setAktif(Boolean(a?.aktif));
+        setJam(a?.jam || d.jamBawaan);
+      })
+      .catch(() => { if (hidup) setAktif(false); });
+    return () => { hidup = false; };
+  }, [pica.id, milikSaya]);
+
+  if (!milikSaya || !pica.due_date || pica.status === 'Closed') return null;
+
+  const ubah = async () => {
+    const baru = !aktif;
+    setAktif(baru); setSibuk(true);
+    try {
+      await simpanAlarmPica(pica.id, baru);
+      notify(baru ? `ALARM TENGGAT AKTIF · ${jam} WITA` : 'ALARM TENGGAT DIMATIKAN');
+    } catch (e) {
+      setAktif(!baru);
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENGUBAH ALARM');
+    } finally { setSibuk(false); }
+  };
+
+  return (
+    <button onClick={ubah} disabled={sibuk || aktif === null} title={aktif ? `Alarm H-1 dan hari-H pukul ${jam} WITA` : 'Nyalakan alarm tenggat'}
+      className={`chip-retro flex items-center gap-1 ${aktif ? 'border-emerald-500 text-emerald-300 bg-emerald-950/50' : 'border-zinc-600 text-zinc-400'}`}>
+      {aktif ? <BellRing size={11} /> : <BellOff size={11} />}
+      {aktif ? `Alarm ${jam}` : 'Alarm mati'}
+    </button>
   );
 };
 
@@ -394,7 +448,7 @@ const Papan: React.FC<{ daftar: PicaItem[]; kelompok: 'status' | 'pic_id' | 'bid
                       </span>
                     ) : (
                       <span className={`text-[11px] ml-auto ${isTelat ? 'text-red-400 font-bold' : 'text-zinc-300'}`}>
-                        {p.pic_nama?.split(' ')[0] ?? '—'} · {p.due_date ? W.formatPendek(p.due_date) : '—'}
+                        {namaDepan(p.pic_nama) || '—'} · {p.due_date ? W.formatPendek(p.due_date) : '—'}
                       </span>
                     )}
                   </div>
@@ -488,8 +542,9 @@ const DetailPica: React.FC<{ id: string; boot: Bootstrap; pengguna: Pengguna; da
       <div className="flex flex-wrap gap-2 items-center">
         <Pill nilai={p.prioritas} grup="prioritas" boot={boot} />
         <select value={p.status} onChange={(e) => ubahStatus(e.target.value)} className="input-retro !w-auto !py-1 !text-[12px]">{boot.opsi.filter((o) => o.grup === 'status').map((o) => <option key={o.nilai} value={o.nilai}>{o.label}</option>)}</select>
-        <span className="text-[12px] text-zinc-300">PIC: <b className="text-white">{p.pic_nama ?? '—'}</b></span>
+        <span className="text-[12px] text-zinc-300">PIC: <b className="text-white">{namaTampil(p.pic_nama) || '—'}</b></span>
         <span className={`text-[12px] ${(p.sisa_hari ?? 1) < 0 && p.status !== 'Closed' ? 'text-red-400' : 'text-zinc-300'}`}>Tenggat: <b>{p.due_date ? W.formatPendek(p.due_date) : '—'}</b> · {p.status === 'Closed' ? 'selesai' : W.teksSisa(p.sisa_hari)}</span>
+        <TombolAlarmPica pica={p} milikSaya={p.pic_id === pengguna.id} notify={notify} />
         <div className="ml-auto flex gap-1">
           <button onClick={() => setUbah(true)} className="btn-retro btn-retro-sm bg-zinc-800"><Pencil size={12} /> Ubah</button>
           {pengguna.peran === 'admin' && <button onClick={hapus} className="btn-ikon !w-8 !h-8 bg-red-900"><Trash2 size={12} /></button>}

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, Share2, X, Trash2, CheckCircle2, Clock, Link2, Target,
-  Users, Loader2, Maximize2, Minimize2, CalendarCheck, Columns3, Square, LayoutGrid, List, Flag, Pencil,
+  Users, Loader2, Maximize2, Minimize2, CalendarCheck, Columns3, Square, LayoutGrid, List, Flag, Pencil, SlidersHorizontal,
 } from 'lucide-react';
 import { api, ambilServer, demoAktif } from '../lib/api';
 import type { JadwalItem, TenggatKalender, Pengguna, AnggotaRingkas, RosterBaris } from '../lib/tipe-api';
@@ -54,12 +54,54 @@ const modeAwal = (): Mode => {
   return typeof window !== 'undefined' && window.innerWidth < 768 ? 'bulan' : 'minggu';
 };
 
+/** Daftar kalender yang tampil + akhir pekan + tanggal merah; dipakai sisi kiri (layar lebar) dan lembar ponsel. */
+const PanelKalender: React.FC<{
+  aktif: Record<Sumber, boolean>;
+  setAktif: React.Dispatch<React.SetStateAction<Record<Sumber, boolean>>>;
+  mode: Mode;
+  akhirPekan: boolean;
+  setAkhirPekan: React.Dispatch<React.SetStateAction<boolean>>;
+  liburBulanIni: Libur[];
+  onPilihTanggal: (t: string) => void;
+}> = ({ aktif, setAktif, mode, akhirPekan, setAkhirPekan, liburBulanIni, onPilihTanggal }) => (
+  <>
+    <p className="label-retro">Kalender</p>
+    {SUMBER.map((s) => (
+      <label key={s.id} className="flex items-center gap-2 py-0.5 cursor-pointer">
+        <input type="checkbox" className="sr-only" checked={aktif[s.id]} onChange={() => setAktif((a) => ({ ...a, [s.id]: !a[s.id] }))} />
+        <span className={`w-3 h-3 border border-white/60 ${aktif[s.id] ? s.titik : 'bg-transparent'}`} />
+        <span className={`text-[13px] ${aktif[s.id] ? 'text-white' : 'text-zinc-500 line-through'}`}>{s.label}</span>
+      </label>
+    ))}
+    {mode === 'minggu' && (
+      <label className="flex items-center gap-2 py-0.5 mt-1 border-t border-white/10 pt-1.5 cursor-pointer">
+        <input type="checkbox" className="sr-only" checked={akhirPekan} onChange={() => setAkhirPekan((v) => !v)} />
+        <span className={`w-3 h-3 border border-white/60 ${akhirPekan ? 'bg-white' : ''}`} />
+        <span className="text-[13px] text-zinc-200">Tampilkan akhir pekan</span>
+      </label>
+    )}
+    {liburBulanIni.length > 0 && (
+      <div className="mt-2 border-t border-white/10 pt-1.5">
+        <p className="label-retro flex items-center gap-1"><Flag size={10} /> Tanggal merah</p>
+        {liburBulanIni.map((l) => (
+          <button key={l.tanggal + l.nama} onClick={() => onPilihTanggal(l.tanggal)} className="block w-full text-left py-0.5 leading-tight hover:bg-white/5">
+            <span className={`text-[12px] font-bold ${l.jenis === 'nasional' ? 'text-red-400' : 'text-rose-300'}`}>{+l.tanggal.slice(8)}</span>
+            <span className="text-[12px] text-zinc-300 ml-1.5">{l.nama}</span>
+          </button>
+        ))}
+      </div>
+    )}
+  </>
+);
+
 export const KalenderScreen: React.FC<Props> = ({ pengguna, tim = [], opsiRoster = [], bacaSaja = false, tokenBagi, onBukaPica, notify, fokus, onFokus, onPerubahanJadwal }) => {
   const hariIni = W.hariIniWita();
   const [tanggalPilih, setTanggalPilih] = useState(hariIni);
   const [mode, setModeState] = useState<Mode>(modeAwal);
   const [akhirPekan, setAkhirPekan] = useState(true);
-  const [aktif, setAktif] = useState<Record<Sumber, boolean>>({ libur: true, tenggat: true, rapat: true, tim: true, saya: true, lain: true });
+  const [aktif, setAktif] = useState<Record<Sumber, boolean>>({ libur: true, tenggat: true, rapat: true, tim: true, saya: true, lain: true, roster: true });
+  // Panel "Kalender" di ponsel: isinya sama dengan sisi kiri layar lebar.
+  const [panelBuka, setPanelBuka] = useState(false);
   const [jadwal, setJadwal] = useState<JadwalItem[]>([]);
   const [tenggat, setTenggat] = useState<TenggatKalender[]>([]);
   const [liburServer, setLiburServer] = useState<Libur[] | null>(null);
@@ -84,6 +126,23 @@ export const KalenderScreen: React.FC<Props> = ({ pengguna, tim = [], opsiRoster
     const awalBulan = `${tanggalPilih.slice(0, 7)}-01`;
     return { dari: W.geserHari(W.awalMinggu(awalBulan), -7), sampai: W.geserHari(tanggalPilih, 60) };
   }, [tanggalPilih]);
+
+  // Pilihan lapisan kalender disimpan di server: layar dan widget layar utama
+  // selalu menampilkan lapisan yang sama, dan pilihannya ikut walau APK dipasang ulang.
+  const lapisanSiap = useRef(false);
+  useEffect(() => {
+    if (bacaSaja) return;
+    api<{ lapisan: Partial<Record<Sumber, boolean>> }>('/api/kalender/lapisan')
+      .then((d) => { if (d.lapisan && Object.keys(d.lapisan).length) setAktif((a) => ({ ...a, ...d.lapisan })); })
+      .catch(() => undefined)
+      .finally(() => { lapisanSiap.current = true; });
+  }, [bacaSaja]);
+
+  useEffect(() => {
+    if (bacaSaja || !lapisanSiap.current) return;
+    const t = setTimeout(() => { void api('/api/kalender/lapisan', { body: { lapisan: aktif } }).catch(() => undefined); }, 600);
+    return () => clearTimeout(t);
+  }, [aktif, bacaSaja]);
 
   const muat = useCallback(async () => {
     setMemuat(true); setGalat(null);
@@ -110,9 +169,15 @@ export const KalenderScreen: React.FC<Props> = ({ pengguna, tim = [], opsiRoster
   );
   const liburPeta = useMemo(() => petaLibur(libur), [libur]);
 
+  const rosterSaya = useMemo(() => {
+    if (!pengguna || bacaSaja) return [];
+    return Object.values(roster).flat().filter((r) => r.user_id === pengguna.id);
+  }, [roster, pengguna, bacaSaja]);
+  const labelKode = useCallback((k: string) => opsiRoster.find((o) => o.nilai === k)?.label ?? k, [opsiRoster]);
+
   const semuaAcara = useMemo(
-    () => bangunAcara({ jadwal, tenggat, libur, sayaId: pengguna?.id, dari: rentang.dari, sampai: rentang.sampai, hariIni }).filter((a) => aktif[a.sumber]),
-    [jadwal, tenggat, libur, pengguna?.id, rentang.dari, rentang.sampai, hariIni, aktif],
+    () => bangunAcara({ jadwal, tenggat, libur, sayaId: pengguna?.id, roster: rosterSaya, labelKode, dari: rentang.dari, sampai: rentang.sampai, hariIni }).filter((a) => aktif[a.sumber]),
+    [jadwal, tenggat, libur, pengguna?.id, rosterSaya, labelKode, rentang.dari, rentang.sampai, hariIni, aktif],
   );
   const acaraPada = useCallback((t: string) => semuaAcara.filter((a) => padaTanggal(a, t)), [semuaAcara]);
 
@@ -123,6 +188,20 @@ export const KalenderScreen: React.FC<Props> = ({ pengguna, tim = [], opsiRoster
     if (roster[b]) return;
     api<{ roster: RosterBaris[] }>(`/api/roster?bulan=${b}`).then((d) => setRoster((r) => ({ ...r, [b]: d.roster }))).catch(() => undefined);
   }, [lembar, bacaSaja, pengguna, roster]);
+
+  // Roster untuk lapisan kalender: muat bulan-bulan yang sedang tampil.
+  useEffect(() => {
+    if (bacaSaja || !pengguna || !aktif.roster) return;
+    const bulanTampil = new Set<string>();
+    for (let t = rentang.dari; t <= rentang.sampai; t = W.geserHari(t, 15)) bulanTampil.add(t.slice(0, 7));
+    bulanTampil.add(rentang.sampai.slice(0, 7));
+    for (const b of bulanTampil) {
+      if (roster[b]) continue;
+      api<{ roster: RosterBaris[] }>(`/api/roster?bulan=${b}`)
+        .then((d) => setRoster((r) => (r[b] ? r : { ...r, [b]: d.roster })))
+        .catch(() => undefined);
+    }
+  }, [bacaSaja, pengguna, aktif.roster, rentang.dari, rentang.sampai, roster]);
 
   const statusTim = useMemo<StatusTim[] | undefined>(() => {
     if (!lembar || bacaSaja) return undefined;
@@ -192,6 +271,11 @@ export const KalenderScreen: React.FC<Props> = ({ pengguna, tim = [], opsiRoster
         </h2>
         <button onClick={() => geser(1)} className="btn-ikon !w-8 !h-8 bg-zinc-800" aria-label="Berikutnya"><ChevronRight size={16} /></button>
         <div className="hidden md:block flex-1" />
+        {!bacaSaja && (
+          <button onClick={() => setPanelBuka(true)} className="md:hidden btn-ikon !w-8 !h-8 bg-zinc-800" title="Pilih kalender yang tampil">
+            <SlidersHorizontal size={15} />
+          </button>
+        )}
         <button onClick={() => setTanggalPilih(hariIni)} className="btn-ikon !w-8 !h-8 md:!w-auto md:px-3 bg-zinc-800" title="Hari ini"><CalendarCheck size={15} /><span className="hidden md:inline ml-1 text-[12px] font-bold uppercase">Hari ini</span></button>
         <div className="hidden md:flex border-2 border-white/40 shrink-0">
           {MODE.map((m) => (
@@ -274,32 +358,7 @@ export const KalenderScreen: React.FC<Props> = ({ pengguna, tim = [], opsiRoster
             </div>
 
             <div className="panel-retro !p-2 flex-1 overflow-auto custom-scrollbar min-h-0">
-              <p className="label-retro">Kalender</p>
-              {SUMBER.map((s) => (
-                <label key={s.id} className="flex items-center gap-2 py-0.5 cursor-pointer">
-                  <input type="checkbox" className="sr-only" checked={aktif[s.id]} onChange={() => setAktif((a) => ({ ...a, [s.id]: !a[s.id] }))} />
-                  <span className={`w-3 h-3 border border-white/60 ${aktif[s.id] ? s.titik : 'bg-transparent'}`} />
-                  <span className={`text-[13px] ${aktif[s.id] ? 'text-white' : 'text-zinc-500 line-through'}`}>{s.label}</span>
-                </label>
-              ))}
-              {mode === 'minggu' && (
-                <label className="flex items-center gap-2 py-0.5 mt-1 border-t border-white/10 pt-1.5 cursor-pointer">
-                  <input type="checkbox" className="sr-only" checked={akhirPekan} onChange={() => setAkhirPekan((v) => !v)} />
-                  <span className={`w-3 h-3 border border-white/60 ${akhirPekan ? 'bg-white' : ''}`} />
-                  <span className="text-[13px] text-zinc-200">Tampilkan akhir pekan</span>
-                </label>
-              )}
-              {liburBulanIni.length > 0 && (
-                <div className="mt-2 border-t border-white/10 pt-1.5">
-                  <p className="label-retro flex items-center gap-1"><Flag size={10} /> Tanggal merah</p>
-                  {liburBulanIni.map((l) => (
-                    <button key={l.tanggal + l.nama} onClick={() => bukaLembar(l.tanggal)} className="block w-full text-left py-0.5 leading-tight hover:bg-white/5">
-                      <span className={`text-[12px] font-bold ${l.jenis === 'nasional' ? 'text-red-400' : 'text-rose-300'}`}>{+l.tanggal.slice(8)}</span>
-                      <span className="text-[12px] text-zinc-300 ml-1.5">{l.nama}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+              <PanelKalender aktif={aktif} setAktif={setAktif} mode={mode} akhirPekan={akhirPekan} setAkhirPekan={setAkhirPekan} liburBulanIni={liburBulanIni} onPilihTanggal={bukaLembar} />
             </div>
           </aside>
         )}
@@ -444,6 +503,19 @@ export const KalenderScreen: React.FC<Props> = ({ pengguna, tim = [], opsiRoster
           <div className="bg-black border-2 border-white/30 p-2 text-[12px] text-cyan-300 font-mono break-all select-all">{tautan}</div>
           <button onClick={() => { navigator.clipboard?.writeText(tautan); notify?.('TAUTAN DISALIN'); }} className="btn-retro bg-indigo-600 w-full"><Link2 size={14} /> Salin tautan</button>
         </Modal>
+      )}
+
+      {panelBuka && (
+        <div className="md:hidden fixed inset-0 z-[90] bg-black/80 flex items-end" onClick={() => setPanelBuka(false)}>
+          <div className="w-full retro-box !bg-zinc-900 border-cyan-500 max-h-[80vh] overflow-auto custom-scrollbar" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b-2 border-white/20 pb-2 mb-2">
+              <h3 className="judul-layar text-cyan-300">Kalender</h3>
+              <button onClick={() => setPanelBuka(false)} className="text-zinc-400" aria-label="Tutup"><X size={20} /></button>
+            </div>
+            <PanelKalender aktif={aktif} setAktif={setAktif} mode={mode} akhirPekan={akhirPekan} setAkhirPekan={setAkhirPekan} liburBulanIni={liburBulanIni}
+              onPilihTanggal={(t) => { setPanelBuka(false); bukaLembar(t); }} />
+          </div>
+        </div>
       )}
 
       {detail && (

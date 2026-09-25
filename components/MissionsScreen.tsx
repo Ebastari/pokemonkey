@@ -15,7 +15,7 @@ interface Props {
   onHapus: (id: string) => Promise<void>;
 }
 
-const TIPE_LABEL: Record<string, string> = { LAND_PREP: 'Penataan lahan', NURSERY: 'Persemaian', PLANTING: 'Penanaman' };
+const TIPE_LABEL: Record<string, string> = { LAND_PREP: 'Persiapan', NURSERY: 'Operasional', PLANTING: 'Pelaksanaan' };
 const STATUS_LABEL: Record<string, string> = { AVAILABLE: 'Tersedia', IN_PROGRESS: 'Berjalan', COMPLETED: 'Selesai', LOCKED: 'Terkunci' };
 
 export const MissionsScreen: React.FC<Props> = ({ state, admin, onStart, onSimpan, onHapus }) => {
@@ -29,6 +29,15 @@ export const MissionsScreen: React.FC<Props> = ({ state, admin, onStart, onSimpa
       </div>
 
       <div className="flex-1 overflow-auto custom-scrollbar space-y-3 pb-4">
+        {state.missions.length === 0 && (
+          <div className="p-8 text-center border-2 border-dashed border-white/20 my-4 space-y-2">
+            <Target size={32} className="mx-auto text-zinc-500 opacity-60" />
+            <p className="text-[13px] text-yellow-300 font-bold">Belum Ada Misi Proyek</p>
+            <p className="text-[12px] text-zinc-400 max-w-xs mx-auto">
+              Mode demo dimulai dari keadaan bersih (kosongan).{admin ? ' Ketuk tombol "+ Misi" di atas untuk menambahkan target atau tugas baru.' : ' Misi dapat ditambahkan oleh Admin.'}
+            </p>
+          </div>
+        )}
         {state.missions.map((m) => {
           const isPlanting = m.type === MissionType.PLANTING;
           const colorClass = isPlanting ? 'border-green-500 bg-green-950/30' : m.type === MissionType.LAND_PREP ? 'border-orange-500 bg-orange-950/30' : 'border-amber-500 bg-amber-950/20';

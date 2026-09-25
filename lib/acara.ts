@@ -8,7 +8,7 @@ import type { JadwalItem, TenggatKalender } from './tipe-api';
 import type { Libur } from './libur';
 import * as W from './waktu';
 
-export type Sumber = 'libur' | 'tenggat' | 'rapat' | 'tim' | 'saya' | 'lain';
+export type Sumber = 'libur' | 'tenggat' | 'rapat' | 'tim' | 'saya' | 'lain' | 'roster';
 
 export interface Acara {
   kunci: string;
@@ -33,6 +33,7 @@ export const SUMBER: { id: Sumber; label: string; titik: string }[] = [
   { id: 'tim', label: 'Rencana tim', titik: 'bg-cyan-500' },
   { id: 'saya', label: 'Rencana saya', titik: 'bg-emerald-500' },
   { id: 'lain', label: 'Anggota lain', titik: 'bg-zinc-500' },
+  { id: 'roster', label: 'Roster saya', titik: 'bg-teal-500' },
 ];
 
 const KELAS: Record<Sumber, string> = {
@@ -42,6 +43,7 @@ const KELAS: Record<Sumber, string> = {
   tim: 'bg-cyan-900/85 border-cyan-400 text-cyan-50',
   saya: 'bg-emerald-900/85 border-emerald-400 text-emerald-50',
   lain: 'bg-zinc-800/85 border-zinc-500 text-zinc-100',
+  roster: 'bg-teal-900/85 border-teal-400 text-teal-50',
 };
 
 export function kelasAcara(a: Acara): string {
@@ -83,6 +85,10 @@ export function bangunAcara(p: {
   tenggat: TenggatKalender[];
   libur: Libur[];
   sayaId?: string | null;
+  /** Roster pemakai sendiri (sudah disaring per orang) untuk lapisan "Roster saya". */
+  roster?: { tanggal: string; kode: string; catatan?: string | null }[];
+  /** Kode roster → labelnya, mis. 'M' → 'Masuk'. */
+  labelKode?: (kode: string) => string;
   dari: string;
   sampai: string;
   hariIni: string;
@@ -105,6 +111,14 @@ export function bangunAcara(p: {
         sumber, sub: j.pemilik_nama ?? (j.pemilik_id ? 'anggota' : 'seluruh tim'), jadwal: j, selesaiDitandai: j.selesai === 1,
       });
     }
+  }
+
+  for (const r of p.roster ?? []) {
+    hasil.push({
+      kunci: `roster-${r.tanggal}`, judul: p.labelKode?.(r.kode) ?? r.kode,
+      mulaiTgl: r.tanggal, selesaiTgl: r.tanggal, mulai: null, selesai: null,
+      sumber: 'roster', sub: r.catatan ?? r.kode,
+    });
   }
 
   for (const t of p.tenggat) {

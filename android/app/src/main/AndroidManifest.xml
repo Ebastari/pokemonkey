@@ -70,6 +70,20 @@
         </receiver>
 
         <receiver
+            android:name=".KalenderWidgetProvider"
+            android:exported="true"
+            android:label="POKEMONKEY Kalender">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="id.ebl.pokemonkey.KALENDER_MUNDUR" />
+                <action android:name="id.ebl.pokemonkey.KALENDER_MAJU" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_kalender_info" />
+        </receiver>
+
+        <receiver
             android:name=".JadwalWidgetProvider"
             android:exported="true"
             android:label="POKEMONKEY Jadwal &amp; Alarm">

@@ -766,7 +766,7 @@ const TampilanInternalMemo: React.FC<{
   };
 
   return (
-    <div className="h-full flex flex-col min-h-0 overflow-hidden space-y-3">
+    <div className="h-full min-h-0 overflow-y-auto custom-scrollbar pb-3 sm:overflow-hidden sm:flex sm:flex-col space-y-3">
       {/* Banner / Info */}
       <div className="panel-retro !bg-zinc-950 !p-3 border-lime-500 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3">
@@ -804,7 +804,7 @@ const TampilanInternalMemo: React.FC<{
       </div>
 
       {/* Daftar Kartu Memo Dinas */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 min-h-0 pr-1">
+      <div className="space-y-3 pr-1 sm:flex-1 sm:overflow-y-auto sm:min-h-0">
         {tersaring.length === 0 ? (
           <div className="text-center py-12 panel-retro !bg-zinc-900/50 border-dashed border-zinc-700">
             <FileText size={36} className="mx-auto text-zinc-600 mb-2" />
@@ -969,7 +969,7 @@ const TampilanMOM: React.FC<{
   };
 
   return (
-    <div className="h-full flex flex-col min-h-0 overflow-hidden space-y-3">
+    <div className="h-full min-h-0 overflow-y-auto custom-scrollbar pb-3 sm:overflow-hidden sm:flex sm:flex-col space-y-3">
       {/* Banner / Info */}
       <div className="panel-retro !bg-zinc-950 !p-3 border-blue-500 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3">
@@ -1007,7 +1007,7 @@ const TampilanMOM: React.FC<{
       </div>
 
       {/* Daftar Kartu MoM */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 min-h-0 pr-1">
+      <div className="space-y-3 pr-1 sm:flex-1 sm:overflow-y-auto sm:min-h-0">
         {tersaring.length === 0 ? (
           <div className="text-center py-12 panel-retro !bg-zinc-900/50 border-dashed border-zinc-700">
             <ClipboardList size={36} className="mx-auto text-zinc-600 mb-2" />

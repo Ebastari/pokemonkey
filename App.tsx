@@ -3,7 +3,7 @@ import {
   Play, Pause, Heart, HeartOff, User, Trees, Target, Backpack, Calendar as CalendarIcon,
   Gamepad2, Flame, Star, Wifi, WifiOff, Users, ShoppingBag, LogOut, ClipboardList,
   CalendarDays, Megaphone, CloudUpload, Menu, X, Maximize2, Minimize2, CalendarRange, NotebookPen, Bell,
-  Sun, Moon, Presentation, Camera,
+  Sun, Moon, Presentation, Camera, Coins,
 } from 'lucide-react';
 import { GameState, MissionStatus, MissionType, FieldReport, AppTab, Mission } from './types';
 import { INITIAL_TOTAL_AREA, INITIAL_MISSIONS, SKINS } from './constants';
@@ -25,6 +25,8 @@ import { KalenderScreen } from './components/KalenderScreen';
 import { PengumumanScreen } from './components/PengumumanScreen';
 import { RosterScreen } from './components/RosterScreen';
 import { MemoScreen } from './components/MemoScreen';
+import { MoneyMonkeyScreen } from './components/MoneyMonkeyScreen';
+import { FireMonkeyScreen } from './components/FireMonkeyScreen';
 import { MonkeyRun } from './components/MonkeyRun';
 import { mintaLayarPenuh, keluarLayarPenuh } from './lib/platform';
 import { NotifikasiScreen } from './components/NotifikasiScreen';
@@ -40,6 +42,12 @@ import { bacaTema, pasangTema, type Tema } from './lib/tema';
 import { perbaruiDataWidgetHp, ambilTabDariWidget, dengarKetukanWidget } from './lib/widget';
 import { simpanFotoProfil, hapusFotoProfil } from './lib/dokumen';
 import { urlFoto, lupakanFoto } from './lib/foto';
+import { tautanGabung } from './lib/demo-contoh';
+import { hapusDataContohDemo, adaDataContohDemo } from './lib/demo';
+import { ambilAlarmPica, pasangAlarmPica, labelSisa } from './lib/pica-alarm';
+import { bangunAcara, type Sumber } from './lib/acara';
+import { LIBUR_BAWAAN } from './lib/libur';
+import type { TenggatKalender, RosterBaris } from './lib/tipe-api';
 
 const SAVE_KEY = 'pokemonkey_game_v5';
 const MAX_LIVES = 5;
@@ -58,13 +66,13 @@ const calculateStaminaHybrid = (lastFeeding: number) => {
 };
 
 /** Teks di atas kepala monyet bila pemakai belum menulis statusnya sendiri. */
-const STATUS_BAWAAN = 'Siap menghijaukan!';
+const STATUS_BAWAAN = 'Siap beraktivitas';
 
 const gameAwal = (): GameState => ({
-  userId: '', nickname: '', fullName: '', jabatan: 'Forester', statusText: STATUS_BAWAAN, profilePhoto: '',
+  userId: '', nickname: '', fullName: '', jabatan: 'Koordinator Lapangan', statusText: STATUS_BAWAAN, profilePhoto: '',
   currentDay: 1, currentHour: 0, totalArea: INITIAL_TOTAL_AREA,
   clearedArea: 0, plantedArea: 0, seedlingsCount: 0, seedlingsTarget: 100,
-  xp: 0, level: 1, missions: INITIAL_MISSIONS, reports: [], memoPlans: [],
+  xp: 0, level: 1, missions: [], reports: [], memoPlans: [],
   isPaused: false, timeSpeed: 1, monkeyHealth: 100, stamina: 100,
   lastFeedingTime: 0, lives: MAX_LIVES, lastReportDay: 1,
   monkeyPos: { x: Math.random() * 60 + 20, y: Math.random() * 50 + 25, facing: 'right' },
@@ -120,7 +128,9 @@ const INFO_TAB: Record<AppTab, { label: string; ikon: React.ReactElement; warna:
   missions:   { label: 'QUEST',  ikon: <Target />,        warna: 'bg-blue-600',   teks: 'text-blue-400' },
   reports:    { label: 'FEED',   ikon: <Backpack />,      warna: 'bg-red-600',    teks: 'text-red-400' },
   calendar:   { label: 'LOG',    ikon: <CalendarIcon />,  warna: 'bg-purple-600', teks: 'text-purple-400' },
-  game:       { label: 'GAME',   ikon: <Gamepad2 />,      warna: 'bg-orange-600', teks: 'text-orange-400' },
+  money:      { label: 'MONEY',  ikon: <Coins />,         warna: 'bg-emerald-600', teks: 'text-emerald-400' },
+  fire:       { label: 'FIRE',   ikon: <Flame />,         warna: 'bg-orange-600',  teks: 'text-orange-400' },
+  game:       { label: 'GAME',   ikon: <Gamepad2 />,      warna: 'bg-yellow-600', teks: 'text-yellow-400' },
 };
 const URUTAN_TAB = Object.keys(INFO_TAB) as AppTab[];
 
@@ -138,6 +148,8 @@ const App: React.FC = () => {
   }, []);
 
   const [sesi, setSesi] = useState<{ pengguna: Pengguna; boot: Bootstrap } | null>(null);
+  /** Id pemakai untuk dipakai di dalam pemuat data tanpa memasangnya sebagai dependensi. */
+  const idPenggunaRef = useRef<string | null>(null);
   const [memuatSesi, setMemuatSesi] = useState(() => Boolean(ambilToken()) && !tokenBagi);
 
   const [gameState, setGameState] = useState<GameState>(() => {
@@ -157,7 +169,7 @@ const App: React.FC = () => {
   const [fokus, setFokus] = useState(false);
   const [menuBuka, setMenuBuka] = useState(false);
   const [showNotification, setShowNotification] = useState<string | null>(null);
-  const [monkeyDialogue, setMonkeyDialogue] = useState<string>('Uu-aa! Ayo hijaukan tempat ini!');
+  const [monkeyDialogue, setMonkeyDialogue] = useState<string>('Semangat! Siap beraktivitas hari ini!');
   const [syncing, setSyncing] = useState(false);
   const [antrean, setAntrean] = useState(jumlahAntreanOffline());
   const [picaTerbuka, setPicaTerbuka] = useState<{ id: string; judul: string; telat?: boolean }[]>([]);
@@ -201,7 +213,7 @@ const App: React.FC = () => {
 
   const muatMisi = useCallback(async () => {
     const d = await api<{ misi: MisiServer[] }>('/api/misi');
-    setGameState((p) => ({ ...p, missions: d.misi.length ? d.misi.map(misiKeMission) : p.missions }));
+    setGameState((p) => ({ ...p, missions: (d.misi ?? []).map(misiKeMission) }));
   }, []);
 
   const muatGame = useCallback(async () => {
@@ -209,9 +221,9 @@ const App: React.FC = () => {
       api<{ profil: ProfilGame | null }>('/api/profil'),
       api<{ misi: MisiServer[] }>('/api/misi'),
       api<{ laporan: LaporanServer[] }>('/api/laporan'),
-      api<{ pica: { id: string; judul: string; status: string; sisa_hari?: number | null; pic_nama?: string | null; due_date?: string | null }[] }>('/api/pica'),
+      api<{ pica: { id: string; judul: string; status: string; sisa_hari?: number | null; pic_nama?: string | null; due_date?: string | null; pic_id?: string | null }[] }>('/api/pica'),
       api<{ pengumuman: { sudah_baca: number }[] }>('/api/pengumuman').catch(() => ({ pengumuman: [] })),
-      api<{ jadwal: JadwalItem[] }>('/api/jadwal').catch(() => ({ jadwal: [] })),
+      api<{ jadwal: JadwalItem[]; tenggat?: TenggatKalender[] }>('/api/jadwal').catch(() => ({ jadwal: [], tenggat: [] })),
     ]);
 
     const picaOpen = (pica.pica ?? []).filter((p) => p.status !== 'Closed');
@@ -224,19 +236,41 @@ const App: React.FC = () => {
     setSemuaJadwal(dataJadwal.jadwal ?? []);
 
     const picaTelatCount = picaOpen.filter((p) => typeof p.sisa_hari === 'number' && p.sisa_hari < 0).length;
-    const picaUrut = [...picaOpen].sort((a, b) => (a.sisa_hari ?? 999) - (b.sisa_hari ?? 999));
-    const topPica = picaUrut.slice(0, 3).map((p) => ({
+    const hariIniWita = new Date(Date.now() + 480 * 60000).toISOString().slice(0, 10);
+
+    // Widget di layar utama HP menampilkan PICA milik pemakai yang sedang masuk.
+    const idSaya = idPenggunaRef.current;
+    const picaSaya = idSaya ? picaOpen.filter((p) => p.pic_id === idSaya) : picaOpen;
+    const picaUrut = [...(picaSaya.length ? picaSaya : picaOpen)].sort((a, b) => (a.sisa_hari ?? 999) - (b.sisa_hari ?? 999));
+
+    // Alarm tenggat: bawaannya mati, hanya yang ditandai pemiliknya yang dipasang.
+    let alarmPica: { pica_id: string; jam: string; aktif: number }[] = [];
+    let jamAlarm = '07:00';
+    try {
+      const d = await ambilAlarmPica();
+      alarmPica = d.alarm;
+      jamAlarm = d.jamBawaan;
+      void pasangAlarmPica(picaSaya.map((x) => ({ id: x.id, judul: x.judul, due_date: x.due_date, status: x.status })), d.alarm, d.jamBawaan);
+    } catch { /* alarm tidak wajib: widget tetap tampil tanpa datanya */ }
+    const alarmHidup = new Set(alarmPica.filter((a) => a.aktif).map((a) => a.pica_id));
+
+    const topPica = picaUrut.slice(0, 4).map((p) => ({
       id: p.id,
       judul: p.judul,
       pic: p.pic_nama || 'Tim EBL',
-      due_date: p.due_date || (typeof p.sisa_hari === 'number' ? (p.sisa_hari < 0 ? `${Math.abs(p.sisa_hari)} hr telat` : `${p.sisa_hari} hr lagi`) : '—'),
+      due_date: p.due_date || '—',
+      sisa: labelSisa(p.due_date, hariIniWita),
+      waktu: alarmHidup.has(p.id)
+        ? `${alarmPica.find((a) => a.pica_id === p.id)?.jam || jamAlarm} WITA`
+        : (p.due_date ? `${+p.due_date.slice(8)} ${p.due_date.slice(5, 7)}` : '—'),
+      alarm: alarmHidup.has(p.id),
       telat: typeof p.sisa_hari === 'number' && p.sisa_hari < 0,
     }));
     const picaIsi = picaTelatCount > 0
       ? `${picaTelatCount} tugas telat! (${topPica[0]?.judul || ''})`
       : (topPica.length > 0 ? `${topPica.length} tugas open: ${topPica[0]?.judul}` : 'Semua tugas PICA selesai');
 
-    const hariIni = new Date(Date.now() + 480 * 60000).toISOString().slice(0, 10);
+    const hariIni = hariIniWita;
     const acara = (dataJadwal.jadwal ?? []).filter((j) => (j.tanggal === hariIni || j.tanggal_selesai === hariIni) && !j.selesai);
     const topAcara = acara.slice(0, 3).map((j) => ({
       id: j.id,
@@ -250,8 +284,62 @@ const App: React.FC = () => {
       ? `${topAcara[0].jam}: ${topAcara[0].judul}`
       : 'Tidak ada agenda rapat hari ini';
 
+    // ---- Widget kalender: titik penanda per tanggal, mengikuti lapisan yang dipilih ----
+    const KODE_SUMBER: Record<Sumber, string> = { libur: 'L', tenggat: 'T', rapat: 'R', tim: 'M', saya: 'S', lain: 'A', roster: 'O' };
+    const kalenderTitik: Record<string, string> = {};
+    let kalenderRingkas = 'Tidak ada agenda hari ini';
+    try {
+      const [lapisanSrv, rosterBulan] = await Promise.all([
+        api<{ lapisan: Record<string, boolean> }>('/api/kalender/lapisan').catch(() => ({ lapisan: {} as Record<string, boolean> })),
+        idSaya
+          ? api<{ roster: RosterBaris[] }>(`/api/roster?bulan=${hariIniWita.slice(0, 7)}`).catch(() => ({ roster: [] as RosterBaris[] }))
+          : Promise.resolve({ roster: [] as RosterBaris[] }),
+      ]);
+      const lapisanAktif = (s: Sumber) => lapisanSrv.lapisan[s] !== false;
+
+      // Rentang ±2 bulan, sesuai batas tombol pindah bulan di widget.
+      const awal = new Date(Date.UTC(+hariIniWita.slice(0, 4), +hariIniWita.slice(5, 7) - 3, 1)).toISOString().slice(0, 10);
+      const akhir = new Date(Date.UTC(+hariIniWita.slice(0, 4), +hariIniWita.slice(5, 7) + 2, 0)).toISOString().slice(0, 10);
+
+      const acaraKalender = bangunAcara({
+        jadwal: dataJadwal.jadwal ?? [],
+        tenggat: dataJadwal.tenggat ?? [],
+        libur: LIBUR_BAWAAN.filter((l) => l.tanggal >= awal && l.tanggal <= akhir),
+        sayaId: idSaya ?? undefined,
+        roster: (rosterBulan.roster ?? []).filter((r) => r.user_id === idSaya).map((r) => ({ tanggal: r.tanggal, kode: r.kode, catatan: r.catatan })),
+        dari: awal,
+        sampai: akhir,
+        hariIni: hariIniWita,
+      });
+
+      for (const a of acaraKalender) {
+        if (!lapisanAktif(a.sumber)) continue;
+        const kode = KODE_SUMBER[a.sumber];
+        // Acara multi-hari menandai setiap tanggalnya, dibatasi 31 hari agar tidak berlebihan.
+        let t = a.mulaiTgl;
+        for (let n = 0; n < 31 && t <= a.selesaiTgl; n++) {
+          if (t >= awal && t <= akhir && !(kalenderTitik[t] ?? '').includes(kode)) kalenderTitik[t] = (kalenderTitik[t] ?? '') + kode;
+          t = new Date(Date.parse(t + 'T00:00:00Z') + 86400000).toISOString().slice(0, 10);
+        }
+      }
+
+      const agendaHariIni = acaraKalender.filter((a) => a.mulaiTgl <= hariIniWita && a.selesaiTgl >= hariIniWita);
+      const tenggatHariIni = agendaHariIni.filter((a) => a.sumber === 'tenggat').length;
+      const jumlahAgenda = agendaHariIni.filter((a) => a.sumber !== 'tenggat' && a.sumber !== 'libur').length;
+      const liburHariIni = agendaHariIni.find((a) => a.sumber === 'libur');
+      kalenderRingkas = [
+        `${+hariIniWita.slice(8)}/${hariIniWita.slice(5, 7)}`,
+        liburHariIni ? liburHariIni.judul : null,
+        jumlahAgenda > 0 ? `${jumlahAgenda} agenda` : null,
+        tenggatHariIni > 0 ? `${tenggatHariIni} tenggat PICA` : null,
+      ].filter(Boolean).join(' · ') || 'Tidak ada agenda hari ini';
+    } catch { /* widget kalender boleh kosong bila datanya gagal dimuat */ }
+
     void perbaruiDataWidgetHp({
-      picaTotal: picaOpen.length,
+      kalenderTitik,
+      kalenderHariIni: hariIniWita,
+      kalenderRingkas,
+      picaTotal: picaSaya.length || picaOpen.length,
       picaTelat: picaTelatCount,
       picaIsi,
       picaItems: topPica,
@@ -269,7 +357,7 @@ const App: React.FC = () => {
       activeSkinId: profil.profil?.skin_aktif ?? prev.activeSkinId,
       statusText: profil.profil ? (profil.profil.status_teks || STATUS_BAWAAN) : prev.statusText,
       reports: laporan.laporan.map(petaLaporan),
-      missions: misi.misi.length ? misi.misi.map(misiKeMission) : prev.missions,
+      missions: (misi.misi ?? []).map(misiKeMission),
       isOnline: true,
     }));
   }, []);
@@ -277,6 +365,7 @@ const App: React.FC = () => {
   const muatSesi = useCallback(async () => {
     try {
       const boot = await api<Bootstrap>('/api/bootstrap');
+      idPenggunaRef.current = boot.pengguna.id;
       setSesi({ pengguna: boot.pengguna, boot });
       setGameState((prev) => ({
         ...prev,
@@ -305,6 +394,7 @@ const App: React.FC = () => {
   const bootUlang = useCallback(async () => {
     try {
       const boot = await api<Bootstrap>('/api/bootstrap');
+      idPenggunaRef.current = boot.pengguna.id;
       setSesi({ pengguna: boot.pengguna, boot });
       await muatGame();
     } catch { /* biarkan boot lama */ }
@@ -643,6 +733,31 @@ const App: React.FC = () => {
   const { pengguna, boot } = sesi;
   const demo = demoAktif();
 
+  /** Pita mode demo: pengingat bahwa data hanya di perangkat ini + ajakan bergabung. */
+  const pitaDemo = demo ? (
+    <div className="shrink-0 flex flex-wrap items-center gap-2 px-2 py-1 bg-amber-950/80 border-b-2 border-amber-500 text-[11px]">
+      <span className="font-bold text-amber-300 uppercase tracking-wide">Mode demo</span>
+      <span className="text-amber-100/90">Data contoh, tersimpan di perangkat ini saja.</span>
+      <span className="w-full sm:w-auto text-amber-200/70 text-[10px]">PICA = tugas perbaikan · KEBUN = ruang tim · FEED = laporan harian · LOG = catatan kegiatan</span>
+      {adaDataContohDemo() && (
+        <button
+          onClick={() => { hapusDataContohDemo(); notify('DATA CONTOH DIHAPUS'); window.location.reload(); }}
+          className="btn-retro btn-retro-sm !py-0.5 bg-zinc-800"
+        >
+          Hapus data contoh
+        </button>
+      )}
+      <a
+        href={tautanGabung()}
+        target="_blank"
+        rel="noreferrer"
+        className="btn-retro btn-retro-sm !py-0.5 bg-emerald-700 ml-auto"
+      >
+        Gabung tim saya
+      </a>
+    </div>
+  ) : null;
+
   const layar = (
     <>
       {activeTab === 'habitat' && (
@@ -669,6 +784,8 @@ const App: React.FC = () => {
           sedangAlarm={Boolean(alarmAktif)}
           onBukaAlarm={() => setPanelAlarmBuka(true)}
           onBukaNotif={() => pilihTab('notif')}
+          onBukaMoney={() => pilihTab('money')}
+          onBukaFire={() => pilihTab('fire')}
         />
       )}
       {activeTab === 'pica' && <PicaScreen boot={boot} pengguna={pengguna} picaAwal={picaTerpilih} onBootUlang={bootUlang} notify={notify} fokus={fokus} onFokus={() => setFokus((f) => !f)} />}
@@ -682,6 +799,8 @@ const App: React.FC = () => {
       {activeTab === 'missions' && <MissionsScreen state={gameState} admin={pengguna.peran === 'admin'} onStart={handleMissionStart} onSimpan={handleMisiSimpan} onHapus={handleMisiHapus} />}
       {activeTab === 'reports' && <ReportsScreen state={gameState} picaTerbuka={picaTerbuka} onSubmit={handleReportSubmit} />}
       {activeTab === 'calendar' && <CalendarScreen state={gameState} onRead={(r) => { setMonkeyDialogue(`Uu-aa! ${r.activityType}: ${r.achievedUnit.toFixed(2)} unit. Semangat!`); setActiveTab('habitat'); }} />}
+      {activeTab === 'money' && <MoneyMonkeyScreen pengguna={pengguna} notify={notify} />}
+      {activeTab === 'fire' && <FireMonkeyScreen pengguna={pengguna} notify={notify} />}
     </>
   );
 
@@ -786,6 +905,14 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex gap-2 items-center px-2">
+            <button onClick={() => pilihTab('money')} className="btn-retro btn-retro-sm bg-gradient-to-r from-emerald-700 to-teal-700 hover:from-emerald-600 hover:to-teal-600 text-white font-bold flex items-center gap-1.5" title="Money Monkey - Anggaran, RAB & Keuangan HCGA">
+              <Coins size={15} />
+              <span className="hidden xl:inline">Money Monkey</span>
+            </button>
+            <button onClick={() => pilihTab('fire')} className="btn-retro btn-retro-sm bg-gradient-to-r from-red-700 to-orange-700 hover:from-red-600 hover:to-orange-600 text-white font-bold flex items-center gap-1.5" title="Fire Monkey - Pantau Titik Api & Karhutla NASA FIRMS">
+              <Flame size={15} />
+              <span className="hidden xl:inline">Fire Monkey</span>
+            </button>
             <button onClick={() => setMonkeyPointBuka(true)} className="btn-retro btn-retro-sm bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-bold flex items-center gap-1.5" title="Monkey Point - Tarik semua data & ekspor PowerPoint">
               <Presentation size={15} />
               <span className="hidden xl:inline">Monkey Point</span>
@@ -815,7 +942,7 @@ const App: React.FC = () => {
             layar (z-[100]) akan terkurung di bawah navigasi bawah ponsel (z-30). */}
         <section className="flex-1 min-w-0 overflow-hidden relative flex flex-col">
           {activeTab === 'habitat' ? layar : (
-            <div className={`flex-1 retro-box !bg-black/85 !p-0 overflow-hidden relative flex flex-col ${fokus ? '!border-0 !shadow-none' : ''}`}>{layar}</div>
+            <div className={`flex-1 retro-box !bg-black/85 !p-0 overflow-hidden relative flex flex-col ${fokus ? '!border-0 !shadow-none' : ''}`}>{pitaDemo}{layar}</div>
           )}
         </section>
       </main>
@@ -888,6 +1015,14 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-2 gap-2 w-full">
+                <button onClick={() => { pilihTab('money'); setMenuBuka(false); }} className="btn-retro btn-retro-sm bg-gradient-to-r from-emerald-700 to-teal-700 text-white font-bold flex items-center justify-center gap-1.5" title="Buka Money Monkey">
+                  <Coins size={14} /> Money Monkey
+                </button>
+                <button onClick={() => { pilihTab('fire'); setMenuBuka(false); }} className="btn-retro btn-retro-sm bg-gradient-to-r from-red-700 to-orange-700 text-white font-bold flex items-center justify-center gap-1.5" title="Buka Fire Monkey">
+                  <Flame size={14} /> Fire Monkey
+                </button>
+              </div>
               <button onClick={() => { setMonkeyPointBuka(true); setMenuBuka(false); }} className="btn-retro btn-retro-sm bg-gradient-to-r from-amber-600 to-yellow-600 text-white font-bold flex-1 min-w-[100%] flex items-center justify-center gap-1.5">
                 <Presentation size={14} /> Monkey Point (Unduh PPTX)
               </button>

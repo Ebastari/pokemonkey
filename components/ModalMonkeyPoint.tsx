@@ -20,7 +20,7 @@ import {
 import type { JawabanCuaca } from '../server/src/cuaca-bmkg';
 import { teksZona, waktuWita, namaSatelit, type TitikApi } from '../server/src/titik-api-murni';
 import { mintaLayarPenuh, keluarLayarPenuh } from '../lib/platform';
-import { REVEGETASI_BAWAAN, ringkasRevegetasi, totalTahun, jumlah, ha, type BarisRevegetasi } from '../lib/revegetasi';
+import { ringkasRevegetasi, totalTahun, jumlah, ha, type BarisRevegetasi } from '../lib/revegetasi';
 
 interface Props {
   boot: Bootstrap;
@@ -145,11 +145,10 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
         api<{ jadwal: JadwalItem[] }>('/api/jadwal').catch(cadangan('Jadwal', { jadwal: [] as JadwalItem[] })),
         api<{ laporan: LaporanServer[] }>('/api/laporan').catch(cadangan('Laporan', { laporan: [] as LaporanServer[] })),
         api<{ foto: FotoGaleri[] }>('/api/galeri?hari=30').catch(cadangan('Foto', { foto: [] as FotoGaleri[] })),
-        // Realisasi: bila server tak terjangkau, pakai salinan lokal yang sama dengan panel KEBUN (data asli, bukan contoh).
-        api<{ revegetasi: BarisRevegetasi[] }>('/api/revegetasi').catch(() => { cadanganReveg = true; return { revegetasi: REVEGETASI_BAWAAN }; }),
+        api<{ revegetasi: BarisRevegetasi[] }>('/api/revegetasi').catch(() => ({ revegetasi: [] as BarisRevegetasi[] })),
       ]);
-      setDaftarReveg(resReveg.revegetasi?.length ? resReveg.revegetasi : REVEGETASI_BAWAAN);
-      setRevegCadangan(cadanganReveg || !resReveg.revegetasi?.length);
+      setDaftarReveg(resReveg.revegetasi ?? []);
+      setRevegCadangan(false);
       setDaftarFoto(resFoto.foto ?? []);
       setSumberGagal(gagal);
       if (gagal.length) notify(`GAGAL MEMUAT: ${gagal.join(', ').toUpperCase()}`);

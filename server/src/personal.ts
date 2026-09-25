@@ -8,7 +8,7 @@
 
 import type { Env, Pengguna } from './tipe';
 import { bolehUbahKunci, adalahAdmin } from './auth';
-import { sekarangUtcIso, geserHari, tanggalWita } from './waktu';
+import { sekarangUtcIso, geserHari, tanggalWita, selisihHari } from './waktu';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -47,15 +47,51 @@ export async function rutePersonal(jalur: string, req: Request, env: Env, penggu
     return json({ ok: true });
   }
 
-  // Isi cepat: satu kode untuk rentang tanggal, opsional hanya hari tertentu (0=Minggu).
+  // Isi cepat: satu kode untuk rentang tanggal (opsional hanya hari tertentu, 0=Minggu),
+  // atau pola siklus lapangan (mis. 8 minggu kerja lalu 2 minggu libur) bila mode = 'siklus'.
   if (jalur === '/api/roster/isi' && req.method === 'POST') {
     if (!bolehUbahKunci(pengguna)) return galat('Hanya Admin/Supervisor.', 403);
     const b = (await req.json()) as {
       user_id?: string; dari?: string; sampai?: string; kode?: string; hari?: number[];
       /** Lewati tanggal merah (libur nasional & cuti bersama) di rentang ini. */
       lewatiLibur?: boolean;
+      /** 'siklus' = pola kerja–libur berulang; selain itu isi cepat biasa. */
+      mode?: 'siklus';
+      /** Mode siklus: kode hari libur, jumlah minggu kerja, dan jumlah minggu libur. */
+      kodeLibur?: string; mingguKerja?: number; mingguLibur?: number;
     };
     if (!b.user_id || !b.dari || !b.sampai || !b.kode) return galat('user_id, dari, sampai, dan kode wajib diisi.');
+
+    // Mode siklus lapangan: hari Minggu dan tanggal merah tetap dihitung sebagai
+    // bagian masa kerja (siklus tidak bergeser), tetapi di roster ditandai kode libur.
+    if (b.mode === 'siklus') {
+      const kodeLibur = b.kodeLibur || 'L';
+      const hariKerja = Math.max(1, Math.round(b.mingguKerja ?? 8)) * 7;
+      const hariLibur = Math.max(0, Math.round(b.mingguLibur ?? 2)) * 7;
+      const panjang = hariKerja + hariLibur;
+
+      const merah = new Set<string>();
+      const libur = await env.DB.prepare(
+        `SELECT tanggal FROM libur WHERE tanggal BETWEEN ?1 AND ?2 AND jenis IN ('nasional','cuti','perusahaan')`,
+      ).bind(b.dari, b.sampai).all<{ tanggal: string }>();
+      libur.results.forEach((r) => merah.add(r.tanggal));
+
+      const batchSiklus: D1PreparedStatement[] = [];
+      for (let t = b.dari; t <= b.sampai && batchSiklus.length < 400; t = geserHari(t, 1)) {
+        const ke = ((selisihHari(t, b.dari) % panjang) + panjang) % panjang;
+        const masaKerja = ke < hariKerja;
+        const hariMinggu = new Date(t + 'T00:00:00Z').getUTCDay() === 0;
+        const kode = masaKerja && !hariMinggu && !merah.has(t) ? b.kode : kodeLibur;
+        batchSiklus.push(
+          env.DB.prepare(
+            `INSERT INTO roster (user_id, tanggal, kode, diubah_oleh, diubah_pada) VALUES (?1,?2,?3,?4,?5)
+             ON CONFLICT(user_id, tanggal) DO UPDATE SET kode = ?3, diubah_oleh = ?4, diubah_pada = ?5`,
+          ).bind(b.user_id, t, kode, pengguna.id, sekarangUtcIso()),
+        );
+      }
+      if (batchSiklus.length) await env.DB.batch(batchSiklus);
+      return json({ ok: true, jumlah: batchSiklus.length });
+    }
 
     const tanggalMerah = new Set<string>();
     if (b.lewatiLibur) {
@@ -79,6 +115,63 @@ export async function rutePersonal(jalur: string, req: Request, env: Env, penggu
     }
     if (batch.length) await env.DB.batch(batch);
     return json({ ok: true, jumlah: batch.length });
+  }
+
+  // ---------- Alarm tenggat PICA (milik sendiri) ----------
+
+  /** Jam bawaan alarm PICA per orang; disimpan di pengaturan agar tidak hilang saat pasang ulang APK. */
+  const kunciJamAlarm = `alarm_pica_jam:${pengguna.id}`;
+
+  if (jalur === '/api/pica-alarm' && req.method === 'GET') {
+    const [baris, jam] = await Promise.all([
+      env.DB.prepare('SELECT pica_id, jam, aktif FROM pica_alarm WHERE user_id = ?1').bind(pengguna.id).all(),
+      env.DB.prepare('SELECT nilai FROM pengaturan WHERE kunci = ?1').bind(kunciJamAlarm).first<{ nilai: string }>(),
+    ]);
+    return json({ alarm: baris.results ?? [], jamBawaan: jam?.nilai ?? '07:00' });
+  }
+
+  if (jalur === '/api/pica-alarm' && req.method === 'POST') {
+    const b = (await req.json()) as { pica_id?: string; aktif?: boolean; jam?: string };
+    if (!b.pica_id) return galat('pica_id wajib diisi.');
+    const jam = /^\d{2}:\d{2}$/.test(b.jam ?? '') ? b.jam! : null;
+    const aktif = b.aktif === false ? 0 : 1;
+    await env.DB.prepare(
+      `INSERT INTO pica_alarm (pica_id, user_id, jam, aktif, diubah_pada)
+       VALUES (?1, ?2, COALESCE(?3, (SELECT nilai FROM pengaturan WHERE kunci = ?5), '07:00'), ?4, ?6)
+       ON CONFLICT(pica_id, user_id) DO UPDATE SET
+         jam = COALESCE(?3, pica_alarm.jam), aktif = ?4, diubah_pada = ?6`,
+    ).bind(b.pica_id, pengguna.id, jam, aktif, kunciJamAlarm, sekarangUtcIso()).run();
+    return json({ ok: true });
+  }
+
+  /** Ubah jam bawaan alarm PICA untuk pemakai ini (layar Notifikasi). */
+  if (jalur === '/api/pica-alarm/jam' && req.method === 'POST') {
+    const b = (await req.json()) as { jam?: string };
+    if (!/^\d{2}:\d{2}$/.test(b.jam ?? '')) return galat('Jam harus berbentuk HH:MM.');
+    await env.DB.prepare(
+      `INSERT INTO pengaturan (kunci, nilai) VALUES (?1, ?2) ON CONFLICT(kunci) DO UPDATE SET nilai = excluded.nilai`,
+    ).bind(kunciJamAlarm, b.jam).run();
+    return json({ ok: true, jamBawaan: b.jam });
+  }
+
+  // ---------- Lapisan kalender yang ditampilkan (layar KALENDER + widget) ----------
+
+  const kunciLapisan = `kalender_lapisan:${pengguna.id}`;
+
+  if (jalur === '/api/kalender/lapisan' && req.method === 'GET') {
+    const b = await env.DB.prepare('SELECT nilai FROM pengaturan WHERE kunci = ?1').bind(kunciLapisan).first<{ nilai: string }>();
+    let lapisan: Record<string, boolean> = {};
+    try { lapisan = b?.nilai ? JSON.parse(b.nilai) : {}; } catch { lapisan = {}; }
+    return json({ lapisan });
+  }
+
+  if (jalur === '/api/kalender/lapisan' && req.method === 'POST') {
+    const b = (await req.json()) as { lapisan?: Record<string, boolean> };
+    if (!b.lapisan || typeof b.lapisan !== 'object') return galat('lapisan wajib berupa objek.');
+    await env.DB.prepare(
+      `INSERT INTO pengaturan (kunci, nilai) VALUES (?1, ?2) ON CONFLICT(kunci) DO UPDATE SET nilai = excluded.nilai`,
+    ).bind(kunciLapisan, JSON.stringify(b.lapisan)).run();
+    return json({ ok: true });
   }
 
   // ---------- Libur ----------

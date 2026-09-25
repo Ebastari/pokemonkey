@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarRange, ChevronLeft, ChevronRight, Wand2, X, Plus, Loader2, ImageDown, ChartColumnStacked, FileSpreadsheet } from 'lucide-react';
+import { CalendarRange, ChevronLeft, ChevronRight, Wand2, X, Plus, Loader2, ImageDown, ChartColumnStacked, FileSpreadsheet, Flag } from 'lucide-react';
 import { api, GalatApi } from '../lib/api';
 import { unduhGambar } from '../lib/gambar';
-import { bukuBaru, gayakan, gayakanChip, lembarBaru, pasangSaringan, paletExcel, simpanBuku, tanggalExcel, FORMAT_TANGGAL, MERAH, ABU } from '../lib/excel';
+import { eksporRosterKerja } from '../lib/roster-excel';
+import { namaTampil, namaDepan } from '../lib/nama';
 import type { Bootstrap, Opsi, Pengguna, RosterBaris } from '../lib/tipe-api';
 import { warna } from '../lib/warna';
 import * as W from '../lib/waktu';
@@ -80,110 +81,55 @@ export const RosterScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
     } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL'); }
   };
 
+  // Bawaan tampilan: kolom hari ini langsung terlihat (di HP tabelnya lebih lebar dari layar).
+  useEffect(() => {
+    if (bulan !== hariIni.slice(0, 7) || sudahGeser.current === bulan) return;
+    const sel = kolomHariIni.current;
+    const wadah = wadahTabel.current;
+    if (!sel || !wadah) return;
+    const kolomNama = 120; // kolom nama menempel di kiri, jangan tertutup
+    const geser = sel.getBoundingClientRect().left - wadah.getBoundingClientRect().left - kolomNama;
+    wadah.scrollLeft = Math.max(0, wadah.scrollLeft + geser);
+    sudahGeser.current = bulan; // sekali saja per bulan, agar tidak melompat saat sel diubah
+  }, [bulan, hariIni, roster.length, memuat]);
+
+  const liburBulanIni = tanggalList.flatMap((t) => (liburPeta.get(t) ?? []).map((l) => ({ tanggal: t, l })));
+  // Kelompok perusahaan: anggota CV KBS ditampilkan terpisah di bawah tim inti.
+  const kelompokDari = (bidang?: string | null) => (bidang ?? '').trim().toUpperCase() === 'CV KBS' ? 'CV KBS' : 'PT EBL / TAHURA';
+  const timUrut = useMemo(() => {
+    const urutan = (t: Bootstrap['tim'][number]) => (kelompokDari(t.bidang) === 'CV KBS' ? 1 : 0);
+    return [...boot.tim].sort((a, b) => urutan(a) - urutan(b) || a.nama.localeCompare(b.nama));
+  }, [boot.tim]);
+
   const ringkasHariIni = boot.tim.map((t) => ({ t, k: peta.get(`${t.id}|${hariIni}`)?.kode }));
   const bolehUbah = (userId: string) => bolehKelola || userId === pengguna.id;
   const judulBulan = `${W.NAMA_BULAN[bln - 1]} ${tahun}`;
 
   const [mengekspor, setMengekspor] = useState(false);
-  /** Excel seperti layar: grid berwarna per kode + rekap, dan lembar Rincian per tanggal. */
+  /** Excel mengikuti berkas "Template Roster Kerja" milik perusahaan (lihat lib/roster-excel.ts). */
   const eksporExcel = async () => {
     setMengekspor(true);
     try {
-      const wb = await bukuBaru();
-      const merah = (tg: string) => W.hariKe(tg) === 0 || Boolean(liburPeta.get(tg)?.some((l) => l.jenis === 'nasional'));
-      const akhirPekan = (tg: string) => W.hariKe(tg) === 0 || W.hariKe(tg) === 6;
-
-      // --- Lembar Roster ---
-      const r = lembarBaru(wb, 'Roster', {
-        judul: `Roster · ${judulBulan}`,
-        keterangan: `${boot.tim.length} anggota · catatan sel tersimpan sebagai komentar`,
-        bekuKolom: 2,
-        kolom: [
-          { judul: 'Anggota', lebar: 24 }, { judul: 'Bidang', lebar: 14 },
-          ...tanggalList.map((tg) => ({ judul: `${HARI_SENIN[(W.hariKe(tg) + 6) % 7]}\n${+tg.slice(8)}`, lebar: 5.5, rata: 'center' as const })),
-          ...kode.map((k) => ({ judul: k.label, lebar: 10, rata: 'center' as const })),
-          { judul: 'Belum diisi', lebar: 10, rata: 'center' as const },
-        ],
+      const hasil = await eksporRosterKerja({
+        bulan,
+        tanggalList,
+        tim: timUrut.map((t) => ({ id: t.id, nama: t.nama, jabatan: t.jabatan ?? t.bidang ?? '', kelompok: kelompokDari(t.bidang) })),
+        peta: new Map([...peta].map(([k, v]) => [k, { kode: v.kode, catatan: v.catatan }])),
+        labelKode: (k) => kode.find((x) => x.nilai === k)?.label ?? k,
+        libur: liburPeta,
+        dibuatOleh: pengguna.nama,
+        departemen: 'Revegetasi & Rehabilitasi',
+        kelompokUtama: 'PT EBL / TAHURA',
       });
-      r.ws.getRow(r.barisKepala).height = 30;
-      tanggalList.forEach((tg, i) => {
-        const c = r.ws.getRow(r.barisKepala).getCell(3 + i);
-        const lbr = liburPeta.get(tg);
-        gayakan(c, {
-          latar: tg === hariIni ? '0891B2' : lbr ? '7F1D1D' : akhirPekan(tg) ? '3F3F46' : '15181C',
-          teks: tg !== hariIni && merah(tg) ? 'FCA5A5' : 'FFFFFF', tebal: true, rata: 'center', bungkus: true, bingkai: '52525B',
-        });
-        c.alignment = { ...c.alignment, vertical: 'middle' };
-        if (lbr) c.note = lbr.map((l) => l.nama).join(' · ');
-      });
-      boot.tim.forEach((t) => {
-        const isi = tanggalList.map((tg) => peta.get(`${t.id}|${tg}`));
-        const row = r.tambah([
-          t.nama, t.bidang ?? t.peran, ...isi.map((x) => x?.kode ?? ''),
-          ...kode.map((k) => isi.filter((x) => x?.kode === k.nilai).length), isi.filter((x) => !x).length,
-        ]);
-        row.height = 20;
-        gayakan(row.getCell(1), { tebal: true });
-        gayakan(row.getCell(2), { teks: ABU, ukuran: 10 });
-        tanggalList.forEach((tg, i) => {
-          const c = row.getCell(3 + i);
-          const x = isi[i];
-          if (x) {
-            gayakanChip(c, kode.find((k) => k.nilai === x.kode)?.warna, { rata: 'center' });
-            if (x.catatan) c.note = x.catatan;
-          } else {
-            gayakan(c, { rata: 'center', latar: tg === hariIni ? 'ECFEFF' : liburPeta.get(tg) ? 'FEF2F2' : akhirPekan(tg) ? 'F4F4F5' : undefined });
-          }
-        });
-        kode.forEach((k, j) => gayakan(row.getCell(3 + tanggalList.length + j), { rata: 'center', tebal: true, teks: paletExcel(k.warna).teks }));
-        gayakan(row.getCell(3 + tanggalList.length + kode.length), { rata: 'center', teks: ABU });
-      });
-      // Legenda kode + libur bulan ini.
-      r.ws.addRow([]);
-      kode.forEach((k) => {
-        const row = r.ws.addRow([k.nilai, k.label]);
-        gayakanChip(row.getCell(1), k.warna, { rata: 'center' });
-        gayakan(row.getCell(2));
-      });
-      const liburBulan = tanggalList.flatMap((tg) => (liburPeta.get(tg) ?? []).map((l) => ({ tg, l })));
-      if (liburBulan.length) {
-        r.ws.addRow([]);
-        liburBulan.forEach(({ tg, l }) => {
-          const row = r.ws.addRow([W.formatPanjang(tg), l.nama]);
-          gayakan(row.getCell(1), { teks: MERAH, tebal: true });
-          gayakan(row.getCell(2));
-        });
-      }
-
-      // --- Lembar Rincian (satu baris per orang per tanggal) ---
-      const d = lembarBaru(wb, 'Rincian', {
-        judul: `Rincian roster · ${judulBulan}`,
-        kolom: [
-          { judul: 'Tanggal', lebar: 13 }, { judul: 'Hari', lebar: 7 }, { judul: 'Anggota', lebar: 24 }, { judul: 'Kode', lebar: 7, rata: 'center' },
-          { judul: 'Keterangan', lebar: 14 }, { judul: 'Catatan', lebar: 32, bungkus: true }, { judul: 'Libur / cuti bersama', lebar: 30, bungkus: true },
-        ],
-      });
-      boot.tim.forEach((t) => tanggalList.forEach((tg) => {
-        const x = peta.get(`${t.id}|${tg}`);
-        const o = kode.find((k) => k.nilai === x?.kode);
-        const row = d.tambah([
-          tanggalExcel(tg), W.NAMA_HARI[W.hariKe(tg)], t.nama, x?.kode ?? '', x ? o?.label ?? x.kode : 'Belum diisi',
-          x?.catatan ?? '', liburPeta.get(tg)?.map((l) => l.nama).join('; ') ?? '',
-        ]);
-        row.getCell(1).numFmt = FORMAT_TANGGAL;
-        if (merah(tg)) gayakan(row.getCell(2), { teks: MERAH, tebal: true });
-        if (x) gayakanChip(row.getCell(4), o?.warna, { rata: 'center' });
-        else gayakan(row.getCell(5), { teks: ABU, miring: true });
-      }));
-      pasangSaringan(d);
-
-      await simpanBuku(wb, `Roster-${bulan}.xlsx`, `Roster ${judulBulan}`);
-      notify('ROSTER DIEKSPOR');
+      notify(hasil === 'diunduh' ? 'ROSTER DIEKSPOR' : 'ROSTER SIAP DIBAGIKAN');
     } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'EKSPOR GAGAL'); }
     finally { setMengekspor(false); }
   };
 
   const areaRoster = useRef<HTMLDivElement>(null);
+  const wadahTabel = useRef<HTMLDivElement>(null);
+  const kolomHariIni = useRef<HTMLTableCellElement>(null);
+  const sudahGeser = useRef('');
   const [mengunduh, setMengunduh] = useState(false);
   const unduh = async (el: HTMLElement | null, nama: string, judul: string, keterangan?: string) => {
     if (!el || mengunduh) return;
@@ -214,12 +160,12 @@ export const RosterScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
           {ringkasHariIni.map(({ t, k }) => {
             const o = kode.find((x) => x.nilai === k);
             const w = warna(o?.warna);
-            return <span key={t.id} className={`chip-retro ${k ? `${w.garis} ${w.teks} ${w.latar}` : 'border-zinc-600 text-zinc-500'}`}>{t.nama.split(' ')[0]} · {o?.label ?? 'belum diisi'}</span>;
+            return <span key={t.id} className={`chip-retro ${k ? `${w.garis} ${w.teks} ${w.latar}` : 'border-zinc-600 text-zinc-500'}`}>{namaDepan(t.nama)} · {o?.label ?? 'belum diisi'}</span>;
           })}
         </div>
       )}
 
-      <div className="flex-1 overflow-auto custom-scrollbar px-2 pb-2 min-h-0">
+      <div ref={wadahTabel} className="flex-1 overflow-auto custom-scrollbar px-2 pb-2 min-h-0">
         {/* Area yang direkam "Unduh gambar": tabel + legenda. */}
         <div ref={areaRoster} className="w-max min-w-full">
         <div className="inline-block min-w-full border-[3px] border-white/40 bg-black/60">
@@ -234,9 +180,9 @@ export const RosterScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
                   const merah = h === 0 || lbr?.some((l) => l.jenis === 'nasional');
                   const cuti = lbr?.some((l) => l.jenis === 'cuti');
                   return (
-                    <th key={t} title={lbr?.map((l) => l.nama).join(' · ')} className={`border-b-2 border-white/30 px-0.5 py-1 text-center min-w-[34px] leading-tight ${t === hariIni ? 'bg-cyan-600 text-black' : lbr ? 'bg-red-950/70' : akhirPekan ? 'bg-white/10' : ''} ${t === hariIni ? '' : merah ? 'text-red-400' : cuti ? 'text-rose-300' : 'text-zinc-200'}`}>
-                      <div className="text-[10px]">{HARI_SENIN[(h + 6) % 7]}</div><div className="text-[12px] font-bold">{+t.slice(8)}</div>
-                      <div className={`h-[3px] mx-1 mt-0.5 ${lbr ? (merah ? 'bg-red-500' : 'bg-rose-400') : 'bg-transparent'}`} />
+                    <th key={t} ref={t === hariIni ? kolomHariIni : undefined} title={lbr?.map((l) => l.nama).join(' · ') ?? (merah ? 'Hari Minggu' : undefined)} className={`border-b-2 border-white/30 px-0.5 py-1 text-center min-w-[34px] leading-tight ${t === hariIni ? 'bg-cyan-600 text-black' : lbr ? (merah ? 'bg-red-600/85' : 'bg-rose-600/70') : akhirPekan ? 'bg-white/10' : ''} ${t === hariIni ? '' : lbr ? 'text-white' : merah ? 'text-red-400' : cuti ? 'text-rose-300' : 'text-zinc-200'}`}>
+                      <div className="text-[10px] flex items-center justify-center gap-0.5">{lbr && <Flag size={8} />}{HARI_SENIN[(h + 6) % 7]}</div><div className="text-[12px] font-bold">{+t.slice(8)}</div>
+                      <div className={`h-[3px] mx-1 mt-0.5 ${lbr ? (merah ? 'bg-red-300' : 'bg-rose-200') : 'bg-transparent'}`} />
                     </th>
                   );
                 })}
@@ -244,12 +190,22 @@ export const RosterScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
               </tr>
             </thead>
             <tbody>
-              {boot.tim.map((t) => {
+              {timUrut.map((t, i) => {
                 const rekap = kode.map((k) => ({ k, n: tanggalList.filter((tg) => peta.get(`${t.id}|${tg}`)?.kode === k.nilai).length })).filter((x) => x.n > 0);
+                const kelompok = kelompokDari(t.bidang);
+                const kelompokBaru = i === 0 || kelompok !== kelompokDari(timUrut[i - 1].bidang);
                 return (
-                  <tr key={t.id} className={t.id === pengguna.id ? 'bg-teal-500/5' : ''}>
+                  <React.Fragment key={t.id}>
+                  {kelompokBaru && (
+                    <tr>
+                      <td colSpan={tanggalList.length + 2} className="sticky left-0 bg-zinc-800 border-y-2 border-white/25 px-2 py-1 text-[11px] font-bold uppercase text-teal-300 tracking-wide">
+                        {kelompok}
+                      </td>
+                    </tr>
+                  )}
+                  <tr className={t.id === pengguna.id ? 'bg-teal-500/5' : ''}>
                     <td className="sticky left-0 z-10 bg-zinc-900 border-r-2 border-b border-white/15 p-2 leading-tight">
-                      <div className="text-[13px] font-bold text-white truncate max-w-[130px]">{t.nama}</div>
+                      <div className="text-[13px] font-bold text-white truncate max-w-[130px]" title={t.nama}>{namaTampil(t.nama)}</div>
                       <div className="text-[10px] text-zinc-400 uppercase truncate max-w-[130px]">{t.bidang ?? t.peran}</div>
                     </td>
                     {tanggalList.map((tg) => {
@@ -273,12 +229,31 @@ export const RosterScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
                       {rekap.map(({ k, n }) => <span key={k.nilai} className={`mr-1.5 ${warna(k.warna).teks}`}>{k.nilai}:{n}</span>)}
                     </td>
                   </tr>
+                  </React.Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
         {memuat && <p data-tanpa-gambar className="text-[12px] text-zinc-400 mt-2 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> memuat…</p>}
+
+        {/* Tanggal merah bulan ini — sumbernya sama dengan kalender (tabel libur di server). */}
+        {liburBulanIni.length > 0 && (
+          <div className="mt-3 panel-retro !p-2">
+            <p className="label-retro flex items-center gap-1"><Flag size={10} className="text-red-400" /> Tanggal merah {judulBulan}</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+              {liburBulanIni.map(({ tanggal, l }) => (
+                <span key={tanggal + l.nama} className="text-[12px] flex items-center gap-1.5">
+                  <span className={`w-3 h-3 border border-black/40 ${l.jenis === 'nasional' ? 'bg-red-500' : l.jenis === 'cuti' ? 'bg-rose-400' : 'bg-purple-400'}`} />
+                  <b className={l.jenis === 'nasional' ? 'text-red-300' : 'text-rose-200'}>{+tanggal.slice(8)} {W.NAMA_BULAN_PENDEK[+tanggal.slice(5, 7) - 1]}</b>
+                  <span className="text-zinc-300">{l.nama}</span>
+                  {l.jenis !== 'nasional' && <span className="text-zinc-500">({l.jenis === 'cuti' ? 'cuti bersama' : 'libur perusahaan'})</span>}
+                  {l.perkiraan ? <span className="text-amber-300">· perkiraan</span> : null}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Legenda + tambah kode */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -297,12 +272,12 @@ export const RosterScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
         </div>
 
         <GrafikRoster
-          tim={boot.tim} kode={kode} tanggalList={tanggalList} peta={peta}
+          tim={timUrut} kode={kode} tanggalList={tanggalList} peta={peta}
           mengunduh={mengunduh}
           onUnduh={(el, keterangan) => unduh(el, `grafik-roster-${bulan}`, `Grafik roster tim · ${judulBulan}`, keterangan)}
         />
         <GrafikAnggota
-          tim={boot.tim} kode={kode} tanggalList={tanggalList} peta={peta} awal={pengguna.id}
+          tim={timUrut} kode={kode} tanggalList={tanggalList} peta={peta} awal={pengguna.id}
           mengunduh={mengunduh}
           onUnduh={(el, nama) => unduh(el, `grafik-roster-${nama.split(' ')[0].toLowerCase()}-${bulan}`, `Grafik roster ${nama} · ${judulBulan}`)}
         />
@@ -418,7 +393,7 @@ const GrafikRoster: React.FC<PropsGrafik & { onUnduh: (el: HTMLElement | null, k
             )}
           </div>
         ))}
-        label={tim.map((t) => <span key={t.id} className="flex-1 max-w-[88px] text-center text-[12px] font-bold text-white truncate" title={t.nama}>{t.nama.split(' ')[0]}</span>)}
+        label={tim.map((t) => <span key={t.id} className="flex-1 max-w-[88px] text-center text-[12px] font-bold text-white truncate" title={t.nama}>{namaDepan(t.nama)}</span>)}
       />
 
       {/* Total tim per kode (sekaligus legenda warna) */}
@@ -458,9 +433,9 @@ const GrafikAnggota: React.FC<PropsGrafik & { awal: string; onUnduh: (el: HTMLEl
   if (!orang) return null;
   return (
     <section ref={area} className="mt-4 panel-retro !p-3 w-full">
-      <KepalaGrafik judul={`Grafik ${orang.nama.split(' ')[0]}`} mengunduh={mengunduh} onUnduh={() => onUnduh(area.current, orang.nama)} />
+      <KepalaGrafik judul={`Grafik ${namaDepan(orang.nama)}`} mengunduh={mengunduh} onUnduh={() => onUnduh(area.current, orang.nama)} />
       <div className="flex flex-wrap items-center gap-1.5">
-        {tim.map((t) => <button key={t.id} onClick={() => setPilih(t.id)} className={chipPilih(t.id === pilih)}>{t.nama.split(' ')[0]}</button>)}
+        {tim.map((t) => <button key={t.id} onClick={() => setPilih(t.id)} className={chipPilih(t.id === pilih)}>{namaDepan(t.nama)}</button>)}
       </div>
 
       <BidangGrafik
@@ -474,7 +449,7 @@ const GrafikAnggota: React.FC<PropsGrafik & { awal: string; onUnduh: (el: HTMLEl
         ))}
         label={kolom.map((k) => <span key={k.id} className={`flex-1 max-w-[88px] text-center text-[12px] font-bold leading-tight ${k.teks}`}>{k.label}</span>)}
       />
-      <p className="text-[11px] text-zinc-400 mt-2">{orang.nama} · {tanggalList.length} hari dalam bulan ini</p>
+      <p className="text-[11px] text-zinc-400 mt-2">{namaTampil(orang.nama)} · {tanggalList.length} hari dalam bulan ini</p>
     </section>
   );
 };
@@ -490,43 +465,105 @@ const CatatanSel: React.FC<{ awal?: RosterBaris; onSimpan: (c: string) => Promis
   );
 };
 
+/**
+ * Isi cepat roster, dua cara:
+ *  - **Per hari**: satu kode untuk rentang tanggal, boleh dibatasi hari tertentu.
+ *  - **Siklus lapangan**: pola berulang, mis. 8 minggu kerja lalu 2 minggu libur.
+ *    Hari Minggu dan tanggal merah di dalam masa kerja tetap dihitung sebagai
+ *    bagian siklus (hitungan tidak bergeser), tetapi di roster ditandai kode libur.
+ */
 const FormIsiCepat: React.FC<{ boot: Bootstrap; kode: Bootstrap['opsi']; bulan: string; onTutup: () => void; onSelesai: (n: number) => void }> = ({ boot, kode, bulan, onTutup, onSelesai }) => {
   const [tahun, bln] = bulan.split('-').map(Number);
   const akhir = new Date(Date.UTC(tahun, bln, 0)).getUTCDate();
-  const [f, setF] = useState({ user_id: boot.tim[0]?.id ?? '', dari: `${bulan}-01`, sampai: `${bulan}-${String(akhir).padStart(2, '0')}`, kode: kode[0]?.nilai ?? 'M', hari: [1, 2, 3, 4, 5] as number[], lewatiLibur: true });
+  const [cara, setCara] = useState<'hari' | 'siklus'>('hari');
+  const [f, setF] = useState({
+    user_id: boot.tim[0]?.id ?? '', dari: `${bulan}-01`, sampai: `${bulan}-${String(akhir).padStart(2, '0')}`,
+    kode: kode[0]?.nilai ?? 'M', hari: [1, 2, 3, 4, 5] as number[], lewatiLibur: true,
+    kodeLibur: kode.find((k) => k.nilai === 'L')?.nilai ?? kode[kode.length - 1]?.nilai ?? 'L',
+    mingguKerja: 8, mingguLibur: 2,
+  });
   const [menyimpan, setMenyimpan] = useState(false);
   const [galat, setGalat] = useState<string | null>(null);
 
   const toggleHari = (h: number) => setF({ ...f, hari: f.hari.includes(h) ? f.hari.filter((x) => x !== h) : [...f.hari, h] });
+  const jumlahHari = f.sampai >= f.dari ? W.selisihHari(f.sampai, f.dari) + 1 : 0;
+  const panjangSiklus = (f.mingguKerja + f.mingguLibur) * 7;
+  const terlaluPanjang = jumlahHari > 400;
 
   const simpan = async () => {
     setMenyimpan(true); setGalat(null);
-    try { const d = await api<{ jumlah: number }>('/api/roster/isi', { body: { ...f, hari: f.hari.length === 7 ? [] : f.hari } }); onSelesai(d.jumlah); }
-    catch (e) { setGalat(e instanceof GalatApi ? e.message : 'Gagal.'); }
+    try {
+      const body = cara === 'siklus'
+        ? { user_id: f.user_id, dari: f.dari, sampai: f.sampai, mode: 'siklus', kode: f.kode, kodeLibur: f.kodeLibur, mingguKerja: f.mingguKerja, mingguLibur: f.mingguLibur }
+        : { ...f, hari: f.hari.length === 7 ? [] : f.hari };
+      const d = await api<{ jumlah: number }>('/api/roster/isi', { body });
+      onSelesai(d.jumlah);
+    } catch (e) { setGalat(e instanceof GalatApi ? e.message : 'Gagal.'); }
     finally { setMenyimpan(false); }
   };
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-3" onClick={onTutup}>
-      <div className="retro-box !bg-zinc-900 w-full max-w-sm border-teal-500 flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+      <div className="retro-box !bg-zinc-900 w-full max-w-sm border-teal-500 flex flex-col gap-3 max-h-[92vh] overflow-y-auto custom-scrollbar" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center border-b-2 border-white/20 pb-2"><h3 className="judul-layar text-teal-300">Isi cepat</h3><button onClick={onTutup} className="text-zinc-400"><X size={20} /></button></div>
         {galat && <p className="text-[12px] text-red-200 bg-red-950/50 border border-red-500 p-2">{galat}</p>}
+
+        <div className="flex border-2 border-white/40">
+          {([['hari', 'Per hari'], ['siklus', 'Siklus lapangan']] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setCara(id)} className={`flex-1 py-1.5 text-[12px] font-bold uppercase ${cara === id ? 'bg-teal-600 text-white' : 'bg-black/40 text-zinc-400'}`}>{label}</button>
+          ))}
+        </div>
+
         <div><label className="label-retro">Anggota</label><select value={f.user_id} onChange={(e) => setF({ ...f, user_id: e.target.value })} className="input-retro">{boot.tim.map((t) => <option key={t.id} value={t.id}>{t.nama}</option>)}</select></div>
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="label-retro">Dari</label><input type="date" value={f.dari} onChange={(e) => setF({ ...f, dari: e.target.value })} className="input-retro" /></div>
+          <div><label className="label-retro">{cara === 'siklus' ? 'Hari pertama masuk' : 'Dari'}</label><input type="date" value={f.dari} onChange={(e) => setF({ ...f, dari: e.target.value })} className="input-retro" /></div>
           <div><label className="label-retro">Sampai</label><input type="date" value={f.sampai} onChange={(e) => setF({ ...f, sampai: e.target.value })} className="input-retro" /></div>
         </div>
-        <div><label className="label-retro">Kode</label><select value={f.kode} onChange={(e) => setF({ ...f, kode: e.target.value })} className="input-retro">{kode.map((k) => <option key={k.nilai} value={k.nilai}>{k.nilai} · {k.label}</option>)}</select></div>
-        <div>
-          <label className="label-retro">Hanya hari</label>
-          <div className="flex gap-1">{[1, 2, 3, 4, 5, 6, 0].map((h) => <button key={h} onClick={() => toggleHari(h)} className={`flex-1 py-1.5 text-[12px] font-bold border-2 ${f.hari.includes(h) ? 'bg-teal-600 border-white' : 'bg-black/40 border-white/20 text-zinc-400'}`}>{W.NAMA_HARI[h]}</button>)}</div>
-          <p className="text-[11px] text-zinc-400 mt-1">Contoh: pilih Sen–Jum lalu kode M, lalu ulangi untuk Sab–Min dengan kode L.</p>
-        </div>
-        <label className="flex items-center gap-2 text-[13px] text-zinc-200 cursor-pointer">
-          <input type="checkbox" checked={f.lewatiLibur} onChange={(e) => setF({ ...f, lewatiLibur: e.target.checked })} />
-          Lewati tanggal merah (libur nasional &amp; cuti bersama)
-        </label>
-        <button onClick={simpan} disabled={menyimpan || f.hari.length === 0} className="btn-retro bg-teal-600 w-full">{menyimpan ? 'Mengisi…' : 'Terapkan'}</button>
+
+        {cara === 'hari' ? (
+          <>
+            <div><label className="label-retro">Kode</label><select value={f.kode} onChange={(e) => setF({ ...f, kode: e.target.value })} className="input-retro">{kode.map((k) => <option key={k.nilai} value={k.nilai}>{k.nilai} · {k.label}</option>)}</select></div>
+            <div>
+              <label className="label-retro">Hanya hari</label>
+              <div className="flex gap-1">{[1, 2, 3, 4, 5, 6, 0].map((h) => <button key={h} onClick={() => toggleHari(h)} className={`flex-1 py-1.5 text-[12px] font-bold border-2 ${f.hari.includes(h) ? 'bg-teal-600 border-white' : 'bg-black/40 border-white/20 text-zinc-400'}`}>{W.NAMA_HARI[h]}</button>)}</div>
+              <p className="text-[11px] text-zinc-400 mt-1">Contoh: pilih Sen–Jum lalu kode M, lalu ulangi untuk Sab–Min dengan kode L.</p>
+            </div>
+            <label className="flex items-center gap-2 text-[13px] text-zinc-200 cursor-pointer">
+              <input type="checkbox" checked={f.lewatiLibur} onChange={(e) => setF({ ...f, lewatiLibur: e.target.checked })} />
+              Lewati tanggal merah (libur nasional &amp; cuti bersama)
+            </label>
+          </>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label-retro">Minggu kerja</label>
+                <input type="number" min={1} max={26} value={f.mingguKerja} onChange={(e) => setF({ ...f, mingguKerja: Math.max(1, Math.min(26, Number(e.target.value) || 1)) })} className="input-retro" />
+              </div>
+              <div>
+                <label className="label-retro">Minggu libur</label>
+                <input type="number" min={0} max={26} value={f.mingguLibur} onChange={(e) => setF({ ...f, mingguLibur: Math.max(0, Math.min(26, Number(e.target.value) || 0)) })} className="input-retro" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label-retro">Kode masa kerja</label>
+                <select value={f.kode} onChange={(e) => setF({ ...f, kode: e.target.value })} className="input-retro">{kode.map((k) => <option key={k.nilai} value={k.nilai}>{k.nilai} · {k.label}</option>)}</select>
+              </div>
+              <div>
+                <label className="label-retro">Kode hari libur</label>
+                <select value={f.kodeLibur} onChange={(e) => setF({ ...f, kodeLibur: e.target.value })} className="input-retro">{kode.map((k) => <option key={k.nilai} value={k.nilai}>{k.nilai} · {k.label}</option>)}</select>
+              </div>
+            </div>
+            <div className="panel-retro !p-2 text-[12px] text-zinc-300 leading-relaxed">
+              <p>Siklus {f.mingguKerja} minggu kerja lalu {f.mingguLibur} minggu libur, berulang tiap {panjangSiklus} hari sampai tanggal akhir.</p>
+              <p className="text-zinc-400 mt-1">Hari Minggu dan tanggal merah di dalam masa kerja tetap dihitung sebagai bagian siklus, tetapi diisi kode libur.</p>
+              <p className="text-teal-300 mt-1">{jumlahHari} hari akan diisi{terlaluPanjang ? ' — melebihi batas, hanya 400 hari pertama yang terisi' : ''}.</p>
+            </div>
+          </>
+        )}
+
+        <button onClick={simpan} disabled={menyimpan || jumlahHari <= 0 || (cara === 'hari' && f.hari.length === 0)} className="btn-retro bg-teal-600 w-full">{menyimpan ? 'Mengisi…' : 'Terapkan'}</button>
       </div>
     </div>
   );

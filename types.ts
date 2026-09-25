@@ -143,4 +143,4 @@ export interface GameState {
 
 export type AppTab =
   | 'habitat' | 'pica' | 'jadwal' | 'pengumuman' | 'roster' | 'memo' | 'notif'
-  | 'missions' | 'calendar' | 'reports' | 'game' | 'team' | 'market';
+  | 'missions' | 'calendar' | 'money' | 'fire' | 'reports' | 'game' | 'team' | 'market';

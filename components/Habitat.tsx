@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { TreePine, ChevronRight, ClipboardList, Bell, CalendarDays, AlarmClock } from 'lucide-react';
+import { TreePine, ChevronRight, ClipboardList, Bell, CalendarDays, AlarmClock, Coins, Flame } from 'lucide-react';
 import { GameState, Skin } from '../types';
 import type { Opsi, Pengguna } from '../lib/tipe-api';
 import type { AlarmItem } from '../lib/alarm';
@@ -10,7 +10,7 @@ import { MonkeySprite } from './MonkeySprite';
 import { PanelRealisasi } from './PanelRealisasi';
 import { useCuaca, HujanKebun, ChipCuaca, PanelCuaca } from './CuacaKebun';
 import { useTitikApi, ChipTitikApi, PanelTitikApi } from './TitikApiKebun';
-import { REVEGETASI_BAWAAN, ringkasRevegetasi, totalTahun, ha, type BarisRevegetasi } from '../lib/revegetasi';
+import { ringkasRevegetasi, totalTahun, ha, type BarisRevegetasi } from '../lib/revegetasi';
 import { perbaruiDataWidgetHp } from '../lib/widget';
 
 /**
@@ -61,6 +61,10 @@ interface Props {
   onBukaAlarm?: () => void;
   /** Widget NOTIF: pintasan ke tab notifikasi */
   onBukaNotif?: () => void;
+  /** Widget MONEY: pintasan ke Money Monkey (Anggaran & RAB) */
+  onBukaMoney?: () => void;
+  /** Widget FIRE: pintasan ke Fire Monkey (Hotspot & Karhutla) */
+  onBukaFire?: () => void;
 }
 
 interface Pisang { id: number; x: number; y: number }
@@ -85,10 +89,10 @@ export const Habitat: React.FC<Props> = ({
   jumlahInfoBaru = 0, onBukaInfo, jumlahPicaTerbuka = 0, adaPicaTelat = false, onBukaPica,
   jumlahAcaraHariIni = 0, onBukaJadwal,
   daftarAlarm = [], sedangAlarm = false, onBukaAlarm,
-  onBukaNotif,
+  onBukaNotif, onBukaMoney, onBukaFire,
 }) => {
   const [others, setOthers] = useState<ActiveUser[]>([]);
-  const [reveg, setReveg] = useState<BarisRevegetasi[]>(REVEGETASI_BAWAAN);
+  const [reveg, setReveg] = useState<BarisRevegetasi[]>([]);
   const [panelBuka, setPanelBuka] = useState(false);
   const [anggota, setAnggota] = useState<{ id: string; nama: string } | null>(null);
   const [pisang, setPisang] = useState<Pisang[]>([]);
@@ -141,10 +145,10 @@ export const Habitat: React.FC<Props> = ({
     return () => clearInterval(interval);
   }, [state.userId, state.isLoggedIn]);
 
-  // Realisasi revegetasi: angka dari server, dengan salinan lokal sebagai cadangan offline.
+  // Realisasi area/revegetasi: angka dari server/demo lokal.
   const muatRevegetasi = useCallback(() => {
     api<{ revegetasi: BarisRevegetasi[] }>('/api/revegetasi')
-      .then((d) => { if (d.revegetasi?.length) setReveg(d.revegetasi); })
+      .then((d) => { setReveg(d.revegetasi ?? []); })
       .catch(() => undefined);
   }, []);
   useEffect(() => { muatRevegetasi(); }, [muatRevegetasi]);
@@ -307,6 +311,12 @@ export const Habitat: React.FC<Props> = ({
       {onBukaNotif && (
         <ChipNotif onBuka={onBukaNotif} />
       )}
+      {onBukaMoney && (
+        <ChipMoney onBuka={onBukaMoney} />
+      )}
+      {onBukaFire && (
+        <ChipFire onBuka={onBukaFire} />
+      )}
 
       {/* Papan INFO: pintasan ke pengumuman, dengan lencana yang belum dibaca. */}
       {onBukaInfo && (
@@ -385,25 +395,27 @@ export const Habitat: React.FC<Props> = ({
             <p className="text-[13px] font-bold">{others.length + 1} orang</p>
           </div>
         </div>
-        <button
-          onClick={(e) => { e.stopPropagation(); setPanelBuka(true); }}
-          className="retro-box !bg-green-900/90 !border-white/40 !p-2 text-left leading-tight pointer-events-auto flex items-center gap-2"
-          title="Lihat grafik realisasi per tahun"
-        >
-          <div>
-            <p className="text-[10px] text-green-200 uppercase">Realisasi revegetasi</p>
-            <p className="font-title text-[11px] text-white">{ha(ringkas.total)} HA</p>
-            <p className="text-[10px] text-green-200/90 tabular-nums">
-              {ringkas.terakhir && `${ringkas.terakhir.tahun}: ${ha(totalTahun(ringkas.terakhir))} · `}kebun Anda {state.plantedArea.toFixed(2)}
-            </p>
-          </div>
-          <span className="flex items-end gap-[2px] h-7" aria-hidden="true">
-            {reveg.map((b) => (
-              <span key={b.tahun} className="w-[3px] bg-emerald-400" style={{ height: `${Math.max(8, (totalTahun(b) / (ringkas.maks || 1)) * 100)}%` }} />
-            ))}
-          </span>
-          <ChevronRight size={14} className="text-green-200 shrink-0" />
-        </button>
+        {reveg.length > 0 && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setPanelBuka(true); }}
+            className="retro-box !bg-green-900/90 !border-white/40 !p-2 text-left leading-tight pointer-events-auto flex items-center gap-2"
+            title="Lihat grafik realisasi per tahun"
+          >
+            <div>
+              <p className="text-[10px] text-green-200 uppercase">Realisasi area</p>
+              <p className="font-title text-[11px] text-white">{ha(ringkas.total)} HA</p>
+              <p className="text-[10px] text-green-200/90 tabular-nums">
+                {ringkas.terakhir && `${ringkas.terakhir.tahun}: ${ha(totalTahun(ringkas.terakhir))} · `}area {state.plantedArea.toFixed(2)}
+              </p>
+            </div>
+            <span className="flex items-end gap-[2px] h-7" aria-hidden="true">
+              {reveg.map((b) => (
+                <span key={b.tahun} className="w-[3px] bg-emerald-400" style={{ height: `${Math.max(8, (totalTahun(b) / (ringkas.maks || 1)) * 100)}%` }} />
+              ))}
+            </span>
+            <ChevronRight size={14} className="text-green-200 shrink-0" />
+          </button>
+        )}
       </div>
 
       {ubahStatus && onUbahStatus && (
@@ -432,6 +444,7 @@ export const Habitat: React.FC<Props> = ({
           onMuatUlang={muatTitikApi}
           onTutup={() => setPanelApi(false)}
           notify={notify}
+          onBukaFire={onBukaFire ? () => { setPanelApi(false); onBukaFire(); } : undefined}
         />
       )}
 
@@ -656,6 +669,36 @@ export const ChipNotif: React.FC<{
   >
     <Bell size={16} className="text-yellow-300" />
     <span className="font-title text-[10px] text-white">NOTIF</span>
+  </button>
+);
+
+/** Chip Money Monkey di pojok kebun: pintasan ke RAB & Anggaran */
+export const ChipMoney: React.FC<{
+  onBuka: () => void;
+}> = ({ onBuka }) => (
+  <button
+    onClick={(e) => { e.stopPropagation(); onBuka(); }}
+    className="absolute z-20 right-2 top-[256px] retro-box !bg-emerald-950/80 !border-emerald-400 !p-1.5 !px-2 flex items-center gap-1.5 leading-tight hover:!bg-emerald-900"
+    title="Money Monkey (Anggaran, RAB & Keuangan HCGA)"
+    aria-label="Buka Money Monkey"
+  >
+    <Coins size={16} className="text-yellow-300" />
+    <span className="font-title text-[10px] text-emerald-200">MONEY</span>
+  </button>
+);
+
+/** Chip Fire Monkey di pojok kebun: pintasan ke Monitoring Titik Api & Karhutla */
+export const ChipFire: React.FC<{
+  onBuka: () => void;
+}> = ({ onBuka }) => (
+  <button
+    onClick={(e) => { e.stopPropagation(); onBuka(); }}
+    className="absolute z-20 right-2 top-[296px] retro-box !bg-orange-950/80 !border-orange-400 !p-1.5 !px-2 flex items-center gap-1.5 leading-tight hover:!bg-orange-900"
+    title="Fire Monkey (Peta Interaktif Hotspot NASA FIRMS & Karhutla)"
+    aria-label="Buka Fire Monkey"
+  >
+    <Flame size={16} className="text-orange-400" />
+    <span className="font-title text-[10px] text-orange-200">FIRE</span>
   </button>
 );
 

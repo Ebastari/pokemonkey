@@ -253,7 +253,9 @@ export function labelPerPic(daftar: { pic_id?: string | null; pic_nama?: string 
   for (const [kunci, nama] of namaPer) if (kunci) depan.set(namaDepan(nama), (depan.get(namaDepan(nama)) ?? 0) + 1);
   const label = new Map<string, string>();
   for (const [kunci, nama] of namaPer) {
-    label.set(kunci, !kunci ? 'Tanpa PIC' : (depan.get(namaDepan(nama)) ?? 0) > 1 ? nama : namaDepan(nama));
+    // Rekap WhatsApp memakai nama lengkap; keterangan penempatan dalam kurung
+    // (mis. "(Tahura)") hanya dipakai di Excel dan cetakan.
+    label.set(kunci, !kunci ? 'Tanpa PIC' : nama.replace(/s*([^)]*)s*$/, '').trim() || nama);
   }
   return label;
 }
