@@ -101,9 +101,9 @@ export function dataContohDemo() {
     for (let i = -7; i < 14; i++) {
       const tanggal = geserHari(hariIni, i);
       const hari = new Date(`${tanggal}T00:00:00Z`).getUTCDay();
-      let kode = hari === 0 ? 'L' : 'M';
-      if (t.id === `${AWALAN_CONTOH}budi` && i >= 2 && i <= 4) kode = 'C';
-      if (t.id === `${AWALAN_CONTOH}rian` && hari !== 0) kode = i % 4 < 2 ? 'S1' : 'S2';
+      let kode = hari === 0 ? 'OFF' : 'D';
+      if (t.id === `${AWALAN_CONTOH}budi` && i >= 2 && i <= 4) kode = 'FB';
+      if (t.id === `${AWALAN_CONTOH}rian` && hari !== 0) kode = i % 4 < 2 ? 'D' : 'N';
       roster.push({ user_id: t.id, tanggal, kode, catatan: null });
     }
   }

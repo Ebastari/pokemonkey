@@ -47,7 +47,7 @@ interface Props {
 }
 
 const KODE_ROSTER: Record<string, string> = {
-  M: 'Masuk', S1: 'Shift 1', S2: 'Shift 2', L: 'Libur', C: 'Cuti', I: 'Izin/Sakit',
+  D: 'Shift Siang', N: 'Shift Malam', OFF: 'Libur', FB: 'Field Break / Cuti Tahunan', IK: 'Ijin Khusus',
 };
 
 const nomorWa = (wa: string) => wa.replace(/[^0-9]/g, '');

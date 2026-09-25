@@ -11,8 +11,8 @@ import { LIBUR_BAWAAN, petaLibur, type Libur } from '../lib/libur';
 import { HARI_SENIN } from '../lib/acara';
 
 /**
- * Roster bulanan: baris = anggota, kolom = tanggal, sel = kode (Masuk, Shift 1,
- * Shift 2, Libur, Cuti, Izin). Kode adalah data (tabel opsi), jadi jenis baru
+ * Roster bulanan: baris = anggota, kolom = tanggal, sel = kode sama dengan berkas
+ * Excel resmi (D siang, N malam, OFF libur, FB field break, IK ijin khusus). Kode adalah data (tabel opsi), jadi jenis baru
  * bisa ditambah dari layar ini. Admin/Supervisor mengatur semua; anggota
  * mengisi miliknya sendiri.
  */
@@ -516,8 +516,8 @@ const FormIsiCepat: React.FC<{ boot: Bootstrap; kode: Bootstrap['opsi']; bulan: 
   const [cara, setCara] = useState<'hari' | 'siklus'>('hari');
   const [f, setF] = useState({
     user_id: boot.tim[0]?.id ?? '', dari: `${bulan}-01`, sampai: `${bulan}-${String(akhir).padStart(2, '0')}`,
-    kode: kode[0]?.nilai ?? 'M', hari: [1, 2, 3, 4, 5] as number[], lewatiLibur: true,
-    kodeLibur: kode.find((k) => k.nilai === 'L')?.nilai ?? kode[kode.length - 1]?.nilai ?? 'L',
+    kode: kode[0]?.nilai ?? 'D', hari: [1, 2, 3, 4, 5] as number[], lewatiLibur: true,
+    kodeLibur: kode.find((k) => k.nilai === 'OFF')?.nilai ?? kode[kode.length - 1]?.nilai ?? 'OFF',
     mingguKerja: 8, mingguLibur: 2,
   });
   const [menyimpan, setMenyimpan] = useState(false);

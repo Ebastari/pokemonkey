@@ -32,8 +32,8 @@ export const LembarHari: React.FC<Props> = ({ tanggal, hariIni, acara, libur, ti
   const daftar = [...acara].filter((a) => a.sumber !== 'libur').sort(urutkan);
   const seharian = daftar.filter(sepanjangHari);
   const berjam = daftar.filter((a) => !sepanjangHari(a));
-  const tidakMasuk = (tim ?? []).filter((s) => !['M', 'S1', 'S2'].includes(s.kode));
-  const masuk = (tim ?? []).filter((s) => ['M', 'S1', 'S2'].includes(s.kode));
+  const tidakMasuk = (tim ?? []).filter((s) => !['D', 'N'].includes(s.kode));
+  const masuk = (tim ?? []).filter((s) => ['D', 'N'].includes(s.kode));
   const selisih = W.selisihHari(tanggal, hariIni);
   const keterangan = selisih === 0 ? 'Hari ini' : selisih === 1 ? 'Besok' : selisih === -1 ? 'Kemarin' : selisih > 0 ? `${selisih} hari lagi` : `${-selisih} hari lalu`;
 
@@ -71,7 +71,7 @@ export const LembarHari: React.FC<Props> = ({ tanggal, hariIni, acara, libur, ti
                 </div>
               )}
               <p className="text-[12px] text-zinc-300">
-                {masuk.length ? `Masuk: ${masuk.map((s) => `${namaDepan(s.nama)}${s.kode !== 'M' ? ` (${s.kode})` : ''}`).join(', ')}` : 'Belum ada yang dijadwalkan masuk.'}
+                {masuk.length ? `Masuk: ${masuk.map((s) => `${namaDepan(s.nama)}${s.kode !== 'D' ? ` (${s.kode})` : ''}`).join(', ')}` : 'Belum ada yang dijadwalkan masuk.'}
               </p>
             </div>
           )}

@@ -191,12 +191,11 @@ function bentukAwal(): Db {
       { grup: 'memo_status', nilai: 'Draf', label: 'Draf', warna: 'zinc', urutan: 1 },
       { grup: 'memo_status', nilai: 'Sedang berlangsung', label: 'Sedang berlangsung', warna: 'amber', urutan: 2 },
       { grup: 'memo_status', nilai: 'Selesai', label: 'Selesai', warna: 'emerald', urutan: 3 },
-      { grup: 'roster', nilai: 'M', label: 'Masuk', warna: 'emerald', urutan: 1 },
-      { grup: 'roster', nilai: 'S1', label: 'Shift 1', warna: 'cyan', urutan: 2 },
-      { grup: 'roster', nilai: 'S2', label: 'Shift 2', warna: 'indigo', urutan: 3 },
-      { grup: 'roster', nilai: 'L', label: 'Libur', warna: 'zinc', urutan: 4 },
-      { grup: 'roster', nilai: 'C', label: 'Cuti', warna: 'amber', urutan: 5 },
-      { grup: 'roster', nilai: 'I', label: 'Izin/Sakit', warna: 'red', urutan: 6 },
+      { grup: 'roster', nilai: 'D', label: 'Shift Siang', warna: 'cyan', urutan: 1 },
+      { grup: 'roster', nilai: 'N', label: 'Shift Malam', warna: 'indigo', urutan: 2 },
+      { grup: 'roster', nilai: 'OFF', label: 'Libur', warna: 'red', urutan: 3 },
+      { grup: 'roster', nilai: 'FB', label: 'Field Break / Cuti Tahunan', warna: 'yellow', urutan: 4 },
+      { grup: 'roster', nilai: 'IK', label: 'Ijin Khusus', warna: 'emerald', urutan: 5 },
       { grup: 'bidang', nilai: 'Operasional', label: 'Operasional', warna: 'emerald', urutan: 1 },
       { grup: 'bidang', nilai: 'Lapangan', label: 'Lapangan', warna: 'cyan', urutan: 2 },
       { grup: 'bidang', nilai: 'Perencanaan', label: 'Perencanaan', warna: 'indigo', urutan: 3 },
@@ -243,6 +242,17 @@ function bentukAwal(): Db {
 
 let cache: Db | null = null;
 
+/** Sama dengan migrasi 0019: kode roster lama → kode berkas Excel. Kode buatan sendiri dibiarkan. */
+const KODE_LAMA: Record<string, string> = { M: 'D', S1: 'D', S2: 'N', L: 'OFF', C: 'FB', I: 'IK' };
+
+function naikkanKodeRoster(d: Db): boolean {
+  if (!d.opsi.some((o) => o.grup === 'roster' && o.nilai in KODE_LAMA)) return false;
+  const baru = bentukAwal().opsi.filter((o) => o.grup === 'roster');
+  d.opsi = [...d.opsi.filter((o) => !(o.grup === 'roster' && (o.nilai in KODE_LAMA || baru.some((b) => b.nilai === o.nilai)))), ...baru];
+  d.roster.forEach((r) => { r.kode = KODE_LAMA[r.kode] ?? r.kode; });
+  return true;
+}
+
 function db(): Db {
   if (cache) return cache;
   try {
@@ -256,6 +266,7 @@ function db(): Db {
         const t = tersimpan as unknown as Record<string, unknown>;
         let berubah = false;
         for (const k of Object.keys(awal)) if (t[k] === undefined) { t[k] = awal[k]; berubah = true; }
+        if (naikkanKodeRoster(tersimpan)) berubah = true;
         cache = tersimpan;
         if (berubah) simpan();
         return cache;
@@ -566,7 +577,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
         const ke = ((selisihHari(t, body.dari) % panjang) + panjang) % panjang;
         const merah = d.libur.some((l) => l.tanggal === t);
         const minggu = new Date(t + 'T00:00:00Z').getUTCDay() === 0;
-        const kode = ke < hariKerja && !minggu && !merah ? body.kode : (body.kodeLibur || 'L');
+        const kode = ke < hariKerja && !minggu && !merah ? body.kode : (body.kodeLibur || 'OFF');
         d.roster = d.roster.filter((r) => !(r.user_id === body.user_id && r.tanggal === t));
         d.roster.push({ user_id: body.user_id, tanggal: t, kode, catatan: null });
         jumlah++;

@@ -10,8 +10,9 @@
  * Anggota dikelompokkan per perusahaan (PT EBL/Tahura lalu CV KBS) dengan baris
  * judul kelompok, seperti permintaan lapangan.
  *
- * Kode roster aplikasi (M, S1, S2, L, C, I) dipetakan ke kode berkas
- * (D, N, OFF, FB, IK). Kode aslinya tetap tercatat sebagai komentar sel.
+ * Kode roster aplikasi sudah sama dengan berkas (D, N, OFF, FB, IK; migrasi 0019).
+ * Kode lama (M, S1, S2, L, C, I) masih dipetakan, untuk data demo di perangkat
+ * yang dibuat sebelum migrasi.
  */
 
 import type { Workbook, Worksheet } from 'exceljs';
@@ -20,7 +21,7 @@ import * as W from './waktu';
 
 const HURUF = 'Tahoma';
 
-/** Kode roster aplikasi → kode berkas resmi. Kode lain dipakai apa adanya. */
+/** Kode lama → kode berkas resmi. Kode lain dipakai apa adanya. */
 export const KODE_TEMPLATE: Record<string, string> = {
   M: 'D',    // Masuk → shift siang
   S1: 'D',   // Shift 1 → shift siang
@@ -189,7 +190,7 @@ export async function eksporRosterKerja(o: OpsiEksporRoster): Promise<'dibagikan
       const w = WARNA_KODE[kodeBerkas];
       ws.getCell(baris, kol).value = kodeBerkas;
       gaya(ws, baris, kol, { tebal: true, ukuran: 9, latar: w?.latar, teks: w?.teks });
-      if (isi) {
+      if (isi && (isi.catatan || kodeBerkas !== isi.kode)) {
         ws.getCell(baris, kol).note = [`${o.labelKode(isi.kode)} (${isi.kode})`, isi.catatan].filter(Boolean).join(' — ');
       }
     });
@@ -246,8 +247,7 @@ export async function eksporRosterKerja(o: OpsiEksporRoster): Promise<'dibagikan
     ws.getCell(b, 2).value = kode;
     const w = WARNA_KODE[kode];
     gaya(ws, b, 2, { tebal: true, ukuran: 10, latar: w.latar, teks: w.teks });
-    const asal = Object.entries(KODE_TEMPLATE).filter(([, v]) => v === kode).map(([k]) => k).join(', ');
-    ws.getCell(b, 3).value = asal ? `${arti}  (kode aplikasi: ${asal})` : arti;
+    ws.getCell(b, 3).value = arti;
     gaya(ws, b, 3, { ukuran: 10, rata: 'left', bingkai: false });
   });
 

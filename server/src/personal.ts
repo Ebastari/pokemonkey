@@ -65,7 +65,7 @@ export async function rutePersonal(jalur: string, req: Request, env: Env, penggu
     // Mode siklus lapangan: hari Minggu dan tanggal merah tetap dihitung sebagai
     // bagian masa kerja (siklus tidak bergeser), tetapi di roster ditandai kode libur.
     if (b.mode === 'siklus') {
-      const kodeLibur = b.kodeLibur || 'L';
+      const kodeLibur = b.kodeLibur || 'OFF';
       const hariKerja = Math.max(1, Math.round(b.mingguKerja ?? 8)) * 7;
       const hariLibur = Math.max(0, Math.round(b.mingguLibur ?? 2)) * 7;
       const panjang = hariKerja + hariLibur;

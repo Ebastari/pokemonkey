@@ -87,7 +87,7 @@ export function bangunAcara(p: {
   sayaId?: string | null;
   /** Roster pemakai sendiri (sudah disaring per orang) untuk lapisan "Roster saya". */
   roster?: { tanggal: string; kode: string; catatan?: string | null }[];
-  /** Kode roster → labelnya, mis. 'M' → 'Masuk'. */
+  /** Kode roster → labelnya, mis. 'D' → 'Shift Siang'. */
   labelKode?: (kode: string) => string;
   dari: string;
   sampai: string;
