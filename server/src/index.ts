@@ -35,6 +35,7 @@ import { ruteCuaca } from './cuaca';
 import { halamanLihatPica, tautanLihatPica } from './lihat';
 import { periksaTitikApi, ruteTitikApi } from './titik-api';
 import { ruteLaporanKarhutla } from './laporan-karhutla';
+import { ruteKatalogRab } from './katalog-rab';
 import { ruteDokumen } from './dokumen';
 import { siapkanNotif, siapkanRekapPica, liburPada, acaraPengingat } from './sumber';
 import { rutePush, kirimPushTerjadwal, kirimPushAcara } from './push';
@@ -134,6 +135,10 @@ export default {
       const hasilKarhutla = await ruteLaporanKarhutla(jalur, req, env, pengguna);
       if (hasilKarhutla) return hasilKarhutla;
 
+      // Money Monkey: katalog barang untuk form belanja RAB.
+      const hasilKatalog = await ruteKatalogRab(jalur, req, env, pengguna);
+      if (hasilKatalog) return hasilKatalog;
+
       // Dokumen administrasi (nomor surat, Internal Memo dinas, MoM) dan foto profil.
       const hasilDokumen = await ruteDokumen(jalur, req, env, pengguna);
       if (hasilDokumen) return hasilDokumen;
@@ -179,6 +184,20 @@ export default {
       // --- PICA ---
       if (jalur === '/api/pica' && req.method === 'GET') return daftarPica(url, env);
       if (jalur === '/api/pica/impor' && req.method === 'POST') return imporPicaBatch(req, env, pengguna);
+      // Semua foto bukti per PICA (lampiran PICA + foto laporan FEED yang menjadi bukti PICA) — untuk Monkey Point.
+      if (jalur === '/api/pica/bukti' && req.method === 'GET') {
+        const { results } = await env.DB.prepare(
+          `SELECT m.entitas_id AS pica_id, m.kunci_r2 AS kunci, m.pada
+             FROM lampiran m JOIN pica p ON p.id = m.entitas_id
+            WHERE m.entitas = 'pica' AND m.tipe_mime LIKE 'image/%' AND p.dihapus = 0
+           UNION ALL
+           SELECT l.pica_id, m.kunci_r2, m.pada
+             FROM lampiran m JOIN laporan l ON l.id = m.entitas_id
+            WHERE m.entitas = 'laporan' AND l.pica_id IS NOT NULL AND m.tipe_mime LIKE 'image/%'
+            ORDER BY pada DESC LIMIT 2000`,
+        ).all();
+        return json({ bukti: results });
+      }
       if (jalur === '/api/pica' && req.method === 'POST') return buatPica(req, env, pengguna);
 
       const cocokPica = jalur.match(/^\/api\/pica\/([\w-]+)$/);
@@ -456,7 +475,7 @@ async function daftarPica(url: URL, env: Env): Promise<Response> {
             (SELECT COUNT(*) FROM lampiran l WHERE (l.entitas = 'pica' AND l.entitas_id = p.id) OR (l.entitas = 'laporan' AND l.entitas_id IN (SELECT id FROM laporan WHERE pica_id = p.id))) AS jumlah_lampiran
        FROM pica p LEFT JOIN tim t ON t.id = p.pic_id
       WHERE ${syarat.join(' AND ')}
-      ORDER BY (p.status = 'Closed'), p.due_date IS NULL, p.due_date, p.nomor`,
+      ORDER BY p.no_urut DESC`,
   )
     .bind(...nilai)
     .all();
@@ -523,11 +542,13 @@ async function buatPica(req: Request, env: Env, pengguna: Pengguna): Promise<Res
   const nomor = urut?.n ?? 1;
   const id = `PICA-${periodeId ?? 'UMUM'}-${String(nomor).padStart(2, '0')}`;
 
+  // Nomor berjalan sepanjang waktu (PICA-001, 002, …); dihitung di dalam INSERT agar tidak kembar.
   await env.DB.prepare(
     `INSERT INTO pica (id, nomor, periode_id, bidang, prioritas, judul, akar, tindakan,
                        pic_id, due_date, status, terkait_id, target, realisasi, satuan,
-                       props, dibuat_oleh, dibuat_pada, judul_singkat)
-     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)`,
+                       props, dibuat_oleh, dibuat_pada, judul_singkat, no_urut)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,
+             (SELECT COALESCE(MAX(no_urut), 0) + 1 FROM pica))`,
   )
     .bind(
       id, nomor, periodeId, b.bidang, b.prioritas ?? 'Sedang', b.judul,
@@ -587,8 +608,9 @@ async function imporPicaBatch(req: Request, env: Env, pengguna: Pengguna): Promi
       env.DB.prepare(
         `INSERT INTO pica (id, nomor, periode_id, bidang, prioritas, judul, akar, tindakan,
                            pic_id, due_date, status, terkait_id, target, realisasi, satuan,
-                           props, dibuat_oleh, dibuat_pada, judul_singkat)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)`,
+                           props, dibuat_oleh, dibuat_pada, judul_singkat, no_urut)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,
+                 (SELECT COALESCE(MAX(no_urut), 0) + 1 FROM pica))`,
       ).bind(
         id,
         nomorSekarang,

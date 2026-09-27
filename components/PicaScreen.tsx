@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { noPica } from '../lib/nomor-pica';
 import {
   ClipboardList, Plus, Search, Table2, KanbanSquare, X, Lock, Unlock, Paperclip, History,
   MessageSquarePlus, Pencil, Trash2, Settings2, Loader2, Link2, ExternalLink, FileSpreadsheet,
@@ -51,7 +52,10 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
   const [tampilan, setTampilan] = useState<'tabel' | 'papan'>('tabel');
   const [kelompok, setKelompok] = useState<'status' | 'pic_id' | 'bidang'>('status');
   // Default tutup: true agar PICA yang selesai (Closed) langsung tampil saat layar dibuka
-  const [filter, setFilter] = useState({ status: '', bidang: '', pic: '', q: '', tutup: true });
+  const [filter, setFilter] = useState({ q: '', tutup: true });
+  // Saringan di bawah judul tiap kolom tabel (juga berlaku untuk tampilan papan & ekspor).
+  const [saring, setSaring] = useState<SaringKolom>(SARING_KOSONG);
+  const jumlahSaring = Object.values(saring).filter(Boolean).length;
   const [terpilih, setTerpilih] = useState<string | null>(picaAwal ?? null);
   const [formBaru, setFormBaru] = useState(false);
   const [aturBuka, setAturBuka] = useState(false);
@@ -67,13 +71,10 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
     setMemuat(true);
     try {
       const p = new URLSearchParams();
-      if (filter.status) p.set('status', filter.status);
-      if (filter.bidang) p.set('bidang', filter.bidang);
-      if (filter.pic) p.set('pic', filter.pic);
       if (filter.q) p.set('q', filter.q);
+      // Server mengurutkan dari PICA terbaru (no_urut terbesar) di atas.
       const d = await api<{ pica: PicaItem[] }>(`/api/pica?${p.toString()}`);
-      // Menampilkan semua PICA jika filter.tutup aktif atau status spesifik dipilih (misal user pilih 'Closed')
-      setDaftar(filter.tutup || filter.status === 'Closed' ? d.pica : d.pica.filter((x) => x.status !== 'Closed'));
+      setDaftar(d.pica);
     } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMUAT PICA'); }
     finally { setMemuat(false); }
   }, [filter, notify]);
@@ -82,11 +83,18 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
   useEffect(() => { if (picaAwal) setTerpilih(picaAwal); }, [picaAwal]);
   const tutupDetail = useCallback(() => setTerpilih(null), []);
 
+  // Yang tampil = hasil saringan kolom; PICA selesai disembunyikan bila "Tampilkan Selesai" mati
+  // (kecuali saringan status memilih Closed).
+  const tampil = useMemo(
+    () => daftar.filter((p) => (filter.tutup || saring.status === 'Closed' || p.status !== 'Closed') && cocokSaring(p, saring)),
+    [daftar, filter.tutup, saring],
+  );
+
   const ringkas = useMemo(() => ({
-    terbuka: daftar.filter((p) => p.status !== 'Closed').length,
-    telat: daftar.filter((p) => p.status !== 'Closed' && !cekSudahProgress(p) && (p.sisa_hari ?? 1) < 0).length,
-    selesai: daftar.filter((p) => p.status === 'Closed').length,
-  }), [daftar]);
+    terbuka: tampil.filter((p) => p.status !== 'Closed').length,
+    telat: tampil.filter((p) => p.status !== 'Closed' && !cekSudahProgress(p) && (p.sisa_hari ?? 1) < 0).length,
+    selesai: tampil.filter((p) => p.status === 'Closed').length,
+  }), [tampil]);
 
   const kolomProps = boot.properti.filter((p) => p.tampil_di_tabel === 1);
 
@@ -105,16 +113,14 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
    * pilihan Kelompok (Status/PIC/Bidang) dengan judul kelompok berwarna.
    */
   const eksporExcel = async () => {
-    if (daftar.length === 0) { notify('TIDAK ADA DATA UNTUK DIEKSPOR'); return; }
+    if (tampil.length === 0) { notify('TIDAK ADA DATA UNTUK DIEKSPOR'); return; }
     setMengekspor(true);
     try {
       const wb = await bukuBaru();
       const labelOpsi = (grup: string, n: string) => boot.opsi.find((o) => o.grup === grup && o.nilai === n);
       const propLain = boot.properti.filter((k) => k.tampil_di_tabel !== 1);
       const saringan = [
-        filter.bidang && `Bidang: ${filter.bidang}`,
-        filter.pic && `PIC: ${boot.tim.find((t) => t.id === filter.pic)?.nama ?? filter.pic}`,
-        filter.status && `Status: ${filter.status}`,
+        ...teksSaring(saring, boot),
         filter.q && `Cari: "${filter.q}"`,
         !filter.tutup && 'tanpa PICA selesai',
       ].filter(Boolean).join(', ');
@@ -155,7 +161,7 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
 
         const zebra = urutan++ % 2 ? 'FAFAFA' : undefined;
         const row = k.tambah([
-          p.nomor, p.id, p.bidang, labelOpsi('prioritas', p.prioritas)?.label ?? p.prioritas,
+          noPica(p), p.id, p.bidang, labelOpsi('prioritas', p.prioritas)?.label ?? p.prioritas,
           p.judul, p.akar ?? '', p.tindakan ?? '',
           p.target ?? '', p.realisasi ?? '', p.satuan ?? '', pct !== null ? `${pct}%` : '',
           p.pic_nama ?? '—', tanggalExcel(p.due_date),
@@ -176,7 +182,7 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
       };
 
       if (tampilan === 'tabel') {
-        daftar.forEach(tulis);
+        tampil.forEach(tulis);
         pasangSaringan(k);
       } else {
         const kolomPapan: { kunci: string; label: string; warna: string }[] =
@@ -184,7 +190,7 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
             : kelompok === 'bidang' ? opsi('bidang').map((o) => ({ kunci: o.nilai, label: o.label, warna: o.warna ?? 'zinc' }))
               : [...boot.tim.map((t) => ({ kunci: t.id, label: t.nama, warna: 'indigo' })), { kunci: '', label: 'Belum ada PIC', warna: 'zinc' }];
         kolomPapan.forEach((g) => {
-          const isi = daftar.filter((p) => String(p[kelompok] ?? '') === g.kunci);
+          const isi = tampil.filter((p) => String(p[kelompok] ?? '') === g.kunci);
           if (isi.length === 0 && kelompok === 'pic_id' && g.kunci === '') return;
           const telat = isi.filter((p) => !cekSudahProgress(p) && (p.sisa_hari ?? 1) < 0 && p.status !== 'Closed').length;
           k.kelompok(`${g.label.toUpperCase()} · ${isi.length} PICA${telat ? ` · ${telat} telat` : ''}`, g.warna);
@@ -194,7 +200,7 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
       }
 
       await simpanBuku(wb, `PICA-${periodeAktif?.id ?? 'semua'}-${W.hariIniWita()}.xlsx`, 'Ekspor PICA');
-      notify(`${daftar.length} BARIS DIEKSPOR`);
+      notify(`${tampil.length} BARIS DIEKSPOR`);
     } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'EKSPOR GAGAL'); }
     finally { setMengekspor(false); }
   };
@@ -224,9 +230,11 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
           <input value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} placeholder="Cari masalah / kode…" className="input-retro !pl-8 !py-1.5 !text-[13px]" />
         </div>
-        <select value={filter.bidang} onChange={(e) => setFilter({ ...filter, bidang: e.target.value })} className="input-retro !w-auto !py-1.5 !text-[13px]"><option value="">Semua bidang</option>{opsi('bidang').map((o) => <option key={o.nilai} value={o.nilai}>{o.label}</option>)}</select>
-        <select value={filter.pic} onChange={(e) => setFilter({ ...filter, pic: e.target.value })} className="input-retro !w-auto !py-1.5 !text-[13px]"><option value="">Semua PIC</option>{boot.tim.map((t) => <option key={t.id} value={t.id}>{t.nama}</option>)}</select>
-        <select value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })} className="input-retro !w-auto !py-1.5 !text-[13px]"><option value="">Semua status</option>{opsi('status').map((o) => <option key={o.nilai} value={o.nilai}>{o.label}</option>)}</select>
+        {jumlahSaring > 0 && (
+          <button onClick={() => setSaring(SARING_KOSONG)} className="chip-retro border-amber-400 bg-amber-950/60 text-amber-200 !text-[11px]" title="Hapus semua saringan kolom">
+            {jumlahSaring} saringan kolom aktif · {tampil.length} dari {daftar.length} PICA · Hapus ✕
+          </button>
+        )}
         <label className="flex items-center gap-1.5 text-[12px] text-zinc-300 cursor-pointer select-none bg-black/30 px-2 py-1 border border-white/20 hover:border-amber-400" title="Centang untuk menampilkan PICA yang berstatus Closed"><input type="checkbox" checked={filter.tutup} onChange={(e) => setFilter({ ...filter, tutup: e.target.checked })} className="accent-amber-500" /> Tampilkan Selesai</label>
         {tampilan === 'papan' && <select value={kelompok} onChange={(e) => setKelompok(e.target.value as typeof kelompok)} className="input-retro !w-auto !py-1.5 !text-[13px]"><option value="status">Kelompok: Status</option><option value="pic_id">Kelompok: PIC</option><option value="bidang">Kelompok: Bidang</option></select>}
       </div>
@@ -244,15 +252,19 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
                 <tr className="bg-[#2f5d33] text-white teks-atas-warna uppercase text-[11px]">
                   {['No', 'Bidang', 'Prioritas', 'Masalah (fakta di laporan)', 'Akar masalah', 'Tindakan korektif', 'Target & Realisasi', 'Progres', 'PIC', 'Due Date', 'Status', 'Sisa / Keterangan', 'Update Terakhir', 'Bukti', ...kolomProps.map((k) => k.label)].map((h) => <th key={h} className="text-left p-2 border border-white/25 font-bold whitespace-nowrap">{h}</th>)}
                 </tr>
+                <BarisSaring saring={saring} ubah={(k, v) => setSaring((x) => ({ ...x, [k]: v }))} boot={boot} kolomProps={kolomProps.length} />
               </thead>
               <tbody>
-                {daftar.map((p, i) => {
+                {tampil.length === 0 && (
+                  <tr><td colSpan={14 + kolomProps.length} className="p-6 text-center text-zinc-400">Tidak ada PICA yang cocok dengan saringan kolom.</td></tr>
+                )}
+                {tampil.map((p, i) => {
                   const sudahProg = cekSudahProgress(p);
                   const pct = hitungPersen(p.target, p.realisasi);
                   const telat = p.status !== 'Closed' && !sudahProg && (p.sisa_hari ?? 1) < 0;
                   return (
                     <tr key={p.id} onClick={() => setTerpilih(p.id)} className={`cursor-pointer align-top ${i % 2 ? 'bg-white/5' : 'bg-black/30'} hover:bg-amber-500/10`}>
-                      <td className="p-2 border border-white/10 whitespace-nowrap text-zinc-300">{p.nomor}<br /><span className="text-[10px] text-zinc-500">{p.id}</span></td>
+                      <td className="p-2 border border-white/10 whitespace-nowrap"><span className="font-bold text-amber-300">{noPica(p)}</span><br /><span className="text-[10px] text-zinc-500">{p.id}</span></td>
                       <td className="p-2 border border-white/10 whitespace-nowrap">{p.bidang}</td>
                       <td className="p-2 border border-white/10"><Pill nilai={p.prioritas} grup="prioritas" boot={boot} /></td>
                       <td className="p-2 border border-white/10 min-w-[280px] leading-relaxed text-white">{p.judul}{p.terkait_id && <span className="block text-[11px] text-cyan-300 mt-1">↳ terkait {p.terkait_id}</span>}</td>
@@ -318,7 +330,7 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
           </div>
         )}
 
-        {tampilan === 'papan' && daftar.length > 0 && <Papan daftar={daftar} kelompok={kelompok} boot={boot} onPilih={setTerpilih} />}
+        {tampilan === 'papan' && daftar.length > 0 && <Papan daftar={tampil} kelompok={kelompok} boot={boot} onPilih={setTerpilih} />}
       </div>
 
       {terpilih && <DetailPica id={terpilih} boot={boot} pengguna={pengguna} daftar={daftar} onTutup={tutupDetail} onUbah={muat} notify={notify} />}
@@ -326,6 +338,86 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
       {imporBuka && <ModalImporPica boot={boot} pengguna={pengguna} onTutup={() => setImporBuka(false)} onSelesai={() => { setImporBuka(false); muat(); }} notify={notify} />}
       {monkeyPointBuka && <ModalMonkeyPoint boot={boot} pengguna={pengguna} onTutup={() => setMonkeyPointBuka(false)} notify={notify} />}
     </div>
+  );
+};
+
+
+interface SaringKolom {
+  no: string; bidang: string; prioritas: string; judul: string; akar: string; tindakan: string;
+  progres: '' | 'ada' | 'belum'; pic: string; due: '' | 'telat' | 'minggu' | 'kosong'; status: string;
+  update: string; bukti: '' | 'ada' | 'tidak'; props: string;
+}
+const SARING_KOSONG: SaringKolom = {
+  no: '', bidang: '', prioritas: '', judul: '', akar: '', tindakan: '', progres: '', pic: '', due: '', status: '', update: '', bukti: '', props: '',
+};
+
+const memuatTeks = (isi: string | null | undefined, cari: string) => !cari || String(isi ?? '').toLowerCase().includes(cari.toLowerCase());
+
+function cocokSaring(p: PicaItem, s: SaringKolom): boolean {
+  const telat = p.status !== 'Closed' && !cekSudahProgress(p) && (p.sisa_hari ?? 1) < 0;
+  if (!memuatTeks(`${noPica(p)} ${p.id}`, s.no)) return false;
+  if (s.bidang && p.bidang !== s.bidang) return false;
+  if (s.prioritas && p.prioritas !== s.prioritas) return false;
+  if (!memuatTeks(p.judul, s.judul) || !memuatTeks(p.akar, s.akar) || !memuatTeks(p.tindakan, s.tindakan)) return false;
+  if (s.progres === 'ada' && hitungPersen(p.target, p.realisasi) === null) return false;
+  if (s.progres === 'belum' && hitungPersen(p.target, p.realisasi) !== null) return false;
+  if (s.pic === '-' ? p.pic_id : s.pic && p.pic_id !== s.pic) return false;
+  if (s.due === 'telat' && !telat) return false;
+  if (s.due === 'minggu' && (p.status === 'Closed' || p.sisa_hari === null || p.sisa_hari < 0 || p.sisa_hari > 7)) return false;
+  if (s.due === 'kosong' && p.due_date) return false;
+  if (s.status && p.status !== s.status) return false;
+  if (!memuatTeks(p.update_terakhir, s.update)) return false;
+  if (s.bukti === 'ada' && !p.jumlah_lampiran) return false;
+  if (s.bukti === 'tidak' && p.jumlah_lampiran) return false;
+  if (s.props && !Object.values(p.props ?? {}).some((v) => memuatTeks(String(v), s.props))) return false;
+  return true;
+}
+
+/** Ringkasan saringan kolom untuk keterangan berkas Excel. */
+function teksSaring(s: SaringKolom, boot: Bootstrap): string[] {
+  const due = { telat: 'telat', minggu: 'tenggat ≤ 7 hari', kosong: 'tanpa due date' } as const;
+  return [
+    s.no && `No: "${s.no}"`, s.bidang && `Bidang: ${s.bidang}`, s.prioritas && `Prioritas: ${s.prioritas}`,
+    s.judul && `Masalah: "${s.judul}"`, s.akar && `Akar: "${s.akar}"`, s.tindakan && `Tindakan: "${s.tindakan}"`,
+    s.progres && `Progres: ${s.progres === 'ada' ? 'ada target' : 'tanpa target'}`,
+    s.pic && `PIC: ${s.pic === '-' ? 'belum ada' : boot.tim.find((t) => t.id === s.pic)?.nama ?? s.pic}`,
+    s.due && `Due: ${due[s.due]}`, s.status && `Status: ${s.status}`, s.update && `Update: "${s.update}"`,
+    s.bukti && `Bukti: ${s.bukti === 'ada' ? 'ada' : 'belum ada'}`, s.props && `Kolom lain: "${s.props}"`,
+  ].filter((x): x is string => Boolean(x));
+}
+
+/** Baris saringan di bawah judul kolom tabel PICA. */
+const BarisSaring: React.FC<{ saring: SaringKolom; ubah: (k: keyof SaringKolom, v: string) => void; boot: Bootstrap; kolomProps: number }> = ({ saring, ubah, boot, kolomProps }) => {
+  const kelas = (aktif: boolean) => `w-full min-w-[70px] bg-black/60 border ${aktif ? 'border-amber-400 text-amber-200' : 'border-white/20 text-zinc-200'} px-1.5 py-1 text-[11px] font-normal normal-case`;
+  const teks = (k: keyof SaringKolom, ph = 'Cari…') => (
+    <input value={saring[k]} onChange={(e) => ubah(k, e.target.value)} placeholder={ph} className={kelas(Boolean(saring[k]))} aria-label={`Saring ${k}`} />
+  );
+  const pilih = (k: keyof SaringKolom, isi: [string, string][]) => (
+    <select value={saring[k]} onChange={(e) => ubah(k, e.target.value)} className={kelas(Boolean(saring[k]))} aria-label={`Saring ${k}`}>
+      <option value="">Semua</option>
+      {isi.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+    </select>
+  );
+  const opsi = (g: string): [string, string][] => boot.opsi.filter((o) => o.grup === g).map((o) => [o.nilai, o.label]);
+  const sel = 'p-1 border border-white/20 bg-[#1f3d22]';
+  return (
+    <tr>
+      <th className={sel}>{teks('no', 'PICA-…')}</th>
+      <th className={sel}>{pilih('bidang', opsi('bidang'))}</th>
+      <th className={sel}>{pilih('prioritas', opsi('prioritas'))}</th>
+      <th className={sel}>{teks('judul')}</th>
+      <th className={sel}>{teks('akar')}</th>
+      <th className={sel}>{teks('tindakan')}</th>
+      <th className={sel}>{pilih('progres', [['ada', 'Ada target'], ['belum', 'Tanpa target']])}</th>
+      <th className={sel} />
+      <th className={sel}>{pilih('pic', [...boot.tim.map((t): [string, string] => [t.id, t.nama]), ['-', 'Belum ada PIC']])}</th>
+      <th className={sel}>{pilih('due', [['telat', 'Telat'], ['minggu', '≤ 7 hari'], ['kosong', 'Tanpa due']])}</th>
+      <th className={sel}>{pilih('status', opsi('status'))}</th>
+      <th className={sel} />
+      <th className={sel}>{teks('update')}</th>
+      <th className={sel}>{pilih('bukti', [['ada', 'Ada'], ['tidak', 'Belum']])}</th>
+      {Array.from({ length: kolomProps }, (_, i) => <th key={i} className={sel}>{i === 0 ? teks('props') : null}</th>)}
+    </tr>
   );
 };
 
@@ -412,7 +504,7 @@ const Papan: React.FC<{ daftar: PicaItem[]; kelompok: 'status' | 'pic_id' | 'bid
                   className={`text-left bg-black/50 border-l-4 p-2 hover:bg-white/5 ${isTelat ? 'border-red-500' : sudahProg ? 'border-sky-500' : w.garis}`}
                 >
                   <div className="flex items-center justify-between text-[11px] text-zinc-400">
-                    <span>{p.id} · {p.bidang}</span>
+                    <span>{noPica(p)} · {p.bidang}</span>
                     {p.jumlah_lampiran && p.jumlah_lampiran > 0 ? (
                       <span className="text-cyan-300 flex items-center gap-0.5 text-[10px]"><Paperclip size={10} />{p.jumlah_lampiran}</span>
                     ) : null}
@@ -538,7 +630,7 @@ const DetailPica: React.FC<{ id: string; boot: Bootstrap; pengguna: Pengguna; da
   const persen = p.target && p.realisasi !== null ? Math.min(100, Math.round((p.realisasi / p.target) * 100)) : null;
 
   return (
-    <Modal judul={<><span className="text-[11px] text-zinc-400 block font-normal">{p.id} · {p.bidang}{terkunci && <span className="ml-2 text-red-300"><Lock size={10} className="inline" /> terkunci</span>}</span>{p.judul}</>} onTutup={onTutup}>
+    <Modal judul={<><span className="text-[11px] text-zinc-400 block font-normal">{noPica(p)} · {p.id} · {p.bidang}{terkunci && <span className="ml-2 text-red-300"><Lock size={10} className="inline" /> terkunci</span>}</span>{p.judul}</>} onTutup={onTutup}>
       <div className="flex flex-wrap gap-2 items-center">
         <Pill nilai={p.prioritas} grup="prioritas" boot={boot} />
         <select value={p.status} onChange={(e) => ubahStatus(e.target.value)} className="input-retro !w-auto !py-1 !text-[12px]">{boot.opsi.filter((o) => o.grup === 'status').map((o) => <option key={o.nilai} value={o.nilai}>{o.label}</option>)}</select>
@@ -689,7 +781,7 @@ const FormPica: React.FC<{ boot: Bootstrap; daftar: PicaItem[]; awal?: PicaItem;
         <div><label className="label-retro">Realisasi</label><input type="number" value={f.realisasi} onChange={(e) => setF({ ...f, realisasi: e.target.value })} className="input-retro" /></div>
         <div><label className="label-retro">Satuan</label><select value={f.satuan} onChange={(e) => setF({ ...f, satuan: e.target.value })} className="input-retro"><option value="">—</option>{opsi('satuan').map((o) => <option key={o.nilai} value={o.nilai}>{o.label}</option>)}</select></div>
       </div>
-      <div><label className="label-retro">Terkait PICA lain</label><select value={f.terkait_id} onChange={(e) => setF({ ...f, terkait_id: e.target.value })} className="input-retro"><option value="">— tidak ada —</option>{daftar.filter((p) => p.id !== awal?.id).map((p) => <option key={p.id} value={p.id}>{p.id} · {p.judul.slice(0, 60)}</option>)}</select></div>
+      <div><label className="label-retro">Terkait PICA lain</label><select value={f.terkait_id} onChange={(e) => setF({ ...f, terkait_id: e.target.value })} className="input-retro"><option value="">— tidak ada —</option>{daftar.filter((p) => p.id !== awal?.id).map((p) => <option key={p.id} value={p.id}>{noPica(p)} · {p.judul.slice(0, 60)}</option>)}</select></div>
       {boot.properti.length > 0 && (
         <div className="border-t border-white/10 pt-2">
           <p className="label-retro">Kolom tambahan</p>

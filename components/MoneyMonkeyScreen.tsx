@@ -27,6 +27,13 @@ import {
   eksporRabKeExcel,
 } from '../lib/rab-hcga';
 import type { Pengguna } from '../lib/tipe-api';
+import { FormBelanjaRab } from './FormBelanjaRab';
+import { FormulirKeuangan } from './FormulirKeuangan';
+import type { JenisFormulir } from '../lib/formulir-keuangan';
+import type { PilihanBelanja } from '../lib/katalog-rab';
+import { muatSurat, simpanSuratKeServer } from '../lib/dokumen';
+import { generateNomorSuratOtomatis, type ItemSurat } from '../lib/tipe-surat';
+import * as W from '../lib/waktu';
 
 interface Props {
   pengguna: Pengguna;
@@ -109,7 +116,20 @@ export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
   const [formJudul, setFormJudul] = useState<string>('');
   const [formNomorRab, setFormNomorRab] = useState<string>('');
   const [formLokasi, setFormLokasi] = useState<string>('Site EBL - RANTAU');
-  const [formSalinContoh, setFormSalinContoh] = useState<boolean>(true);
+  const [formSalinContoh, setFormSalinContoh] = useState<boolean>(false);
+  const [formNomorUrut, setFormNomorUrut] = useState<number>(1);
+  // Data Surat: sumber nomor urut RAB (001/RAB/EBL-RNR/IX/2026) dan tempat nomornya dicatat.
+  const [daftarSurat, setDaftarSurat] = useState<ItemSurat[]>([]);
+  const [belanjaBuka, setBelanjaBuka] = useState(false);
+  // Menu Money Monkey: RAB HCGA bulanan + formulir Disposisi, RAB Insidental, LBPD.
+  const [menuMoney, setMenuMoney] = useState<'rab' | JenisFormulir>(() => {
+    try { return (localStorage.getItem('pokemonkey_money_menu') as 'rab' | JenisFormulir) || 'rab'; } catch { return 'rab'; }
+  });
+  const gantiMenuMoney = (m: 'rab' | JenisFormulir) => {
+    setMenuMoney(m);
+    try { localStorage.setItem('pokemonkey_money_menu', m); } catch { /* abaikan */ }
+  };
+  const bolehKelolaKatalog = pengguna.peran === 'admin' || pengguna.peran === 'supervisor';
 
   // State di dalam Form Editor (jika ada permohonan aktif terpilih)
   const [editorMode, setEditorMode] = useState<'rekap' | 'rincian' | 'pratinjau'>('rekap');
@@ -170,31 +190,44 @@ export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
   // ---------------------------------------------------------------------------
   // HANDLERS DASHBOARD & PERMOHONAN BARU
   // ---------------------------------------------------------------------------
-  const handleBukaModalTambah = () => {
-    const defaultBulan = 'November';
-    const defaultTahun = 2026;
-    const romawi = BULAN_ROMAWI[defaultBulan] || 'XI';
+  /** Nomor berikutnya: urut berjalan dari Data Surat kategori RAB, bulan romawi & tahun periode RAB. */
+  const aturNomorRab = (bulan: string, tahun: number, surat: ItemSurat[]) => {
+    const noBulan = Math.max(1, DAFTAR_BULAN.indexOf(bulan) + 1);
+    const g = generateNomorSuratOtomatis('rab', surat, `${tahun}-${String(noBulan).padStart(2, '0')}-01T00:00:00`);
+    setFormNomorRab(g.nomorSurat);
+    setFormNomorUrut(g.nomorUrut);
+  };
+
+  const handleBukaModalTambah = async () => {
+    const hariIni = W.hariIniWita();
+    const defaultBulan = DAFTAR_BULAN[Number(hariIni.slice(5, 7)) - 1] ?? 'Januari';
+    const defaultTahun = Number(hariIni.slice(0, 4));
     setFormBulan(defaultBulan);
     setFormTahun(defaultTahun);
     setFormJudul(`RAB HCGA Site - ${defaultBulan} ${defaultTahun}`);
-    setFormNomorRab(`RAB/EBL-HCGA/${romawi}/${defaultTahun}`);
     setFormLokasi('Site EBL - RANTAU');
-    setFormSalinContoh(true);
+    setFormSalinContoh(false);
+    aturNomorRab(defaultBulan, defaultTahun, daftarSurat);
     setModalTambahTerbuka(true);
+    try {
+      const surat = await muatSurat();
+      setDaftarSurat(surat);
+      aturNomorRab(defaultBulan, defaultTahun, surat);
+    } catch {
+      notify('DATA SURAT TIDAK TERJANGKAU · NOMOR RAB MUNGKIN BELUM URUT');
+    }
   };
 
   const handleUbahBulanForm = (bulan: string) => {
     setFormBulan(bulan);
-    const romawi = BULAN_ROMAWI[bulan] || 'I';
     setFormJudul(`RAB HCGA Site - ${bulan} ${formTahun}`);
-    setFormNomorRab(`RAB/EBL-HCGA/${romawi}/${formTahun}`);
+    aturNomorRab(bulan, formTahun, daftarSurat);
   };
 
   const handleUbahTahunForm = (tahun: number) => {
     setFormTahun(tahun);
-    const romawi = BULAN_ROMAWI[formBulan] || 'I';
     setFormJudul(`RAB HCGA Site - ${formBulan} ${tahun}`);
-    setFormNomorRab(`RAB/EBL-HCGA/${romawi}/${tahun}`);
+    aturNomorRab(formBulan, tahun, daftarSurat);
   };
 
   const handleSimpanPermohonanBaru = (e: React.FormEvent) => {
@@ -213,7 +246,47 @@ export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
     setModalTambahTerbuka(false);
     setIdPermohonanAktif(baru.id);
     setEditorMode('rekap');
+    // Langsung ke form belanja: centang kebutuhan dari katalog.
+    setBelanjaBuka(true);
     notify(`PERMOHONAN BARU ${baru.nomorRab} BERHASIL DIBUAT`);
+
+    // Nomor RAB dicatat di Data Surat (kategori RAB) supaya urutannya tidak dipakai dua kali.
+    const surat: ItemSurat = {
+      id: `rab-${baru.id}`,
+      kategori: 'rab',
+      nomorUrut: formNomorUrut,
+      nomorSurat: baru.nomorRab,
+      namaSurat: baru.judul,
+      tanggal: baru.tanggalPengajuan,
+      namaPembuat: pengguna.nama,
+      keterangan: `Money Monkey · ${baru.bulan} ${baru.tahun}`,
+      dibuatPada: baru.dibuatPada,
+    };
+    simpanSuratKeServer(surat)
+      .then(() => setDaftarSurat((d) => [surat, ...d]))
+      .catch((err) => notify(err instanceof Error ? `NOMOR RAB BELUM TERCATAT DI DATA SURAT: ${err.message}`.toUpperCase() : 'NOMOR RAB BELUM TERCATAT DI DATA SURAT'));
+  };
+
+  /** Barang dari form belanja masuk ke lembar & minggu RAB; barang yang sama (nama, satuan, harga) dijumlahkan. */
+  const handleMasukkanBelanja = (pilihan: PilihanBelanja[]) => {
+    if (!permohonanAktif) return;
+    setDaftarPermohonan((prev) =>
+      prev.map((item) => {
+        if (item.id !== permohonanAktif.id) return item;
+        const dataBaru: DataRabHcga = JSON.parse(JSON.stringify(item.data));
+        pilihan.forEach((p, i) => {
+          const kat = dataBaru.kategori.find((k) => k.id === p.kategori) ?? dataBaru.kategori.find((k) => k.id === 'pantry') ?? dataBaru.kategori[0];
+          const minggu = kat.minggu.find((m) => m.mingguKe === p.mingguKe) ?? kat.minggu[0];
+          const sama = minggu.items.find((it) => it.namaBarang === p.namaBarang && it.satuan === p.satuan && it.hargaSatuan === p.hargaSatuan);
+          if (sama) sama.qty = (sama.qty ?? 0) + p.qty;
+          else minggu.items.push({ id: `${kat.id}-w${minggu.mingguKe}-${Date.now()}-${i}`, namaBarang: p.namaBarang, qty: p.qty, satuan: p.satuan, hargaSatuan: p.hargaSatuan });
+        });
+        return { ...item, data: dataBaru, totalNominal: hitungGrandTotal(dataBaru).grandTotal, diubahPada: new Date().toISOString() };
+      }),
+    );
+    setBelanjaBuka(false);
+    setEditorMode('rekap');
+    notify(`${pilihan.length} BARANG MASUK KE RAB`);
   };
 
   const handleUbahStatus = (id: string, statusBaru: StatusPermohonanRab) => {
@@ -422,12 +495,22 @@ export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
             <h2 className="judul-layar flex items-center gap-2">
               <Coins size={18} className="text-yellow-400" /> MONEY MONKEY
             </h2>
-            <span className="text-[11px] font-mono text-zinc-400 hidden md:inline">
-              | TRACKING & PENGAJUAN RAB HCGA SITE
-            </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap border-2 border-white/40">
+            {([['rab', 'RAB HCGA'], ['disposisi', 'Disposisi'], ['insidental', 'RAB Insidental'], ['lbpd', 'LBPD']] as const).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => gantiMenuMoney(k)}
+                className={`px-2.5 py-1.5 text-[11px] font-bold uppercase ${menuMoney === k ? 'bg-amber-600 text-white' : 'bg-black/40 text-zinc-300 hover:text-white'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className={`flex items-center gap-2 ${menuMoney === 'rab' ? '' : 'hidden'}`}>
             <button
               onClick={handleBukaModalTambah}
               className="btn-retro bg-amber-600 hover:bg-amber-500 text-white font-bold flex items-center gap-1.5 !py-1.5 text-[12px] shadow-[2px_2px_0_#000]"
@@ -437,8 +520,14 @@ export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           </div>
         </div>
 
+        {menuMoney !== 'rab' && (
+          <div className="flex-1 overflow-auto custom-scrollbar px-2 pb-4 min-h-0">
+            <FormulirKeuangan jenis={menuMoney} pengguna={pengguna} notify={notify} />
+          </div>
+        )}
+
         {/* Konten Dashboard (Bisa Di-scroll) */}
-        <div className="flex-1 overflow-auto custom-scrollbar px-2 pb-4 space-y-3 min-h-0">
+        <div className={`flex-1 overflow-auto custom-scrollbar px-2 pb-4 space-y-3 min-h-0 ${menuMoney === 'rab' ? '' : 'hidden'}`}>
           {/* ================================================================ */}
           {/* KARTU METRIK TRACKING                                            */}
           {/* ================================================================ */}
@@ -819,8 +908,9 @@ export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                     value={formNomorRab}
                     onChange={(e) => setFormNomorRab(e.target.value)}
                     className="input-retro w-full font-mono"
-                    placeholder="Contoh: RAB/EBL-HCGA/XI/2026"
+                    placeholder="Contoh: 001/RAB/EBL-RNR/IX/2026"
                   />
+                  <p className="text-[11px] text-zinc-400 mt-1">Nomor urut otomatis dari Data Surat (kategori RAB) dan ikut tercatat di sana.</p>
                 </div>
 
                 <div>
@@ -844,10 +934,10 @@ export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                     />
                     <div>
                       <span className="font-bold text-white block">
-                        Salin item bawaan template (ATK, BBM, Catering, dll)
+                        Salin item contoh template (ATK, BBM, Catering, dll)
                       </span>
                       <span className="text-[11px] text-zinc-400 block">
-                        Jika dicentang, tabel item akan terisi contoh standar yang bisa langsung Anda edit.
+                        Biasanya tidak perlu: setelah dibuat, form belanja terbuka untuk mencentang kebutuhan dari katalog.
                       </span>
                     </div>
                   </label>
@@ -865,7 +955,7 @@ export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
                     type="submit"
                     className="btn-retro bg-amber-600 hover:bg-amber-500 text-white font-bold flex items-center gap-1.5"
                   >
-                    <Plus size={14} /> Buat & Buka Editor
+                    <Plus size={14} /> Buat & Pilih Barang
                   </button>
                 </div>
               </form>
@@ -930,6 +1020,14 @@ export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
             ))}
           </select>
         </div>
+
+        <button
+          onClick={() => setBelanjaBuka(true)}
+          className="btn-retro bg-yellow-600 hover:bg-yellow-500 text-black font-bold flex items-center gap-1.5 !py-1 text-[12px]"
+          title="Pilih barang dari katalog, isi jumlah, lalu masukkan ke RAB"
+        >
+          <Plus size={13} /> Belanja dari katalog
+        </button>
 
         {/* Mode Switcher */}
         <div className="flex border-2 border-white/40">
@@ -1552,6 +1650,16 @@ export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           </div>
         )}
       </div>
+
+      {belanjaBuka && (
+        <FormBelanjaRab
+          bolehKelola={bolehKelolaKatalog}
+          bulan={permohonanAktif.bulan}
+          notify={notify}
+          onTutup={() => setBelanjaBuka(false)}
+          onMasukkan={handleMasukkanBelanja}
+        />
+      )}
 
       {/* Gaya cetak A4: hanya lembar RAB yang keluar di kertas. */}
       <style>{`

@@ -30,6 +30,8 @@ import * as W from './waktu';
 // ---------------------------------------------------------------------------
 
 export interface MonkeyPointPicaItem {
+  /** Nomor tampil PICA-001 (berjalan sepanjang waktu). */
+  noPica?: string;
   id: string;
   nomor: number;
   bidang: string;
@@ -45,6 +47,11 @@ export interface MonkeyPointPicaItem {
   realisasi?: number | null;
   satuan?: string | null;
   sisa_hari?: number | null;
+  /** Catatan update terakhir (riwayat) dan waktunya. */
+  update_terakhir?: string | null;
+  update_terakhir_pada?: string | null;
+  /** Kunci R2 foto bukti PICA, terbaru dulu. */
+  bukti?: string[];
 }
 
 export interface MonkeyPointRosterItem {
@@ -133,8 +140,21 @@ export interface MonkeyPointGaleriItem {
   foto?: string | null;
 }
 
+/** Satu laporan menu LOG (catatan kegiatan lapangan) beserta fotonya. */
+export interface MonkeyPointLogItem {
+  tgl: string;
+  petugas: string;
+  kegiatan: string;
+  capaian: string;
+  catatan: string;
+  pica?: string | null;
+  foto?: string | null;
+}
+
 export interface MonkeyPointData {
   pica: MonkeyPointPicaItem[];
+  /** Laporan LOG 30 hari terakhir, terbaru dulu. */
+  log?: MonkeyPointLogItem[];
   roster: MonkeyPointRosterItem[];
   memo: MonkeyPointMemoItem[];
   cuaca?: MonkeyPointCuacaData | null;
@@ -190,10 +210,10 @@ const JUDUL_W = 7600000;
 interface FotoSiap { rId: string; nama: string; lebar: number; tinggi: number }
 
 /** Kecilkan foto ke sisi terpanjang 1280 px, JPEG 85% — PPT tetap ringan untuk dikirim lewat WA. */
-async function siapkanFoto(blob: Blob): Promise<{ bytes: Uint8Array; lebar: number; tinggi: number } | null> {
+async function siapkanFoto(blob: Blob, maks = 1280): Promise<{ bytes: Uint8Array; lebar: number; tinggi: number } | null> {
   try {
     const bmp = await createImageBitmap(blob);
-    const skala = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+    const skala = Math.min(1, maks / Math.max(bmp.width, bmp.height));
     const lebar = Math.max(1, Math.round(bmp.width * skala));
     const tinggi = Math.max(1, Math.round(bmp.height * skala));
     const kanvas = document.createElement('canvas');
@@ -909,140 +929,204 @@ function buatSlideTitikApi(data: MonkeyPointData): string {
 </p:sld>`;
 }
 
+/** Satu slide beserta relasi gambarnya. */
+interface SlideSiap { xml: string; layoutTarget: string; relasi?: string }
+
+const relasiGambar = (foto: FotoSiap[]) => foto
+  .map((f) => `<Relationship Id="${f.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${f.nama}"/>`)
+  .join('');
+
+/** Foto bukti yang sudah ada di ppt/media; rId diberikan per slide. */
+interface MediaFoto { nama: string; lebar: number; tinggi: number }
+
+const PERSEN = (p: MonkeyPointPicaItem) => (p.target && p.realisasi !== null && p.realisasi !== undefined ? Math.min(100, Math.round((p.realisasi / p.target) * 100)) : null);
+const SUDAH_PROGRES = (p: MonkeyPointPicaItem) => p.status !== 'Closed' && (p.status === 'In Progress' || p.status === 'Continue' || (p.realisasi ?? 0) > 0);
+
 /**
- * Slide 5+: Tabel PICA Register Utuh (Dipaginasi per 5 item agar tampil LENGKAP tanpa terpotong)
+ * Register PICA: kolom mengikuti tabel PICA di aplikasi (No, Bidang & Prioritas,
+ * Masalah, Akar, Tindakan, Target/Realisasi & Progres, PIC & Due, Status & Sisa,
+ * Update Terakhir, Bukti). Tinggi baris dihitung dari panjang teks, lalu baris
+ * dipaginasi supaya tabel tidak pernah keluar slide. Kolom Bukti memuat foto
+ * bukti terbaru; semua foto ada di slide Lampiran Bukti PICA.
  */
-function buatSlidesPicaUtuh(data: MonkeyPointData): { xml: string; layoutTarget: string }[] {
+function buatSlidesPicaUtuh(data: MonkeyPointData, media: Map<string, MediaFoto>): SlideSiap[] {
   const picaSemua = data.pica;
-  const ITEMS_PER_SLIDE = 5;
-
   if (picaSemua.length === 0) {
-    // 1 slide kosong
-    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
-       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-       xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-  <p:cSld>
-    <p:spTree>
-      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
-      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-      ${xmlJudulSlide('REGISTER PICA LENGKAP', 'Tidak ada data PICA tercatat pada periode ini.')}
-    </p:spTree>
-  </p:cSld>
-  <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
-</p:sld>`;
-    return [{ xml, layoutTarget: '../slideLayouts/slideLayout2.xml' }];
+    return [{ xml: bungkusSlide('REGISTER PICA LENGKAP', 'Tidak ada data PICA tercatat pada periode ini.', ''), layoutTarget: '../slideLayouts/slideLayout2.xml' }];
   }
 
-  const totalSlides = Math.ceil(picaSemua.length / ITEMS_PER_SLIDE);
-  const slides: { xml: string; layoutTarget: string }[] = [];
-
-  const cols = [
-    { w: 500000, label: 'No' },
-    { w: 1000000, label: 'Bidang' },
-    { w: 2600000, label: 'Masalah (Fakta Lapangan)' },
-    { w: 1800000, label: 'Akar Masalah' },
-    { w: 1800000, label: 'Tindakan Korektif' },
-    { w: 1400000, label: 'Target & Realisasi' },
-    { w: 800000, label: 'PIC' },
-    { w: 792000, label: 'Due Date' },
-    { w: 1300000, label: 'Status' },
+  const kolom = [
+    { w: 600000, label: 'No' },
+    { w: 850000, label: 'Bidang & Prioritas' },
+    { w: 1700000, label: 'Masalah (Fakta Lapangan)' },
+    { w: 1250000, label: 'Akar Masalah' },
+    { w: 1350000, label: 'Tindakan Korektif' },
+    { w: 900000, label: 'Target / Realisasi' },
+    { w: 900000, label: 'PIC & Due Date' },
+    { w: 850000, label: 'Status & Sisa' },
+    { w: 1300000, label: 'Update Terakhir' },
   ];
+  kolom.push({ w: KONTEN_W - kolom.reduce((n, k) => n + k.w, 0), label: 'Bukti' });
 
-  for (let page = 0; page < totalSlides; page++) {
-    const chunk = picaSemua.slice(page * ITEMS_PER_SLIDE, (page + 1) * ITEMS_PER_SLIDE);
+  const PT = 8;
+  const INSET = 45000;
+  const TINGGI_BARIS_TEKS = PT * 1.25 * 12700;
+  const LEBAR_HURUF = PT * 0.6 * 12700;
+  const TINGGI_KEPALA = 360000;
+  const BATAS_BAWAH = 6250000;
+  const RUANG = BATAS_BAWAH - KONTEN_Y - TINGGI_KEPALA;
+  const TINGGI_FOTO = 560000;
 
-    const barisXml = chunk.map((p, idx) => {
-      const isClosed = p.status === 'Closed';
-      const sudahProg = p.status === 'In Progress' || p.status === 'Continue' || (p.realisasi !== null && p.realisasi > 0);
-      const pct = p.target && p.realisasi !== null ? Math.round((p.realisasi / p.target) * 100) : null;
-      const telat = !isClosed && !sudahProg && (p.sisa_hari ?? 1) < 0;
-      const statusTeks = isClosed
-        ? 'CLOSED'
-        : sudahProg
-        ? `PROGRES ${pct !== null ? `${pct}%` : ''}`
-        : telat
-        ? `TELAT (${Math.abs(p.sisa_hari!)} hr)`
-        : 'OPEN';
-      const statusBg = isClosed ? 'DCFCE7' : sudahProg ? 'E0F2FE' : telat ? 'FEE2E2' : 'FEF3C7';
-      const statusColor = isClosed ? '166534' : sudahProg ? '0369A1' : telat ? '991B1B' : '92400E';
+  const kar = (w: number) => Math.max(4, Math.floor((w - 2 * INSET) / LEBAR_HURUF));
+  const baris = (teks: string, w: number) => teks.split('\n').reduce((n, t) => n + Math.max(1, Math.ceil((t.length * 1.12) / kar(w))), 0);
 
-      const teksTarget = p.target !== null ? `${p.realisasi ?? 0}/${p.target} ${p.satuan ?? ''}` : '—';
+  type Sel = { teks: string; sz?: number; tebal?: boolean; warna?: string; rata?: 'l' | 'ctr' }[];
+  const isiBaris = (p: MonkeyPointPicaItem): Sel[] => {
+    const pct = PERSEN(p);
+    const tutup = p.status === 'Closed';
+    const prog = SUDAH_PROGRES(p);
+    const telat = !tutup && !prog && (p.sisa_hari ?? 1) < 0;
+    const sisa = tutup ? 'selesai' : prog ? `progres ${pct ?? 0}%` : W.teksSisa(p.sisa_hari ?? null);
+    const upd = p.update_terakhir
+      ? `${p.update_terakhir_pada ? `${p.update_terakhir_pada.slice(0, 10)} · ` : ''}${p.update_terakhir}`
+      : '—';
+    return [
+      [{ teks: p.noPica || String(p.nomor), tebal: true, rata: 'ctr' }],
+      [{ teks: p.bidang, tebal: true }, { teks: p.prioritas, sz: 7, warna: '64748B' }],
+      [{ teks: p.judul }],
+      [{ teks: p.akar || '—' }],
+      [{ teks: p.tindakan || '—' }],
+      [{ teks: p.target !== null && p.target !== undefined ? `${p.realisasi ?? 0} / ${p.target} ${p.satuan ?? ''}` : '—' },
+        ...(pct !== null ? [{ teks: `${pct}%`, tebal: true, warna: pct < 60 ? 'B45309' : '15803D' }] : [])],
+      [{ teks: p.pic_nama ?? '—', tebal: true }, { teks: p.due_date ? p.due_date : 'tanpa due', sz: 7, warna: '475569' }],
+      [{ teks: p.status.toUpperCase(), tebal: true, rata: 'ctr', warna: tutup ? '166534' : prog ? '0369A1' : telat ? '991B1B' : '92400E' },
+        { teks: sisa, sz: 7, rata: 'ctr', warna: telat ? '991B1B' : '475569' }],
+      [{ teks: upd, sz: 7 }],
+      [],
+    ];
+  };
+  const latarStatus = (p: MonkeyPointPicaItem) => {
+    const prog = SUDAH_PROGRES(p);
+    if (p.status === 'Closed') return 'DCFCE7';
+    if (prog) return 'E0F2FE';
+    return (p.sisa_hari ?? 1) < 0 ? 'FEE2E2' : 'FEF3C7';
+  };
 
-      return `
-        <a:tr h="550000">
-          <a:tc><a:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr sz="${sz(9)}"/><a:t>${p.nomor || page * ITEMS_PER_SLIDE + idx + 1}</a:t></a:r></a:p></a:txBody><a:tcPr anchor="ctr"/></a:tc>
-          <a:tc><a:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:r><a:rPr sz="${sz(9)}" b="1"/><a:t>${escXml(p.bidang)}</a:t></a:r></a:p></a:txBody><a:tcPr anchor="ctr"/></a:tc>
-          <a:tc><a:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:r><a:rPr sz="${sz(9)}"/><a:t>${escXml(p.judul)}</a:t></a:r></a:p></a:txBody><a:tcPr anchor="ctr"/></a:tc>
-          <a:tc><a:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:r><a:rPr sz="${sz(9)}"/><a:t>${escXml(p.akar || '—')}</a:t></a:r></a:p></a:txBody><a:tcPr anchor="ctr"/></a:tc>
-          <a:tc><a:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:r><a:rPr sz="${sz(9)}"/><a:t>${escXml(p.tindakan || '—')}</a:t></a:r></a:p></a:txBody><a:tcPr anchor="ctr"/></a:tc>
-          <a:tc><a:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:r><a:rPr sz="${sz(8)}"/><a:t>${escXml(teksTarget)}</a:t></a:r></a:p></a:txBody><a:tcPr anchor="ctr"/></a:tc>
-          <a:tc><a:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:r><a:rPr sz="${sz(9)}"/><a:t>${escXml(p.pic_nama ?? '—')}</a:t></a:r></a:p></a:txBody><a:tcPr anchor="ctr"/></a:tc>
-          <a:tc><a:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:r><a:rPr sz="${sz(9)}"/><a:t>${p.due_date ? escXml(p.due_date) : '—'}</a:t></a:r></a:p></a:txBody><a:tcPr anchor="ctr"/></a:tc>
-          <a:tc>
-            <a:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr sz="${sz(9)}" b="1"><a:solidFill><a:srgbClr val="${statusColor}"/></a:solidFill></a:rPr><a:t>${statusTeks}</a:t></a:r></a:p></a:txBody>
-            <a:tcPr anchor="ctr"><a:solidFill><a:srgbClr val="${statusBg}"/></a:solidFill></a:tcPr>
-          </a:tc>
-        </a:tr>
-      `;
-    }).join('');
+  /** Tinggi baris dari teks terpanjang; teks yang tetap tidak muat dipotong dengan "…". */
+  const ukurBaris = (p: MonkeyPointPicaItem) => {
+    const sel = isiBaris(p);
+    const punyaFoto = (p.bukti ?? []).some((k) => media.has(k));
+    let tinggi = Math.max(420000, punyaFoto ? TINGGI_FOTO + 2 * INSET + 150000 : 0);
+    sel.forEach((isi, c) => {
+      const t = isi.reduce((n, x) => n + baris(x.teks, kolom[c].w) * ((x.sz ?? PT) / PT) * TINGGI_BARIS_TEKS, 0) + 2 * INSET + 30000;
+      tinggi = Math.max(tinggi, t);
+    });
+    if (tinggi > RUANG) {
+      // Satu PICA lebih tinggi dari satu slide: potong teks panjang agar pas.
+      const maksBaris = Math.floor((RUANG - 2 * INSET - 30000) / TINGGI_BARIS_TEKS);
+      sel.forEach((isi, c) => isi.forEach((x) => {
+        const muat = maksBaris * kar(kolom[c].w);
+        if (x.teks.length > muat) x.teks = `${x.teks.slice(0, muat - 1)}…`;
+      }));
+      tinggi = RUANG;
+    }
+    return { sel, tinggi };
+  };
 
-    const subjudul = `Daftar lengkap PICA Register (Halaman ${page + 1} dari ${totalSlides}) · Total ${picaSemua.length} tugas`;
-
-    const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
-       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-       xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-  <p:cSld>
-    <p:spTree>
-      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
-      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-      
-      ${xmlJudulSlide(`REGISTER PICA LENGKAP (${page + 1}/${totalSlides})`, subjudul)}
-
-      <p:graphicFrame>
-        <p:nvGraphicFramePr><p:cNvPr id="${30 + page}" name="Table PICA Page ${page + 1}"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>
-        <p:xfrm><a:off x="${KONTEN_X}" y="${KONTEN_Y}"/><a:ext cx="${KONTEN_W}" cy="4600000"/></p:xfrm>
-        <a:graphic>
-          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
-            <a:tbl>
-              <a:tblPr firstRow="1" bandRow="1"/>
-              <a:tblGrid>
-                ${cols.map((c) => `<a:gridCol w="${c.w}"/>`).join('')}
-              </a:tblGrid>
-              <a:tr h="450000">
-                ${cols.map((c) => `
-                  <a:tc>
-                    <a:txBody>
-                      <a:bodyPr anchor="ctr"/>
-                      <a:lstStyle/>
-                      <a:p>
-                        <a:pPr algn="${c.label === 'No' || c.label === 'Status' ? 'ctr' : 'l'}"/>
-                        <a:r>
-                          <a:rPr sz="${sz(10)}" b="1"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:latin typeface="${HURUF_ISI}"/></a:rPr>
-                          <a:t>${escXml(c.label)}</a:t>
-                        </a:r>
-                      </a:p>
-                    </a:txBody>
-                    <a:tcPr anchor="ctr"><a:solidFill><a:srgbClr val="166534"/></a:solidFill></a:tcPr>
-                  </a:tc>
-                `).join('')}
-              </a:tr>
-              ${barisXml}
-            </a:tbl>
-          </a:graphicData>
-        </a:graphic>
-      </p:graphicFrame>
-
-    </p:spTree>
-  </p:cSld>
-  <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
-</p:sld>`;
-
-    slides.push({ xml, layoutTarget: '../slideLayouts/slideLayout2.xml' });
+  // Paginasi berdasarkan tinggi.
+  const halaman: { p: MonkeyPointPicaItem; sel: Sel[]; tinggi: number }[][] = [[]];
+  let terpakai = 0;
+  for (const p of picaSemua) {
+    const u = ukurBaris(p);
+    if (terpakai + u.tinggi > RUANG && halaman[halaman.length - 1].length) { halaman.push([]); terpakai = 0; }
+    halaman[halaman.length - 1].push({ p, ...u });
+    terpakai += u.tinggi;
   }
 
-  return slides;
+  return halaman.map((isi, h) => {
+    let id = 200;
+    let xml = '';
+    let x = KONTEN_X;
+    kolom.forEach((k) => {
+      xml += bentuk(id++, x, KONTEN_Y, k.w, TINGGI_KEPALA, paragraf(k.label, { sz: 8, tebal: true, warna: 'FFFFFF', rata: k.label === 'No' || k.label === 'Bukti' ? 'ctr' : 'l' }), { latar: '166534', garis: '0F172A', tebalGaris: 9525, inset: INSET });
+      x += k.w;
+    });
+    const fotoSlide: FotoSiap[] = [];
+    let y = KONTEN_Y + TINGGI_KEPALA;
+    isi.forEach(({ p, sel, tinggi }, i) => {
+      const zebra = i % 2 ? 'F8FAFC' : 'FFFFFF';
+      let cx = KONTEN_X;
+      sel.forEach((baris, c) => {
+        const latar = c === 7 ? latarStatus(p) : zebra;
+        const teks = baris.map((b) => paragraf(b.teks, { sz: b.sz ?? PT, tebal: b.tebal, warna: b.warna ?? '1F2937', rata: b.rata ?? 'l' })).join('');
+        xml += bentuk(id++, cx, y, kolom[c].w, tinggi, teks, { latar, garis: 'CBD5E1', tebalGaris: 9525, anchor: c === 7 || c === 0 ? 'ctr' : 't', inset: INSET });
+        cx += kolom[c].w;
+      });
+      // Kolom Bukti: foto bukti terbaru + jumlah foto.
+      const bx = KONTEN_X + KONTEN_W - kolom[9].w;
+      const adaMedia = (p.bukti ?? []).filter((k) => media.has(k));
+      if (adaMedia.length) {
+        const m = media.get(adaMedia[0])!;
+        const f: FotoSiap = { rId: `rIdB${fotoSlide.length + 1}`, nama: m.nama, lebar: m.lebar, tinggi: m.tinggi };
+        fotoSlide.push(f);
+        xml += xmlFotoKotak(id++, f, bx + INSET, y + INSET, kolom[9].w - 2 * INSET, TINGGI_FOTO);
+        xml += bentuk(id++, bx, y + INSET + TINGGI_FOTO, kolom[9].w, 150000,
+          paragraf(`${adaMedia.length} foto${adaMedia.length > 1 ? ' · lihat lampiran' : ''}`, { sz: 7, warna: '0369A1', rata: 'ctr' }), { inset: 0 });
+      } else {
+        xml += bentuk(id++, bx, y, kolom[9].w, tinggi, paragraf('—', { sz: 8, warna: '94A3B8', rata: 'ctr' }), { inset: 0 });
+      }
+      y += tinggi;
+    });
+    const sub = `Halaman ${h + 1} dari ${halaman.length} · Total ${picaSemua.length} PICA · terbaru di atas`;
+    return {
+      xml: bungkusSlide(`REGISTER PICA LENGKAP (${h + 1}/${halaman.length})`, sub, xml),
+      layoutTarget: '../slideLayouts/slideLayout2.xml',
+      relasi: relasiGambar(fotoSlide),
+    };
+  });
+}
+
+export const LAMPIRAN_PER_SLIDE = 8;
+export const MAKS_FOTO_BUKTI = 48;
+
+/** Lampiran Bukti PICA: semua foto bukti, 4 × 2 per slide, keterangan nomor PICA. */
+function buatSlidesLampiranBukti(data: MonkeyPointData, media: Map<string, MediaFoto>): SlideSiap[] {
+  const daftar: { p: MonkeyPointPicaItem; kunci: string; ke: number; dari: number }[] = [];
+  for (const p of data.pica) {
+    const ada = (p.bukti ?? []).filter((k) => media.has(k));
+    ada.forEach((k, i) => daftar.push({ p, kunci: k, ke: i + 1, dari: ada.length }));
+  }
+  if (!daftar.length) return [];
+  const kol = 4;
+  const jarak = 180000;
+  const w = Math.floor((KONTEN_W - jarak * (kol - 1)) / kol);
+  const hFoto = 1700000;
+  const hTeks = 420000;
+  const hasil: SlideSiap[] = [];
+  const jumlahHal = Math.ceil(daftar.length / LAMPIRAN_PER_SLIDE);
+  for (let h = 0; h < jumlahHal; h++) {
+    let xml = '';
+    let id = 200;
+    const fotoSlide: FotoSiap[] = [];
+    daftar.slice(h * LAMPIRAN_PER_SLIDE, (h + 1) * LAMPIRAN_PER_SLIDE).forEach((d, i) => {
+      const x = KONTEN_X + (i % kol) * (w + jarak);
+      const y = KONTEN_Y + Math.floor(i / kol) * (hFoto + hTeks + 160000);
+      const m = media.get(d.kunci)!;
+      const f: FotoSiap = { rId: `rIdB${i + 1}`, nama: m.nama, lebar: m.lebar, tinggi: m.tinggi };
+      fotoSlide.push(f);
+      xml += xmlFotoKotak(id++, f, x, y, w, hFoto);
+      xml += bentuk(id++, x, y + hFoto, w, hTeks,
+        paragraf(`${d.p.noPica || d.p.id} · foto ${d.ke}/${d.dari}`, { sz: 9, tebal: true, warna: '0F766E' })
+        + paragraf(potongTeks(d.p.judul, 70), { sz: 8, warna: '334155' }),
+        { latar: 'F8FAFC', garis: 'CBD5E1', tebalGaris: 9525, anchor: 't', inset: 40000 });
+    });
+    hasil.push({
+      xml: bungkusSlide(`LAMPIRAN BUKTI PICA${jumlahHal > 1 ? ` (${h + 1}/${jumlahHal})` : ''}`, `Semua foto bukti PICA · ${daftar.length} foto`, xml),
+      layoutTarget: '../slideLayouts/slideLayout2.xml',
+      relasi: relasiGambar(fotoSlide),
+    });
+  }
+  return hasil;
 }
 
 /**
@@ -1198,7 +1282,8 @@ function buatSlideMemo(data: MonkeyPointData): string {
 }
 
 /**
- * Slide: Sanggahan / Disclaimer resmi Hasnur Group (Layout 4)
+ * Slide Sanggahan: teksnya sudah ada di layout template (slideLayout4), jadi
+ * slidenya dibiarkan kosong — kalau diisi lagi, teksnya tampil dobel.
  */
 function buatSlideDisclaimer(): string {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1209,57 +1294,6 @@ function buatSlideDisclaimer(): string {
     <p:spTree>
       <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
       <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-
-      <p:sp>
-        <p:nvSpPr><p:cNvPr id="100" name="Disclaimer Text"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>
-        <p:spPr>
-          <a:xfrm><a:off x="1500000" y="2400000"/><a:ext cx="9192000" cy="2400000"/></a:xfrm>
-        </p:spPr>
-        <p:txBody>
-          <a:bodyPr anchor="ctr"/>
-          <a:lstStyle/>
-          <a:p>
-            <a:pPr algn="ctr"/>
-            <a:r>
-              <a:rPr lang="id-ID" sz="${sz(14)}">
-                <a:solidFill><a:srgbClr val="166534"/></a:solidFill>
-                <a:latin typeface="${HURUF_JUDUL}"/>
-              </a:rPr>
-              <a:t>SANGGAHAN (DISCLAIMER)</a:t>
-            </a:r>
-          </a:p>
-          <a:p><a:endParaRPr sz="${sz(14)}"/></a:p>
-          <a:p>
-            <a:pPr algn="ctr"/>
-            <a:r>
-              <a:rPr lang="id-ID" sz="${sz(11)}">
-                <a:solidFill><a:srgbClr val="475569"/></a:solidFill>
-              </a:rPr>
-              <a:t>Dokumen presentasi ini disusun secara otomatis oleh sistem POKEMONKEY untuk kebutuhan internal operasional PT ENERGI BATUBARA LESTARI (HASNUR GROUP).</a:t>
-            </a:r>
-          </a:p>
-          <a:p>
-            <a:pPr algn="ctr"/>
-            <a:r>
-              <a:rPr lang="id-ID" sz="${sz(11)}">
-                <a:solidFill><a:srgbClr val="64748B"/></a:solidFill>
-              </a:rPr>
-              <a:t>Dokumen ini tidak untuk didistribusikan ke luar HASNUR GROUP baik keseluruhan dokumen maupun sebagian dokumen tanpa persetujuan dari pihak HASNUR GROUP yang berwenang.</a:t>
-            </a:r>
-          </a:p>
-          <a:p><a:endParaRPr sz="${sz(12)}"/></a:p>
-          <a:p>
-            <a:pPr algn="ctr"/>
-            <a:r>
-              <a:rPr lang="id-ID" sz="${sz(11)}" i="1">
-                <a:solidFill><a:srgbClr val="94A3B8"/></a:solidFill>
-              </a:rPr>
-              <a:t>Segala bentuk pelanggaran dan penyalahgunaan dokumen ini akan ditindak sesuai dengan ketentuan hukum yang berlaku.</a:t>
-            </a:r>
-          </a:p>
-        </p:txBody>
-      </p:sp>
-
     </p:spTree>
   </p:cSld>
   <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
@@ -1269,113 +1303,92 @@ function buatSlideDisclaimer(): string {
 /**
  * Slide: Galeri Dokumentasi Foto Lapangan & PICA
  */
-function buatSlideGaleri(data: MonkeyPointData, foto: (FotoSiap | null)[] = []): string {
-  const cardW = 3300000;
-  const cardH = 2100000;
-  const gapX = 346000;
-  const gapY = 200000;
-  const y1 = KONTEN_Y + 100000;
-  const y2 = y1 + cardH + gapY;
-
-  const galeriItems = (data.galeri && data.galeri.length > 0)
-    ? data.galeri.slice(0, 6)
-    : [];
-
-  const cardsXml = galeriItems.length > 0
-    ? galeriItems.map((g, idx) => {
-        const col = idx % 3;
-        const row = Math.floor(idx / 3);
-        const x = KONTEN_X + col * (cardW + gapX);
-        const y = row === 0 ? y1 : y2;
-        const f = foto[idx] ?? null;
-        const pad = 110000;
-        const kotakW = cardW - 2 * pad;
-        const kotakH = Math.round(cardH * 0.56);
-        const skala = f ? Math.min(kotakW / f.lebar, kotakH / f.tinggi) : 0;
-        const fotoW = f ? Math.round(f.lebar * skala) : 0;
-        const fotoH = f ? Math.round(f.tinggi * skala) : 0;
-        const fotoXml = f ? `
-          <p:pic>
-            <p:nvPicPr><p:cNvPr id="${90 + idx}" name="Foto Galeri ${idx + 1}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>
-            <p:blipFill><a:blip r:embed="${f.rId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
-            <p:spPr>
-              <a:xfrm><a:off x="${x + pad + Math.round((kotakW - fotoW) / 2)}" y="${y + pad + Math.round((kotakH - fotoH) / 2)}"/><a:ext cx="${fotoW}" cy="${fotoH}"/></a:xfrm>
-              <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
-            </p:spPr>
-          </p:pic>` : '';
-        const insetAtas = f ? pad + kotakH + 60000 : 150000;
-        const deskripsi = f && g.desc.length > 90 ? `${g.desc.slice(0, 89)}…` : g.desc;
-
-        return `
-          <p:sp>
-            <p:nvSpPr><p:cNvPr id="${70 + idx}" name="Card Galeri ${idx + 1}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
-            <p:spPr>
-              <a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${cardW}" cy="${cardH}"/></a:xfrm>
-              <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
-              <a:solidFill><a:srgbClr val="F8FAFC"/></a:solidFill>
-              <a:ln w="38100"><a:solidFill><a:srgbClr val="0D9488"/></a:solidFill></a:ln>${BAYANGAN_PIKSEL}
-            </p:spPr>
-            <p:txBody>
-              <a:bodyPr lIns="150000" tIns="${insetAtas}" rIns="150000" bIns="120000"/>
-              <a:lstStyle/>
-              <a:p>
-                <a:r><a:rPr sz="${sz(10)}" b="1"><a:solidFill><a:srgbClr val="0F766E"/></a:solidFill></a:rPr><a:t>[${escXml(g.tag)}] · ${escXml(g.tgl)}</a:t></a:r>
-              </a:p>
-              <a:p>
-                <a:r><a:rPr sz="${sz(11)}" b="1"><a:solidFill><a:srgbClr val="0F172A"/></a:solidFill><a:latin typeface="${HURUF_ISI}"/></a:rPr><a:t>${escXml(g.judul)}</a:t></a:r>
-              </a:p>
-              <a:p>
-                <a:r><a:rPr sz="${sz(10)}"><a:solidFill><a:srgbClr val="475569"/></a:solidFill></a:rPr><a:t>${escXml(deskripsi)}</a:t></a:r>
-              </a:p>
-              <a:p>
-                <a:r><a:rPr sz="${sz(9)}" i="1"><a:solidFill><a:srgbClr val="64748B"/></a:solidFill></a:rPr><a:t>PIC: ${escXml(g.pic)} · Dokumentasi Lapangan</a:t></a:r>
-              </a:p>
-            </p:txBody>
-          </p:sp>${fotoXml}
-        `;
-      }).join('')
-    : `
-      <p:sp>
-        <p:nvSpPr><p:cNvPr id="71" name="Empty Galeri"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+/** Foto dipotong (crop) memenuhi kotak tanpa gepeng, seperti object-fit: cover. */
+function xmlFotoKotak(id: number, f: FotoSiap, x: number, y: number, w: number, h: number): string {
+  const rasioFoto = f.lebar / f.tinggi;
+  const rasioKotak = w / h;
+  let potong = '';
+  if (rasioFoto > rasioKotak) {
+    const sisi = Math.round(((1 - rasioKotak / rasioFoto) / 2) * 100000);
+    potong = `<a:srcRect l="${sisi}" r="${sisi}"/>`;
+  } else if (rasioFoto < rasioKotak) {
+    const sisi = Math.round(((1 - rasioFoto / rasioKotak) / 2) * 100000);
+    potong = `<a:srcRect t="${sisi}" b="${sisi}"/>`;
+  }
+  return `
+      <p:pic>
+        <p:nvPicPr><p:cNvPr id="${id}" name="Foto ${id}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>
+        <p:blipFill><a:blip r:embed="${f.rId}"/>${potong}<a:stretch><a:fillRect/></a:stretch></p:blipFill>
         <p:spPr>
-          <a:xfrm><a:off x="${KONTEN_X + 1500000}" y="${KONTEN_Y + 1000000}"/><a:ext cx="7592000" cy="2400000"/></a:xfrm>
+          <a:xfrm><a:off x="${Math.round(x)}" y="${Math.round(y)}"/><a:ext cx="${Math.round(w)}" cy="${Math.round(h)}"/></a:xfrm>
           <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
-          <a:solidFill><a:srgbClr val="F8FAFC"/></a:solidFill>
-          <a:ln w="38100"><a:solidFill><a:srgbClr val="CBD5E1"/></a:solidFill></a:ln>${BAYANGAN_PIKSEL}
+          <a:ln w="19050"><a:solidFill><a:srgbClr val="0F172A"/></a:solidFill></a:ln>
         </p:spPr>
-        <p:txBody>
-          <a:bodyPr anchor="ctr" lIns="300000" tIns="300000" rIns="300000" bIns="300000"/>
-          <a:lstStyle/>
-          <a:p>
-            <a:pPr algn="ctr"/>
-            <a:r><a:rPr sz="${sz(14)}" b="1"><a:solidFill><a:srgbClr val="334155"/></a:solidFill></a:rPr><a:t>BELUM ADA FOTO DOKUMENTASI TERUNGGAH</a:t></a:r>
-          </a:p>
-          <a:p><a:endParaRPr sz="${sz(8)}"/></a:p>
-          <a:p>
-            <a:pPr algn="ctr"/>
-            <a:r><a:rPr sz="${sz(11)}"><a:solidFill><a:srgbClr val="64748B"/></a:solidFill></a:rPr><a:t>Foto dokumentasi yang diunggah oleh pengawas melalui menu Laporan Lapangan atau Bukti PICA akan otomatis tersimpan di Cloudflare R2 dan ditampilkan di slide ini.</a:t></a:r>
-          </a:p>
-        </p:txBody>
-      </p:sp>
-    `;
+      </p:pic>`;
+}
 
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
-       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-       xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-  <p:cSld>
-    <p:spTree>
-      <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
-      <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-      
-      ${xmlJudulSlide('GALERI DOKUMENTASI FOTO LAPANGAN & PICA', 'Foto 30 hari terakhir dari laporan FEED dan lampiran bukti PICA')}
+/** Kotak kosong pengganti foto yang tidak ada / gagal dimuat. */
+const kotakTanpaFoto = (id: number, x: number, y: number, w: number, h: number, teks = 'TANPA FOTO') =>
+  bentuk(id, x, y, w, h, paragraf(teks, { sz: 9, warna: '94A3B8', tebal: true, rata: 'ctr' }), { latar: 'E2E8F0', garis: 'CBD5E1' });
 
-      ${cardsXml}
+const potongTeks = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
 
-    </p:spTree>
-  </p:cSld>
-  <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
-</p:sld>`;
+/** Batas agar PPT tetap ringan dikirim lewat WhatsApp. */
+export const MAKS_LOG = 20;
+export const LOG_PER_SLIDE = 4;
+
+/**
+ * Dokumentasi LOG (catatan kegiatan lapangan): tabel 5 kolom —
+ * Foto | Tanggal & Petugas | Kegiatan | Capaian | Catatan — 4 baris per slide.
+ */
+function buatSlidesLog(data: MonkeyPointData, foto: (FotoSiap | null)[]): string[] {
+  const log = data.log ?? [];
+  const judul = 'DOKUMENTASI LOG KEGIATAN LAPANGAN';
+  if (!log.length) {
+    return [bungkusSlide(judul, 'Catatan kegiatan 30 hari terakhir',
+      bentuk(200, KONTEN_X + 1500000, KONTEN_Y + 1000000, 7592000, 1600000,
+        paragraf('BELUM ADA CATATAN KEGIATAN DALAM 30 HARI TERAKHIR', { sz: 13, tebal: true, warna: '334155', rata: 'ctr' }),
+        { latar: 'F8FAFC', garis: 'CBD5E1', tebalGaris: 38100, bayangan: true }))];
+  }
+  const lebar = [1900000, 2000000, 2300000, 1500000];
+  lebar.push(KONTEN_W - lebar.reduce((a, b) => a + b, 0));
+  const kepala = ['FOTO', 'TANGGAL & PETUGAS', 'KEGIATAN', 'CAPAIAN', 'CATATAN'];
+  const tinggiKepala = 380000;
+  const tinggiBaris = 1180000;
+  const halaman = Math.ceil(log.length / LOG_PER_SLIDE);
+  const hasil: string[] = [];
+  for (let h = 0; h < halaman; h++) {
+    let isi = '';
+    let x = KONTEN_X;
+    kepala.forEach((k, c) => {
+      isi += bentuk(200 + c, x, KONTEN_Y, lebar[c], tinggiKepala, paragraf(k, { sz: 9, tebal: true, warna: 'FFFFFF', rata: c === 3 ? 'ctr' : 'l' }), { latar: '2F5D33', garis: '0F172A' });
+      x += lebar[c];
+    });
+    log.slice(h * LOG_PER_SLIDE, (h + 1) * LOG_PER_SLIDE).forEach((l, i) => {
+      const idx = h * LOG_PER_SLIDE + i;
+      const y = KONTEN_Y + tinggiKepala + i * tinggiBaris;
+      const latar = i % 2 ? 'F1F5F9' : 'FFFFFF';
+      const id = 220 + i * 10;
+      let cx = KONTEN_X;
+      const sel = (c: number, isiSel: string, rata: 'l' | 'ctr' = 'l') => {
+        const xml = bentuk(id + c, cx, y, lebar[c], tinggiBaris, isiSel, { latar, garis: 'CBD5E1', anchor: rata === 'ctr' ? 'ctr' : 't', inset: 70000 });
+        cx += lebar[c];
+        return xml;
+      };
+      isi += sel(0, '');
+      const f = foto[idx];
+      const pad = 70000;
+      isi += f ? xmlFotoKotak(id + 6, f, KONTEN_X + pad, y + pad, lebar[0] - 2 * pad, tinggiBaris - 2 * pad)
+        : kotakTanpaFoto(id + 6, KONTEN_X + pad, y + pad, lebar[0] - 2 * pad, tinggiBaris - 2 * pad);
+      isi += sel(1, paragraf(l.tgl, { sz: 10, tebal: true, warna: '0F766E' }) + paragraf(l.petugas, { sz: 10, warna: '1F2937' }));
+      isi += sel(2, paragraf(potongTeks(l.kegiatan, 70), { sz: 10, tebal: true, warna: '0F172A' }) + (l.pica ? paragraf(`Bukti ${l.pica}`, { sz: 8, warna: '0369A1' }) : ''));
+      isi += sel(3, paragraf(l.capaian || '—', { sz: 11, tebal: true, warna: '15803D', rata: 'ctr' }), 'ctr');
+      isi += sel(4, paragraf(potongTeks(l.catatan || '—', 160), { sz: 9, warna: '334155' }));
+    });
+    const sub = `Laporan menu LOG 30 hari terakhir${halaman > 1 ? ` · halaman ${h + 1}/${halaman}` : ''}`;
+    hasil.push(bungkusSlide(judul, sub, isi));
+  }
+  return hasil;
 }
 
 // ---------------------------------------------------------------------------
@@ -1403,23 +1416,41 @@ export async function eksporMonkeyPoint(data: MonkeyPointData): Promise<'dibagik
     zip.file(nama, xml.replace(/(<a:(?:major|minor)Font>\s*<a:latin typeface=")[^"]*"/g, `$1${HURUF_ISI}"`));
   }
 
-  // 2b. Foto galeri: unduh dari server (butuh login), kecilkan, simpan di ppt/media.
-  const fotoSiap: (FotoSiap | null)[] = await Promise.all((data.galeri ?? []).slice(0, 6).map(async (g, i) => {
-    if (!g.foto) return null;
+  // 2b. Foto galeri & LOG: unduh dari server (butuh login), kecilkan, simpan di ppt/media.
+  const siapkan = (kunci: string | null | undefined, nama: string, rId: string): Promise<FotoSiap | null> => (async () => {
+    if (!kunci) return null;
     try {
-      const hasil = await siapkanFoto(await ambilBerkas(g.foto));
+      const hasil = await siapkanFoto(await ambilBerkas(kunci));
       if (!hasil) return null;
-      const nama = `pokemonkey-galeri-${i + 1}.jpg`;
       zip.file(`ppt/media/${nama}`, hasil.bytes);
-      return { rId: `rIdFoto${i + 1}`, nama, lebar: hasil.lebar, tinggi: hasil.tinggi };
+      return { rId, nama, lebar: hasil.lebar, tinggi: hasil.tinggi };
     } catch {
       return null;
     }
-  }));
-  const relasiFoto = fotoSiap
+  })();
+  const log = (data.log ?? []).slice(0, MAKS_LOG);
+  // Foto bukti PICA: tiap berkas diunduh sekali, dipakai kolom Bukti dan slide lampiran.
+  const kunciBukti = [...new Set(data.pica.flatMap((p) => p.bukti ?? []))].slice(0, MAKS_FOTO_BUKTI);
+  const mediaBukti = new Map<string, MediaFoto>();
+  const [fotoLog] = await Promise.all([
+    Promise.all(log.map((l, i) => siapkan(l.foto, `pokemonkey-log-${i + 1}.jpg`, `rIdFoto${(i % LOG_PER_SLIDE) + 1}`))),
+    Promise.all(kunciBukti.map(async (k, i) => {
+      try {
+        const hasil = await siapkanFoto(await ambilBerkas(k), 960);
+        if (!hasil) return;
+        const nama = `pokemonkey-bukti-${i + 1}.jpg`;
+        zip.file(`ppt/media/${nama}`, hasil.bytes);
+        mediaBukti.set(k, { nama, lebar: hasil.lebar, tinggi: hasil.tinggi });
+      } catch { /* foto hilang: kolom Bukti menampilkan "—" */ }
+    })),
+  ]);
+  /** Relasi gambar untuk satu slide (hanya foto yang tampil di slide itu). */
+  const relasiDari = (daftar: (FotoSiap | null)[], hal: number, per: number) => daftar
+    .slice(hal * per, (hal + 1) * per)
     .filter((f): f is FotoSiap => f !== null)
     .map((f) => `<Relationship Id="${f.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${f.nama}"/>`)
     .join('');
+  const dataPpt = { ...data, log };
 
   // 3. Susun daftar slide secara dinamis:
   // - Cover
@@ -1427,7 +1458,8 @@ export async function eksporMonkeyPoint(data: MonkeyPointData): Promise<'dibagik
   // - Prakiraan Cuaca 3 Hari (BMKG)
   // - Histori & Deteksi Titik Api (NASA FIRMS)
   // - PICA Register Utuh (Semua baris dipaginasi rapi per 5 item)
-  // - Galeri Dokumentasi Foto Lapangan & PICA
+  // - Lampiran Bukti PICA (semua foto bukti, 8 per slide) — menggantikan slide galeri
+  // - Dokumentasi LOG kegiatan lapangan (4 baris per slide, berlanjut)
   // - Agenda & Rapat Terjadwal
   // - Memo Operasional
   // - Sanggahan / Disclaimer
@@ -1438,8 +1470,9 @@ export async function eksporMonkeyPoint(data: MonkeyPointData): Promise<'dibagik
     { xml: buatSlideSummary(data), layoutTarget: '../slideLayouts/slideLayout2.xml' },
     { xml: buatSlideCuaca(data), layoutTarget: '../slideLayouts/slideLayout2.xml' },
     { xml: buatSlideTitikApi(data), layoutTarget: '../slideLayouts/slideLayout2.xml' },
-    ...buatSlidesPicaUtuh(data),
-    { xml: buatSlideGaleri(data, fotoSiap), layoutTarget: '../slideLayouts/slideLayout2.xml', relasi: relasiFoto },
+    ...buatSlidesPicaUtuh(dataPpt, mediaBukti),
+    ...buatSlidesLampiranBukti(dataPpt, mediaBukti),
+    ...buatSlidesLog(dataPpt, fotoLog).map((xml, h) => ({ xml, layoutTarget: '../slideLayouts/slideLayout2.xml', relasi: relasiDari(fotoLog, h, LOG_PER_SLIDE) })),
     { xml: buatSlideJadwal(data), layoutTarget: '../slideLayouts/slideLayout2.xml' },
     { xml: buatSlideMemo(data), layoutTarget: '../slideLayouts/slideLayout2.xml' },
     { xml: buatSlideDisclaimer(), layoutTarget: '../slideLayouts/slideLayout4.xml' },

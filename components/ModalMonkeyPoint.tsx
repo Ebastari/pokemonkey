@@ -16,10 +16,12 @@ import {
   type MonkeyPointTitikApiData,
   type MonkeyPointJadwalItem,
   type MonkeyPointGaleriItem,
+  type MonkeyPointLogItem,
 } from '../lib/monkey-point';
 import type { JawabanCuaca } from '../server/src/cuaca-bmkg';
 import { teksZona, waktuWita, namaSatelit, type TitikApi } from '../server/src/titik-api-murni';
 import { mintaLayarPenuh, keluarLayarPenuh } from '../lib/platform';
+import { noPica } from '../lib/nomor-pica';
 import { ringkasRevegetasi, totalTahun, jumlah, ha, type BarisRevegetasi } from '../lib/revegetasi';
 
 interface Props {
@@ -105,6 +107,61 @@ const FotoLaporan: React.FC<{ kunci: string; alt: string }> = ({ kunci, alt }) =
   return <img src={src} alt={alt} className="w-full h-full object-cover" />;
 };
 
+/** Pratinjau register PICA: kolom sama dengan slide PPT dan tabel PICA di aplikasi. */
+const PratinjauPica: React.FC<{ daftar: PicaItem[]; bagian: number; total: number; buka: number; tutup: number; bukti: Record<string, string[]> }> = ({ daftar, bagian, total, buka, tutup, bukti }) => (
+  <>
+    <div className="ml-[175px] mr-[140px] pt-1 pb-2 border-b-2 border-emerald-700 mb-3 flex flex-col justify-center min-h-[50px]">
+      <div className="flex justify-between items-baseline gap-2">
+        <h3 className="text-xs md:text-[13px] font-title text-emerald-950 leading-tight">REGISTER PICA LENGKAP (BAGIAN {bagian})</h3>
+        <span className="text-[11px] font-bold text-slate-600 font-mono-code shrink-0">
+          Total {total} · Terbuka <b className="text-slate-900">{buka}</b> · Selesai <b className="text-emerald-800">{tutup}</b>
+        </span>
+      </div>
+      <p className="text-[12px] text-slate-600 font-body mt-0.5">Terbaru di atas · di PPT jumlah baris per slide menyesuaikan panjang teks</p>
+    </div>
+    <div className="my-auto border-2 border-slate-200 rounded-lg shadow-sm">
+      <table className="w-full table-fixed text-left text-[10px] border-collapse font-body">
+        <colgroup>
+          {[6, 8, 16, 12, 13, 8, 8, 8, 12, 9].map((w, i) => <col key={i} style={{ width: `${w}%` }} />)}
+        </colgroup>
+        <thead>
+          <tr className="bg-emerald-900 text-white">
+            {['No', 'Bidang & Prioritas', 'Masalah', 'Akar Masalah', 'Tindakan Korektif', 'Target / Realisasi', 'PIC & Due', 'Status & Sisa', 'Update Terakhir', 'Bukti'].map((h) => (
+              <th key={h} className="p-1.5 border-r border-white/20 font-bold">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-200 bg-white align-top">
+          {daftar.length ? daftar.map((p) => {
+            const tutupP = p.status === 'Closed';
+            const prog = !tutupP && (p.status === 'In Progress' || p.status === 'Continue' || (p.realisasi ?? 0) > 0);
+            const pct = p.target && p.realisasi !== null ? Math.min(100, Math.round((p.realisasi / p.target) * 100)) : null;
+            const telat = !tutupP && !prog && (p.sisa_hari ?? 1) < 0;
+            const warna = tutupP ? 'bg-emerald-100 text-emerald-900' : prog ? 'bg-sky-100 text-sky-900' : telat ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-900';
+            const foto = bukti[p.id] ?? [];
+            return (
+              <tr key={p.id}>
+                <td className="p-1.5 font-bold text-slate-800 break-words">{noPica(p)}</td>
+                <td className="p-1.5"><b className="text-sky-900">{p.bidang}</b><br /><span className="text-slate-500">{p.prioritas}</span></td>
+                <td className="p-1.5 text-slate-800 break-words">{p.judul}</td>
+                <td className="p-1.5 text-slate-700 break-words">{p.akar || '—'}</td>
+                <td className="p-1.5 text-slate-700 break-words">{p.tindakan || '—'}</td>
+                <td className="p-1.5 text-slate-700">{p.target !== null ? `${p.realisasi ?? 0} / ${p.target} ${p.satuan ?? ''}` : '—'}{pct !== null && <b className="block">{pct}%</b>}</td>
+                <td className="p-1.5"><b className="text-slate-900">{p.pic_nama ?? '—'}</b><br /><span className="text-slate-500">{p.due_date ? W.formatPendek(p.due_date) : 'tanpa due'}</span></td>
+                <td className={`p-1.5 text-center font-bold ${warna}`}>{p.status.toUpperCase()}<br /><span className="font-normal">{tutupP ? 'selesai' : prog ? `progres ${pct ?? 0}%` : W.teksSisa(p.sisa_hari)}</span></td>
+                <td className="p-1.5 text-slate-600 break-words">{p.update_terakhir || '—'}</td>
+                <td className="p-1">{foto.length ? <><div className="h-12 bg-slate-800 overflow-hidden"><FotoLaporan kunci={foto[0]} alt="Bukti" /></div><span className="text-sky-700">{foto.length} foto</span></> : <span className="text-slate-400">—</span>}</td>
+              </tr>
+            );
+          }) : (
+            <tr><td colSpan={10} className="p-6 text-center text-slate-400 italic">Belum ada data register PICA.</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  </>
+);
+
 export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, notify }) => {
   const [memuatData, setMemuatData] = useState(true);
   const [sedangEkspor, setSedangEkspor] = useState(false);
@@ -122,6 +179,8 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
   /** Sumber yang gagal dimuat: laporan menulis "tidak tersedia", bukan angka kosong yang tampak asli. */
   const [sumberGagal, setSumberGagal] = useState<string[]>([]);
   const [daftarFoto, setDaftarFoto] = useState<FotoGaleri[]>([]);
+  /** Kunci foto bukti per PICA (terbaru dulu) — kolom Bukti & slide Lampiran Bukti PICA. */
+  const [buktiPica, setBuktiPica] = useState<Record<string, string[]>>({});
   const [daftarReveg, setDaftarReveg] = useState<BarisRevegetasi[]>([]);
   const [revegCadangan, setRevegCadangan] = useState(false);
 
@@ -147,6 +206,13 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
         api<{ foto: FotoGaleri[] }>('/api/galeri?hari=30').catch(cadangan('Foto', { foto: [] as FotoGaleri[] })),
         api<{ revegetasi: BarisRevegetasi[] }>('/api/revegetasi').catch(() => ({ revegetasi: [] as BarisRevegetasi[] })),
       ]);
+      // Semua foto bukti per PICA. Server lama belum punya jalurnya: pakai foto galeri yang bersumber PICA.
+      const bukti = await api<{ bukti: { pica_id: string; kunci: string }[] }>('/api/pica/bukti')
+        .then((d) => d.bukti)
+        .catch(() => (resFoto.foto ?? []).filter((f) => f.sumber === 'pica' && f.ref).map((f) => ({ pica_id: f.ref as string, kunci: f.kunci })));
+      const peta: Record<string, string[]> = {};
+      bukti.forEach((b) => { (peta[b.pica_id] ??= []).includes(b.kunci) || peta[b.pica_id].push(b.kunci); });
+      setBuktiPica(peta);
       setDaftarReveg(resReveg.revegetasi ?? []);
       setRevegCadangan(false);
       setDaftarFoto(resFoto.foto ?? []);
@@ -191,6 +257,9 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
 
   // Laporan lapangan dengan foto dokumentasi R2
   const fotoGaleri = daftarFoto.slice(0, 6);
+  // LOG 30 hari terakhir untuk pratinjau (PPT memuat hingga 20, 4 per slide).
+  const batasLog30 = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 19);
+  const logTerbaru = daftarLaporan.filter((l) => l.dibuat_pada.replace(' ', 'T') >= batasLog30);
   const revegUrut = [...daftarReveg].sort((a, b) => a.tahun - b.tahun);
   const ringkasReveg = ringkasRevegetasi(revegUrut);
   const kegiatanReveg: [string, number][] = [
@@ -208,7 +277,7 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
   const picaBagian1 = daftarPica.slice(0, PICA_PER_SLIDE);
   const picaBagian2 = daftarPica.slice(PICA_PER_SLIDE, PICA_PER_SLIDE * 2);
 
-  const totalSlides = 12;
+  const totalSlides = 13;
 
   const slideTitles = [
     '1. Cover Laporan',
@@ -219,10 +288,11 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
     '6. Monitoring Titik Api (NASA FIRMS)',
     '7. Register PICA Lengkap (Bagian 1/2)',
     '8. Register PICA Lengkap (Bagian 2/2)',
-    '9. Galeri Dokumentasi Foto Lapangan & PICA',
-    '10. Agenda & Rapat Koordinasi',
-    '11. Memo Operasional Lapangan',
-    '12. Sanggahan (Disclaimer Resmi)'
+    '9. Lampiran Bukti PICA',
+    '10. Dokumentasi LOG Kegiatan Lapangan',
+    '11. Agenda & Rapat Koordinasi',
+    '12. Memo Operasional Lapangan',
+    '13. Sanggahan (Disclaimer Resmi)'
   ];
 
   const prevSlide = () => setCurrentSlide((s) => (s > 1 ? s - 1 : s));
@@ -347,7 +417,21 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
           selesai: Boolean(j.selesai),
         }));
 
-      const galeriPayload: MonkeyPointGaleriItem[] = fotoGaleri.map((f) => ({
+      // LOG (catatan kegiatan lapangan) 30 hari terakhir, terbaru dulu — ikut ke PPT beserta fotonya.
+      const batasLog = new Date(Date.now() - 30 * 86_400_000).toISOString();
+      const logPayload: MonkeyPointLogItem[] = daftarLaporan
+        .filter((l) => l.dibuat_pada.replace(' ', 'T') >= batasLog.slice(0, 19))
+        .map((l) => ({
+          tgl: waktuWita(l.dibuat_pada.includes('T') ? l.dibuat_pada : `${l.dibuat_pada.replace(' ', 'T')}Z`),
+          petugas: l.user_nama ?? l.user_id,
+          kegiatan: l.jenis ?? 'Kegiatan lapangan',
+          capaian: l.capaian ? `${Number(l.capaian).toLocaleString('id-ID', { maximumFractionDigits: 2 })} ${l.satuan ?? ''}`.trim() : '',
+          catatan: l.catatan ?? '',
+          pica: l.pica_id,
+          foto: l.foto ?? null,
+        }));
+
+      const galeriPayload: MonkeyPointGaleriItem[] = daftarFoto.map((f) => ({
         tag: tagFoto(f),
         tgl: f.pada.slice(0, 10),
         judul: f.judul ?? 'Dokumentasi',
@@ -360,6 +444,7 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
         pica: daftarPica.map((p): MonkeyPointPicaItem => ({
           id: p.id,
           nomor: p.nomor,
+          noPica: noPica(p),
           bidang: p.bidang,
           prioritas: p.prioritas,
           judul: p.judul,
@@ -373,6 +458,9 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
           realisasi: p.realisasi ?? null,
           satuan: p.satuan ?? null,
           sisa_hari: p.sisa_hari ?? null,
+          update_terakhir: p.update_terakhir ?? null,
+          update_terakhir_pada: p.update_terakhir_pada ?? null,
+          bukti: buktiPica[p.id] ?? [],
         })),
         cuaca: cuacaPayload,
         titikApi: titikApiPayload,
@@ -381,6 +469,7 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
         revegetasi: daftarReveg,
         revegetasiCadangan: revegCadangan,
         galeri: galeriPayload,
+        log: logPayload,
         memo: daftarMemo.map((m): MonkeyPointMemoItem => ({
           id: m.id,
           judul: m.judul,
@@ -913,245 +1002,88 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
                 )}
 
                 {/* ---------------- SLIDE 5: REGISTER PICA (BAGIAN 1/2) ---------------- */}
-                {currentSlide === 7 && (
-                  <>
-                    <div className="ml-[175px] mr-[140px] pt-1 pb-2 border-b-2 border-emerald-700 mb-3 flex flex-col justify-center min-h-[50px]">
-                      <div className="flex justify-between items-baseline gap-2">
-                        <h3 className="text-xs md:text-[13px] font-title text-emerald-950 leading-tight">REGISTER PICA LENGKAP (BAGIAN 1/2)</h3>
-                        <span className="text-[11px] font-bold text-slate-600 font-mono-code shrink-0">
-                          Total {totalPica} Tugas · Terbuka: <b className="text-slate-900">{picaOpen}</b> · Selesai: <b className="text-emerald-800">{picaClosed}</b>
-                        </span>
+                {currentSlide === 7 && <PratinjauPica daftar={picaBagian1} bagian={1} total={totalPica} buka={picaOpen} tutup={picaClosed} bukti={buktiPica} />}
+
+                {/* ---------------- SLIDE 8: REGISTER PICA (BAGIAN 2/2) ---------------- */}
+                {currentSlide === 8 && <PratinjauPica daftar={picaBagian2} bagian={2} total={totalPica} buka={picaOpen} tutup={picaClosed} bukti={buktiPica} />}
+
+                {/* ---------------- SLIDE 9: LAMPIRAN BUKTI PICA ---------------- */}
+                {currentSlide === 9 && (() => {
+                  const semua = daftarPica.flatMap((p) => (buktiPica[p.id] ?? []).map((k, i, arr) => ({ p, k, ke: i + 1, dari: arr.length })));
+                  return (
+                    <>
+                      <div className="ml-[175px] mr-[140px] pt-1 pb-2 border-b-2 border-emerald-700 mb-3 flex flex-col justify-center min-h-[50px]">
+                        <div className="flex justify-between items-baseline gap-2">
+                          <h3 className="text-xs md:text-[13px] font-title text-emerald-950 leading-tight">LAMPIRAN BUKTI PICA</h3>
+                          <span className="inline-flex items-center px-1.5 py-0.5 font-bold text-[10px] rounded bg-emerald-100 text-emerald-900 border border-emerald-300 shrink-0">
+                            {semua.length} FOTO
+                          </span>
+                        </div>
+                        <p className="text-[12px] text-slate-600 font-body mt-0.5">Semua foto bukti PICA; di PPT 8 foto per slide{semua.length > 8 ? `, berlanjut ${Math.ceil(Math.min(48, semua.length) / 8)} slide` : ''}</p>
                       </div>
-                      <p className="text-[12px] text-slate-600 font-body mt-0.5">Tindakan korektif audit lapangan ditampilkan utuh untuk evaluasi manajemen PT EBL</p>
-                    </div>
-
-                    <div className="overflow-x-auto my-auto border-2 border-slate-200 rounded-lg shadow-sm">
-                      <table className="w-full text-left text-xs border-collapse font-body">
-                        <thead>
-                          <tr className="bg-emerald-900 text-white text-[11px]">
-                            <th className="p-2 border-r border-white/20 text-center">No</th>
-                            <th className="p-2 border-r border-white/20">Bidang</th>
-                            <th className="p-2 border-r border-white/20">Masalah (Fakta Lapangan)</th>
-                            <th className="p-2 border-r border-white/20">Akar Masalah</th>
-                            <th className="p-2 border-r border-white/20">Tindakan Korektif</th>
-                            <th className="p-2 border-r border-white/20">Target &amp; Realisasi</th>
-                            <th className="p-2 border-r border-white/20 text-center">Progres</th>
-                            <th className="p-2 border-r border-white/20">PIC</th>
-                            <th className="p-2 border-r border-white/20">Due Date</th>
-                            <th className="p-2 border-r border-white/20 text-center">Status</th>
-                            <th className="p-2">Sisa / Keterangan</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200 bg-white">
-                          {picaBagian1.length > 0 ? (
-                            picaBagian1.map((p, idx) => {
-                              const isClosed = p.status === 'Closed';
-                              const sudahProg = p.status === 'In Progress' || p.status === 'Continue' || (p.realisasi !== null && p.realisasi > 0);
-                              const pct = p.target && p.realisasi !== null ? Math.round((p.realisasi / p.target) * 100) : null;
-                              const telat = !isClosed && !sudahProg && (p.sisa_hari ?? 1) < 0;
-                              const statusColor = isClosed
-                                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
-                                : sudahProg
-                                ? 'bg-sky-100 text-sky-900 border-sky-300'
-                                : telat
-                                ? 'bg-red-100 text-red-800 border-red-300'
-                                : 'bg-amber-100 text-amber-900 border-amber-300';
-                              return (
-                                <tr key={p.id} className={telat ? 'bg-red-50/60' : isClosed ? 'bg-emerald-50/40' : ''}>
-                                  <td className="p-2 font-mono-code font-bold text-center text-slate-700">{p.nomor || idx + 1}</td>
-                                  <td className="p-2 font-bold text-sky-900">{p.bidang}</td>
-                                  <td className="p-2 font-semibold text-slate-800">{p.judul}</td>
-                                  <td className="p-2 text-slate-700">{p.akar || '—'}</td>
-                                  <td className="p-2 text-slate-700">{p.tindakan || '—'}</td>
-                                  <td className="p-2 font-mono-code text-slate-700 whitespace-nowrap">
-                                    {p.target !== null ? `${p.realisasi ?? 0} / ${p.target} ${p.satuan ?? ''}` : '—'}
-                                  </td>
-                                  <td className="p-2 text-center font-bold font-mono-code text-slate-700">
-                                    {pct !== null ? (
-                                      <span className={`px-1.5 py-0.5 rounded text-[10px] ${pct < 60 ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'}`}>{pct}%</span>
-                                    ) : '—'}
-                                  </td>
-                                  <td className="p-2 font-medium text-slate-900">{p.pic_nama ?? '—'}</td>
-                                  <td className="p-2 font-mono-code text-slate-700">{p.due_date ? W.formatPendek(p.due_date) : '—'}</td>
-                                  <td className="p-2 text-center">
-                                    <span className={`inline-flex items-center px-1.5 py-0.5 font-bold text-[10px] rounded border ${statusColor}`}>
-                                      {p.status.toUpperCase()}
-                                    </span>
-                                  </td>
-                                  <td className="p-2 font-bold font-mono-code text-slate-700">
-                                    {isClosed ? (
-                                      <span className="text-emerald-800">Tuntas</span>
-                                    ) : sudahProg ? (
-                                      <span className="text-sky-800 font-bold">Progres {pct !== null ? `${pct}%` : ''}</span>
-                                    ) : telat ? (
-                                      <span className="text-red-700">Telat {Math.abs(p.sisa_hari!)} hr</span>
-                                    ) : (
-                                      `${p.sisa_hari ?? 0} hr lagi`
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })
-                          ) : (
-                            <tr>
-                              <td colSpan={11} className="p-6 text-center text-slate-400 italic">
-                                Belum ada data register PICA untuk periode ini.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )}
-
-                {/* ---------------- SLIDE 6: REGISTER PICA (BAGIAN 2/2) ---------------- */}
-                {currentSlide === 8 && (
-                  <>
-                    <div className="ml-[175px] mr-[140px] pt-1 pb-2 border-b-2 border-emerald-700 mb-3 flex flex-col justify-center min-h-[50px]">
-                      <div className="flex justify-between items-baseline gap-2">
-                        <h3 className="text-xs md:text-[13px] font-title text-emerald-950 leading-tight">REGISTER PICA LENGKAP (BAGIAN 2/2)</h3>
-                        <span className="text-[11px] font-bold text-slate-600 font-mono-code shrink-0">
-                          Halaman 2 · Lanjutan Tugas PICA
-                        </span>
-                      </div>
-                      <p className="text-[12px] text-slate-600 font-body mt-0.5">Lanjutan tindakan korektif dan tindak lanjut lapangan manajemen PT EBL</p>
-                    </div>
-
-                    <div className="overflow-x-auto my-auto border-2 border-slate-200 rounded-lg shadow-sm">
-                      <table className="w-full text-left text-xs border-collapse font-body">
-                        <thead>
-                          <tr className="bg-emerald-900 text-white text-[11px]">
-                            <th className="p-2 border-r border-white/20 text-center">No</th>
-                            <th className="p-2 border-r border-white/20">Bidang</th>
-                            <th className="p-2 border-r border-white/20">Masalah (Fakta Lapangan)</th>
-                            <th className="p-2 border-r border-white/20">Akar Masalah</th>
-                            <th className="p-2 border-r border-white/20">Tindakan Korektif</th>
-                            <th className="p-2 border-r border-white/20">Target &amp; Realisasi</th>
-                            <th className="p-2 border-r border-white/20 text-center">Progres</th>
-                            <th className="p-2 border-r border-white/20">PIC</th>
-                            <th className="p-2 border-r border-white/20">Due Date</th>
-                            <th className="p-2 border-r border-white/20 text-center">Status</th>
-                            <th className="p-2">Sisa / Keterangan</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200 bg-white">
-                          {picaBagian2.length > 0 ? (
-                            picaBagian2.map((p, idx) => {
-                              const isClosed = p.status === 'Closed';
-                              const sudahProg = p.status === 'In Progress' || p.status === 'Continue' || (p.realisasi !== null && p.realisasi > 0);
-                              const pct = p.target && p.realisasi !== null ? Math.round((p.realisasi / p.target) * 100) : null;
-                              const telat = !isClosed && !sudahProg && (p.sisa_hari ?? 1) < 0;
-                              const statusColor = isClosed
-                                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
-                                : sudahProg
-                                ? 'bg-sky-100 text-sky-900 border-sky-300'
-                                : telat
-                                ? 'bg-red-100 text-red-800 border-red-300'
-                                : 'bg-amber-100 text-amber-900 border-amber-300';
-                              return (
-                                <tr key={p.id} className={telat ? 'bg-red-50/60' : isClosed ? 'bg-emerald-50/40' : ''}>
-                                  <td className="p-2 font-mono-code font-bold text-center text-slate-700">{p.nomor || PICA_PER_SLIDE + idx + 1}</td>
-                                  <td className="p-2 font-bold text-sky-900">{p.bidang}</td>
-                                  <td className="p-2 font-semibold text-slate-800">{p.judul}</td>
-                                  <td className="p-2 text-slate-700">{p.akar || '—'}</td>
-                                  <td className="p-2 text-slate-700">{p.tindakan || '—'}</td>
-                                  <td className="p-2 font-mono-code text-slate-700 whitespace-nowrap">
-                                    {p.target !== null ? `${p.realisasi ?? 0} / ${p.target} ${p.satuan ?? ''}` : '—'}
-                                  </td>
-                                  <td className="p-2 text-center font-bold font-mono-code text-slate-700">
-                                    {pct !== null ? (
-                                      <span className={`px-1.5 py-0.5 rounded text-[10px] ${pct < 60 ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'}`}>{pct}%</span>
-                                    ) : '—'}
-                                  </td>
-                                  <td className="p-2 font-medium text-slate-900">{p.pic_nama ?? '—'}</td>
-                                  <td className="p-2 font-mono-code text-slate-700">{p.due_date ? W.formatPendek(p.due_date) : '—'}</td>
-                                  <td className="p-2 text-center">
-                                    <span className={`inline-flex items-center px-1.5 py-0.5 font-bold text-[10px] rounded border ${statusColor}`}>
-                                      {p.status.toUpperCase()}
-                                    </span>
-                                  </td>
-                                  <td className="p-2 font-bold font-mono-code text-slate-700">
-                                    {isClosed ? (
-                                      <span className="text-emerald-800">Tuntas</span>
-                                    ) : sudahProg ? (
-                                      <span className="text-sky-800 font-bold">Progres {pct !== null ? `${pct}%` : ''}</span>
-                                    ) : telat ? (
-                                      <span className="text-red-700">Telat {Math.abs(p.sisa_hari!)} hr</span>
-                                    ) : (
-                                      `${p.sisa_hari ?? 0} hr lagi`
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })
-                          ) : (
-                            <tr>
-                              <td colSpan={11} className="p-6 text-center text-slate-400 italic">
-                                Seluruh tugas PICA telah ditampilkan di Halaman 1.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )}
-
-                {/* ---------------- SLIDE 7: GALERI FOTO REAL DARI R2 ---------------- */}
-                {currentSlide === 9 && (
-                  <>
-                    <div className="ml-[175px] mr-[140px] pt-1 pb-2 border-b-2 border-emerald-700 mb-3 flex flex-col justify-center min-h-[50px]">
-                      <div className="flex justify-between items-baseline gap-2">
-                        <h3 className="text-xs md:text-[13px] font-title text-emerald-950 leading-tight">GALERI DOKUMENTASI FOTO LAPANGAN &amp; PICA</h3>
-                        <span className="inline-flex items-center px-1.5 py-0.5 font-bold text-[10px] rounded bg-emerald-100 text-emerald-900 border border-emerald-300 shrink-0">
-                          ARSIP CLOUDFLARE R2
-                        </span>
-                      </div>
-                      <p className="text-[12px] text-slate-600 font-body mt-0.5">Bukti visual progres tindakan korektif PICA dan kegiatan lapangan tim PT EBL</p>
-                    </div>
-
-                    {fotoGaleri.length > 0 ? (
-                      <div className="grid grid-cols-3 gap-3 my-auto font-body">
-                        {fotoGaleri.map((f) => (
-                          <div key={f.kunci} className="bg-white border-2 border-slate-300 rounded-lg overflow-hidden shadow-sm flex flex-col">
-                            <div className="h-28 bg-slate-800 relative flex items-center justify-center overflow-hidden">
-                              <FotoLaporan kunci={f.kunci} alt={f.judul ?? 'Dokumentasi'} />
-                              <span className="absolute top-1.5 left-1.5 bg-black/70 text-emerald-300 text-[10px] font-mono-code px-1.5 py-0.5 rounded">
-                                {tagFoto(f)}
-                              </span>
-                              <span className="absolute bottom-1.5 right-1.5 bg-emerald-600/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded font-mono-code">
-                                {f.pada.slice(0, 10)}
-                              </span>
-                            </div>
-                            <div className="p-2 text-xs flex-1 flex flex-col justify-between">
-                              <div>
-                                <h5 className="font-bold text-slate-900 text-[12px] truncate">{f.judul ?? 'Dokumentasi'}</h5>
-                                <p className="text-slate-600 text-[11px] leading-tight mt-0.5 line-clamp-2">{f.keterangan ?? ''}</p>
+                      {semua.length ? (
+                        <div className="grid grid-cols-4 gap-2 font-body">
+                          {semua.slice(0, 8).map((x) => (
+                            <div key={x.k} className="bg-white border-2 border-slate-300 rounded overflow-hidden">
+                              <div className="h-24 bg-slate-800"><FotoLaporan kunci={x.k} alt={x.p.judul} /></div>
+                              <div className="p-1.5 text-[10px]">
+                                <b className="text-teal-700">{noPica(x.p)} · foto {x.ke}/{x.dari}</b>
+                                <p className="text-slate-600 truncate">{x.p.judul}</p>
                               </div>
-                              <p className="text-[10px] text-slate-400 font-mono-code mt-1 border-t border-slate-100 pt-0.5">
-                                PIC: {f.oleh ?? '—'}
-                              </p>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="my-auto max-w-xl mx-auto p-8 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl text-center font-body">
+                          <Camera size={24} className="mx-auto mb-2 text-emerald-700" />
+                          <h4 className="font-title text-xs text-slate-800">BELUM ADA FOTO BUKTI PICA</h4>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+
+                {/* ---------------- SLIDE 10: DOKUMENTASI LOG ---------------- */}
+                {currentSlide === 10 && (
+                  <>
+                    <div className="ml-[175px] mr-[140px] pt-1 pb-2 border-b-2 border-emerald-700 mb-3 flex flex-col justify-center min-h-[50px]">
+                      <div className="flex justify-between items-baseline gap-2">
+                        <h3 className="text-xs md:text-[13px] font-title text-emerald-950 leading-tight">DOKUMENTASI LOG KEGIATAN LAPANGAN</h3>
+                        <span className="inline-flex items-center px-1.5 py-0.5 font-bold text-[10px] rounded bg-emerald-100 text-emerald-900 border border-emerald-300 shrink-0">
+                          {logTerbaru.length} CATATAN · 30 HARI
+                        </span>
                       </div>
+                      <p className="text-[12px] text-slate-600 font-body mt-0.5">Laporan menu LOG beserta fotonya; di PPT 4 baris per slide{logTerbaru.length > 4 ? `, berlanjut ${Math.ceil(Math.min(20, logTerbaru.length) / 4)} slide` : ''}</p>
+                    </div>
+                    {logTerbaru.length > 0 ? (
+                      <table className="w-full text-[11px] font-body border-collapse">
+                        <thead>
+                          <tr className="bg-[#2f5d33] text-white text-left">
+                            {['Foto', 'Tanggal & Petugas', 'Kegiatan', 'Capaian', 'Catatan'].map((h) => <th key={h} className="p-1.5 border border-slate-400">{h}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {logTerbaru.slice(0, 4).map((l, i) => (
+                            <tr key={l.id} className={i % 2 ? 'bg-slate-100' : 'bg-white'}>
+                              <td className="p-1 border border-slate-300 w-24"><div className="w-24 h-16 bg-slate-800 overflow-hidden">{l.foto ? <FotoLaporan kunci={l.foto} alt={l.jenis ?? 'Kegiatan'} /> : <span className="text-[10px] text-slate-400 flex items-center justify-center h-full">TANPA FOTO</span>}</div></td>
+                              <td className="p-1.5 border border-slate-300 align-top"><b className="text-teal-700">{l.dibuat_pada.slice(0, 10)}</b><br />{l.user_nama ?? l.user_id}</td>
+                              <td className="p-1.5 border border-slate-300 align-top font-bold text-slate-900">{l.jenis ?? 'Kegiatan lapangan'}{l.pica_id && <span className="block text-[10px] text-sky-700 font-normal">Bukti {l.pica_id}</span>}</td>
+                              <td className="p-1.5 border border-slate-300 text-center font-bold text-green-700">{l.capaian ? `${l.capaian} ${l.satuan ?? ''}` : '—'}</td>
+                              <td className="p-1.5 border border-slate-300 align-top text-slate-700">{l.catatan || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     ) : (
                       <div className="my-auto max-w-xl mx-auto p-8 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl text-center font-body">
-                        <div className="w-12 h-12 mx-auto mb-3 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-700">
-                          <Camera size={24} />
-                        </div>
-                        <h4 className="font-title text-xs text-slate-800 mb-1">BELUM ADA FOTO DOKUMENTASI TERUNGGAH</h4>
-                        <p className="text-xs text-slate-600 leading-relaxed">
-                          Foto dokumentasi yang diambil oleh pengawas dan tim lapangan melalui menu <b>Sync Station</b> atau lampiran bukti <b>PICA</b> akan otomatis tersimpan di Cloudflare R2 dan ditampilkan di galeri ini.
-                        </p>
+                        <h4 className="font-title text-xs text-slate-800">BELUM ADA CATATAN KEGIATAN DALAM 30 HARI TERAKHIR</h4>
                       </div>
                     )}
                   </>
                 )}
 
                 {/* ---------------- SLIDE 8: AGENDA ---------------- */}
-                {currentSlide === 10 && (
+                {currentSlide === 11 && (
                   <>
                     <div className="ml-[175px] mr-[140px] pt-1 pb-2 border-b-2 border-emerald-700 mb-3 flex flex-col justify-center min-h-[50px]">
                       <div className="flex justify-between items-baseline gap-2">
@@ -1205,7 +1137,7 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
                 )}
 
                 {/* ---------------- SLIDE 9: MEMO ---------------- */}
-                {currentSlide === 11 && (
+                {currentSlide === 12 && (
                   <>
                     <div className="ml-[175px] mr-[140px] pt-1 pb-2 border-b-2 border-emerald-700 mb-3 flex flex-col justify-center min-h-[50px]">
                       <div className="flex justify-between items-baseline gap-2">
@@ -1256,7 +1188,7 @@ export const ModalMonkeyPoint: React.FC<Props> = ({ boot, pengguna, onTutup, not
                 )}
 
                 {/* ---------------- SLIDE 10: DISCLAIMER ---------------- */}
-                {currentSlide === 12 && (
+                {currentSlide === 13 && (
                   <div className="my-auto max-w-2xl mx-auto space-y-3 bg-slate-50/90 p-5 rounded-2xl border border-slate-300 shadow-sm text-center font-body">
                     <div className="inline-flex items-center gap-2 text-emerald-950 font-bold text-xs tracking-wider uppercase">
                       <span>HASNUR GROUP</span>

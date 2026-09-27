@@ -749,6 +749,17 @@ input[type='date'], input[type='time'] {
   border-color: #a855f7 !important;
 }
 
+.lencana-rab {
+  background-color: rgba(6, 182, 212, 0.18);
+  color: #67e8f9;
+  border: 1.5px solid rgba(6, 182, 212, 0.6);
+}
+[data-tema='terang'] .lencana-rab {
+  background-color: #cffafe !important;
+  color: #155e75 !important;
+  border-color: #06b6d4 !important;
+}
+
 .lencana-dokumen {
   background-color: rgba(132, 204, 22, 0.18);
   color: #a3e635;

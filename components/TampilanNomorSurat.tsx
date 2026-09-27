@@ -139,6 +139,7 @@ export const TampilanNomorSurat: React.FC<Props> = ({
       surat_keluar: daftar.filter((x) => x.kategori === 'surat_keluar').length,
       kontrak: daftar.filter((x) => x.kategori === 'kontrak').length,
       berita_acara: daftar.filter((x) => x.kategori === 'berita_acara').length,
+      rab: daftar.filter((x) => x.kategori === 'rab').length,
       adaDokumen: daftar.filter((x) => x.dokumen && x.dokumen.length > 0).length,
     };
   }, [daftar]);
@@ -389,6 +390,16 @@ export const TampilanNomorSurat: React.FC<Props> = ({
           >
             Berita Acara ({hitung.berita_acara})
           </button>
+          <button
+            onClick={() => setSaringKategori('rab')}
+            className={`px-3 py-1.5 text-[11px] font-bold transition-all rounded ${
+              saringKategori === 'rab'
+                ? 'bg-cyan-600 text-white shadow-[1px_1px_0_#000]'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
+            }`}
+          >
+            RAB ({hitung.rab})
+          </button>
         </div>
 
         {/* Filter Lingkup: Internal vs Eksternal */}
@@ -621,6 +632,8 @@ export const TampilanNomorSurat: React.FC<Props> = ({
                     ? 'lencana-sr'
                     : item.kategori === 'kontrak'
                     ? 'lencana-kk'
+                    : item.kategori === 'rab'
+                    ? 'lencana-rab'
                     : 'lencana-ba';
 
                 return (

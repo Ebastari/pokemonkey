@@ -62,6 +62,8 @@ export interface Bootstrap {
 export interface PicaItem {
   id: string;
   nomor: number;
+  /** Nomor berjalan sepanjang waktu (migrasi 0021), tampil sebagai PICA-001. */
+  no_urut?: number | null;
   periode_id: string | null;
   bidang: string;
   prioritas: string;

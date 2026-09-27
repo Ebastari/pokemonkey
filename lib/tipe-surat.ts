@@ -3,7 +3,7 @@
  * PT Energi Batubara Lestari (Hasnur Group) - Departemen RNR
  */
 
-export type KategoriSurat = 'im' | 'surat_keluar' | 'kontrak' | 'berita_acara';
+export type KategoriSurat = 'im' | 'surat_keluar' | 'kontrak' | 'berita_acara' | 'rab';
 export type JenisLingkup = 'internal' | 'eksternal';
 
 export interface DokumenLampiran {
@@ -82,6 +82,13 @@ export const KATEGORI_SURAT_INFO: Record<
     lingkup: 'internal',
     warna: 'purple',
     formatContoh: '06/EBL/RNR-BA/IX/2026',
+  },
+  rab: {
+    label: 'RAB (Rencana Anggaran)',
+    singkatan: 'RAB',
+    lingkup: 'internal',
+    warna: 'cyan',
+    formatContoh: '001/RAB/EBL-RNR/IX/2026',
   },
 };
 
@@ -168,6 +175,12 @@ export function generateNomorSuratOtomatis(
       // Format 2 digit: 06/EBL/RNR-BA/IX/2026
       const pad = String(urutBaru).padStart(2, '0');
       nomorSurat = `${pad}/EBL/RNR-BA/${romawi}/${tahun}`;
+      break;
+    }
+    case 'rab': {
+      // Format 3 digit, dibuat otomatis dari Money Monkey: 001/RAB/EBL-RNR/IX/2026
+      const pad = String(urutBaru).padStart(3, '0');
+      nomorSurat = `${pad}/RAB/EBL-RNR/${romawi}/${tahun}`;
       break;
     }
   }

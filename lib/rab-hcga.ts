@@ -77,7 +77,7 @@ export const DATA_RAB_DEFAULT: DataRabHcga = {
     "lokasi": "Site EBL - RANTAU",
     "bulan": "Oktober",
     "tahun": 2026,
-    "nomorRab": "RAB/EBL-HCGA/X/2026",
+    "nomorRab": "001/RAB/EBL-RNR/X/2026",
     "kepada": "Finance HO",
     "up": "Operation & HCA Director",
     "disetujuiOleh": "Rahmad Pudjotomo",
@@ -1570,7 +1570,7 @@ export function buatPermohonanBaru(params: {
   pengguna?: Pengguna | null;
 }): PermohonanRab {
   const romawi = BULAN_ROMAWI[params.bulan] || 'I';
-  const nomorRab = params.nomorRab?.trim() || `RAB/EBL-HCGA/${romawi}/${params.tahun}`;
+  const nomorRab = params.nomorRab?.trim() || `RAB/EBL-RNR/${romawi}/${params.tahun}`;
   const nowStr = new Date().toISOString();
   const tglHariIni = nowStr.slice(0, 10);
 

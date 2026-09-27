@@ -242,6 +242,19 @@ function bentukAwal(): Db {
 
 let cache: Db | null = null;
 
+/**
+ * Sama dengan migrasi 0021: nomor PICA berjalan sepanjang waktu (PICA-001, …),
+ * dari yang terlama. PICA yang belum bernomor (data lama/contoh) diberi nomor lanjutan.
+ */
+function pastikanNoUrut(d: Db): boolean {
+  const belum = d.pica.filter((p) => !p.no_urut)
+    .sort((a, b) => String(a.dibuat_pada).localeCompare(String(b.dibuat_pada)) || String(a.id).localeCompare(String(b.id)));
+  if (!belum.length) return false;
+  let n = Math.max(0, ...d.pica.map((p) => Number(p.no_urut) || 0));
+  belum.forEach((p) => { p.no_urut = ++n; });
+  return true;
+}
+
 /** Sama dengan migrasi 0019: kode roster lama → kode berkas Excel. Kode buatan sendiri dibiarkan. */
 const KODE_LAMA: Record<string, string> = { M: 'D', S1: 'D', S2: 'N', L: 'OFF', C: 'FB', I: 'IK' };
 
@@ -445,8 +458,9 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
       nomor += 1;
       const id = `PICA-${periodeId ?? 'UMUM'}-${String(nomor).padStart(2, '0')}`;
       ids.push(id);
+      pastikanNoUrut(d);
       d.pica.push({
-        id, nomor, periode_id: periodeId, bidang, prioritas: it.prioritas ?? 'Sedang', judul,
+        id, nomor, no_urut: Math.max(0, ...d.pica.map((p: Baris) => Number(p.no_urut) || 0)) + 1, periode_id: periodeId, bidang, prioritas: it.prioritas ?? 'Sedang', judul,
         akar: it.akar ?? null, tindakan: it.tindakan ?? null, pic_id: it.pic_id ?? null,
         due_date: it.due_date ?? null, status: it.status ?? 'Open', terkait_id: null,
         target: it.target ?? null, realisasi: it.realisasi ?? null, satuan: it.satuan ?? null,
@@ -653,13 +667,14 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
 
   // ----- PICA -----
   if (path === '/api/pica' && method === 'GET') {
+    if (pastikanNoUrut(d)) simpan();
     const cari = (q.get('q') ?? '').toLowerCase();
     const daftar = d.pica.filter((p) => !p.dihapus
       && (!q.get('status') || p.status === q.get('status'))
       && (!q.get('bidang') || p.bidang === q.get('bidang'))
       && (!q.get('pic') || p.pic_id === q.get('pic'))
       && (!cari || `${p.judul} ${p.akar ?? ''} ${p.id}`.toLowerCase().includes(cari)))
-      .sort((a, b) => Number(a.status === 'Closed') - Number(b.status === 'Closed') || Number(!a.due_date) - Number(!b.due_date) || String(a.due_date).localeCompare(String(b.due_date)) || a.nomor - b.nomor)
+      .sort((a, b) => (Number(b.no_urut) || 0) - (Number(a.no_urut) || 0))
       .map((p) => bentukPica(d, p, hariIni));
     return { pica: daftar, hariIni };
   }
@@ -668,7 +683,9 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     const periode = d.pengaturan.periode_aktif;
     const nomor = Math.max(0, ...d.pica.filter((p) => p.periode_id === periode).map((p) => p.nomor)) + 1;
     const id = `PICA-${periode}-${String(nomor).padStart(2, '0')}`;
-    d.pica.push({ id, nomor, periode_id: periode, bidang: body.bidang, prioritas: body.prioritas ?? 'Sedang', judul: body.judul, akar: body.akar ?? null, tindakan: body.tindakan ?? null, pic_id: body.pic_id ?? null, due_date: body.due_date ?? null, status: body.status ?? 'Open', terkait_id: body.terkait_id ?? null, target: body.target ?? null, realisasi: body.realisasi ?? null, satuan: body.satuan ?? null, terkunci: 0, props: body.props ?? {}, ditutup_pada: null, dibuat_oleh: saya.id, dibuat_pada: kini(), diubah_oleh: null, diubah_pada: null, dihapus: 0 });
+    pastikanNoUrut(d);
+    const no_urut = Math.max(0, ...d.pica.map((p) => Number(p.no_urut) || 0)) + 1;
+    d.pica.push({ id, nomor, no_urut, periode_id: periode, bidang: body.bidang, prioritas: body.prioritas ?? 'Sedang', judul: body.judul, akar: body.akar ?? null, tindakan: body.tindakan ?? null, pic_id: body.pic_id ?? null, due_date: body.due_date ?? null, status: body.status ?? 'Open', terkait_id: body.terkait_id ?? null, target: body.target ?? null, realisasi: body.realisasi ?? null, satuan: body.satuan ?? null, terkunci: 0, props: body.props ?? {}, ditutup_pada: null, dibuat_oleh: saya.id, dibuat_pada: kini(), diubah_oleh: null, diubah_pada: null, dihapus: 0 });
     d.riwayat.push({ id: ++d.urut, pica_id: id, kolom: 'dibuat', nilai_lama: null, nilai_baru: body.judul, alasan: null, oleh: saya.id, pada: kini() });
     simpan(); return { id, nomor };
   }
