@@ -140,6 +140,14 @@ export class TemplatXlsx {
     return this;
   }
 
+  /** Kosongkan sel sekaligus buang gayanya (warna, garis) — untuk blok template yang tidak dipakai. */
+  bersihkan(ref: string): this {
+    const c = this.sel(ref);
+    this.kosongkan(c);
+    c.removeAttribute('s');
+    return this;
+  }
+
   /** Atur tinggi baris (poin). */
   tinggi(nomor: number, pt: number): this {
     const r = this.baris(nomor)!;

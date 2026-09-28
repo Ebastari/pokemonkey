@@ -15,11 +15,24 @@ import { simpanBerkas } from './unduh';
 
 const DPI = 200;
 const MM = DPI / 25.4;
-const A4 = { lebar: Math.round(210 * MM), tinggi: Math.round(297 * MM) };
-/** Margin seperti dokumen Word contoh. */
-const TEPI = { kiri: Math.round(22 * MM), kanan: Math.round(18 * MM), atas: Math.round(12 * MM), bawah: Math.round(14 * MM) };
-const LEBAR_ISI = A4.lebar - TEPI.kiri - TEPI.kanan;
-const TINGGI_ISI = A4.tinggi - TEPI.atas - TEPI.bawah;
+
+/** Ukuran halaman & margin. Tegak: margin seperti dokumen Word contoh. Mendatar: seperti lembar Excel (RAB). */
+interface Tata { lebar: number; tinggi: number; tepi: { kiri: number; kanan: number; atas: number; bawah: number }; lebarIsi: number; tinggiIsi: number }
+function tata(lanskap: boolean): Tata {
+  const lebar = Math.round((lanskap ? 297 : 210) * MM);
+  const tinggi = Math.round((lanskap ? 210 : 297) * MM);
+  const tepi = lanskap
+    ? { kiri: Math.round(10 * MM), kanan: Math.round(10 * MM), atas: Math.round(10 * MM), bawah: Math.round(10 * MM) }
+    : { kiri: Math.round(22 * MM), kanan: Math.round(18 * MM), atas: Math.round(12 * MM), bawah: Math.round(14 * MM) };
+  return { lebar, tinggi, tepi, lebarIsi: lebar - tepi.kiri - tepi.kanan, tinggiIsi: tinggi - tepi.atas - tepi.bawah };
+}
+
+export interface OpsiPdf {
+  /** A4 mendatar (landscape), seperti lembar RAB. */
+  lanskap?: boolean;
+  /** Tiap bagian diperkecil agar muat satu halaman (seperti "Fit to page" Excel), tidak dipotong. */
+  satuHalaman?: boolean;
+}
 
 const tungguBingkai = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 
@@ -65,30 +78,41 @@ function lewatiPutih(c: HTMLCanvasElement, y: number): number {
   return y + n;
 }
 
-function halamanKosong(): { kanvas: HTMLCanvasElement; g: CanvasRenderingContext2D } {
+function halamanKosong(t: Tata): { kanvas: HTMLCanvasElement; g: CanvasRenderingContext2D } {
   const kanvas = document.createElement('canvas');
-  kanvas.width = A4.lebar;
-  kanvas.height = A4.tinggi;
+  kanvas.width = t.lebar;
+  kanvas.height = t.tinggi;
   const g = kanvas.getContext('2d');
   if (!g) throw new Error('Kanvas tidak tersedia di perangkat ini');
   g.fillStyle = '#ffffff';
-  g.fillRect(0, 0, A4.lebar, A4.tinggi);
+  g.fillRect(0, 0, t.lebar, t.tinggi);
   return { kanvas, g };
 }
 
+/** Satu bagian diperkecil agar muat satu halaman, di tengah secara mendatar (seperti Excel "Fit to page"). */
+function muatSatuHalaman(bagian: HTMLCanvasElement, t: Tata): HTMLCanvasElement {
+  const skala = Math.min(1, t.lebarIsi / bagian.width, t.tinggiIsi / bagian.height);
+  const w = Math.round(bagian.width * skala);
+  const h = Math.round(bagian.height * skala);
+  const { kanvas, g } = halamanKosong(t);
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(bagian, 0, 0, bagian.width, bagian.height, t.tepi.kiri + Math.round((t.lebarIsi - w) / 2), t.tepi.atas, w, h);
+  return kanvas;
+}
+
 /** Bagi satu bagian menjadi halaman A4; halaman lanjutan diberi kop di atasnya. */
-function paginasi(bagian: HTMLCanvasElement, kop: HTMLCanvasElement | null, jarakKop: number): HTMLCanvasElement[] {
+function paginasi(bagian: HTMLCanvasElement, kop: HTMLCanvasElement | null, jarakKop: number, t: Tata): HTMLCanvasElement[] {
   const hasil: HTMLCanvasElement[] = [];
   let y = 0;
   let pertama = true;
   while (y < bagian.height - 2) {
     const tinggiKop = !pertama && kop ? kop.height + jarakKop : 0;
-    const ruang = TINGGI_ISI - tinggiKop;
+    const ruang = t.tinggiIsi - tinggiKop;
     const sisa = bagian.height - y;
     const potong = sisa <= ruang ? bagian.height : titikPotong(bagian, y + ruang, Math.round(ruang * 0.35), y);
-    const { kanvas, g } = halamanKosong();
-    if (tinggiKop && kop) g.drawImage(kop, TEPI.kiri, TEPI.atas);
-    g.drawImage(bagian, 0, y, bagian.width, potong - y, TEPI.kiri, TEPI.atas + tinggiKop, bagian.width, potong - y);
+    const { kanvas, g } = halamanKosong(t);
+    if (tinggiKop && kop) g.drawImage(kop, t.tepi.kiri, t.tepi.atas);
+    g.drawImage(bagian, 0, y, bagian.width, potong - y, t.tepi.kiri, t.tepi.atas + tinggiKop, bagian.width, potong - y);
     hasil.push(kanvas);
     y = lewatiPutih(bagian, potong);
     pertama = false;
@@ -114,13 +138,14 @@ export function pdfDariJpeg(halaman: { data: Uint8Array; lebar: number; tinggi: 
     panjang += b.length;
   };
   const objek = (n: number) => { offset[n] = panjang; tulis(`${n} 0 obj\n`); };
-  const W = 595.28, H = 841.89;
 
   tulis('%PDF-1.4\n%âãÏÓ\n');
   objek(1); tulis('<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
   objek(2); tulis(`<< /Type /Pages /Count ${halaman.length} /Kids [${halaman.map((_, i) => `${3 + i * 3} 0 R`).join(' ')}] >>\nendobj\n`);
   halaman.forEach((h, i) => {
     const hal = 3 + i * 3, isi = hal + 1, gbr = hal + 2;
+    // A4 tegak atau mendatar mengikuti bentuk gambar halaman.
+    const [W, H] = h.lebar > h.tinggi ? [841.89, 595.28] : [595.28, 841.89];
     objek(hal);
     tulis(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /XObject << /Im${i} ${gbr} 0 R >> >> /Contents ${isi} 0 R >>\nendobj\n`);
     const perintah = `q ${W} 0 0 ${H} 0 0 cm /Im${i} Do Q`;
@@ -143,19 +168,20 @@ export function pdfDariJpeg(halaman: { data: Uint8Array; lebar: number; tinggi: 
  * `dok` berisi `section[data-halaman]` (yang kosong diberi `data-kosong="1"`)
  * dan satu elemen `[data-kop]` untuk kop halaman lanjutan.
  */
-export async function eksporLembarPdf(dok: HTMLElement, nama: string, judul: string): Promise<'dibagikan' | 'diunduh'> {
-  return simpanBerkas(await buatPdfLembar(dok), nama, judul);
+export async function eksporLembarPdf(dok: HTMLElement, nama: string, judul: string, opsiPdf: OpsiPdf = {}): Promise<'dibagikan' | 'diunduh'> {
+  return simpanBerkas(await buatPdfLembar(dok, opsiPdf), nama, judul);
 }
 
 /** Lembar dokumen → Blob PDF A4 (tanpa menyimpan), untuk diunggah ke arsip. */
-export async function buatPdfLembar(dok: HTMLElement): Promise<Blob> {
+export async function buatPdfLembar(dok: HTMLElement, opsiPdf: OpsiPdf = {}): Promise<Blob> {
+  const t = tata(Boolean(opsiPdf.lanskap));
   const { toCanvas } = await import('html-to-image');
   const halaman: HTMLCanvasElement[] = [];
   dok.classList.add('mode-ekspor-pdf');
   try {
     await tungguBingkai();
     await tungguGambar(dok);
-    const rasio = LEBAR_ISI / dok.clientWidth;
+    const rasio = t.lebarIsi / dok.clientWidth;
     const opsi = {
       pixelRatio: rasio,
       backgroundColor: '#ffffff',
@@ -168,7 +194,7 @@ export async function buatPdfLembar(dok: HTMLElement): Promise<Blob> {
     const bagian = Array.from(dok.querySelectorAll<HTMLElement>('section[data-halaman]')).filter((b) => b.dataset.kosong !== '1');
     for (const b of bagian) {
       const kanvas = await toCanvas(b, { ...opsi, width: b.offsetWidth, height: b.offsetHeight, style: { margin: '0' } });
-      halaman.push(...paginasi(kanvas, kop, jarakKop));
+      halaman.push(...(opsiPdf.satuHalaman ? [muatSatuHalaman(kanvas, t)] : paginasi(kanvas, kop, jarakKop, t)));
     }
   } finally {
     dok.classList.remove('mode-ekspor-pdf');

@@ -520,12 +520,32 @@ const App: React.FC = () => {
     simpanProfil({ status_teks: bersih });
   }, [simpanProfil]);
 
+  // Nilai terbaru untuk detak berkala. Dibaca lewat ref supaya interval tidak
+  // di-reset setiap monyet berjalan (dulu posisi masuk dependensi, sehingga
+  // detak 60 detik tak pernah sempat jalan dan pemain tak tampil di KEBUN orang lain).
+  const detakRef = useRef({ lastFeedingTime: gameState.lastFeedingTime, pos: gameState.monkeyPos });
+  detakRef.current = { lastFeedingTime: gameState.lastFeedingTime, pos: gameState.monkeyPos };
+
+  // Tanda hadir: segera setelah masuk dan setiap aplikasi kembali ke layar.
+  useEffect(() => {
+    if (!sesi) return;
+    const hadir = () => {
+      if (document.visibilityState !== 'visible') return;
+      const { pos } = detakRef.current;
+      simpanProfil({ pos_x: pos.x, pos_y: pos.y });
+    };
+    hadir();
+    document.addEventListener('visibilitychange', hadir);
+    return () => document.removeEventListener('visibilitychange', hadir);
+  }, [sesi, simpanProfil]);
+
   useEffect(() => {
     if (!sesi) return;
     const timer = setInterval(async () => {
-      const newStamina = calculateStaminaHybrid(gameState.lastFeedingTime);
+      const { lastFeedingTime, pos } = detakRef.current;
+      const newStamina = calculateStaminaHybrid(lastFeedingTime);
       setGameState((p) => ({ ...p, stamina: newStamina }));
-      simpanProfil({ stamina: newStamina, pos_x: gameState.monkeyPos.x, pos_y: gameState.monkeyPos.y });
+      simpanProfil({ stamina: newStamina, pos_x: pos.x, pos_y: pos.y });
 
       const terkirim = await kirimAntreanOffline();
       setAntrean(jumlahAntreanOffline());
@@ -537,7 +557,7 @@ const App: React.FC = () => {
       }
     }, 60000);
     return () => clearInterval(timer);
-  }, [sesi, gameState.lastFeedingTime, gameState.monkeyPos.x, gameState.monkeyPos.y, simpanProfil, muatGame, muatMisi, notify]);
+  }, [sesi, simpanProfil, muatGame, muatMisi, notify]);
 
   // ---------- Aksi ----------
 

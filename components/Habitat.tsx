@@ -142,7 +142,9 @@ export const Habitat: React.FC<Props> = ({
     };
     fetchOthers();
     const interval = setInterval(fetchOthers, 30000);
-    return () => clearInterval(interval);
+    const saatKembali = () => { if (document.visibilityState === 'visible') fetchOthers(); };
+    document.addEventListener('visibilitychange', saatKembali);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', saatKembali); };
   }, [state.userId, state.isLoggedIn]);
 
   // Realisasi area/revegetasi: angka dari server/demo lokal.
@@ -391,7 +393,7 @@ export const Habitat: React.FC<Props> = ({
             {others.length > 3 && <div className="w-6 h-6 border-2 border-white bg-emerald-600 flex items-center justify-center text-[10px] font-bold">+{others.length - 3}</div>}
           </div>
           <div className="leading-tight">
-            <p className="text-[10px] text-zinc-400 uppercase">Rimbawan aktif</p>
+            <p className="text-[10px] text-zinc-400 uppercase">Aktif 24 jam</p>
             <p className="text-[13px] font-bold">{others.length + 1} orang</p>
           </div>
         </div>

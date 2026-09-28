@@ -111,9 +111,14 @@ export async function ruteGame(
     return json({ ok: true });
   }
 
-  // ---------- Pemain lain yang aktif 15 menit terakhir ----------
+  // ---------- Pemain lain yang aktif 24 jam terakhir ----------
   if (jalur === '/api/kehadiran' && req.method === 'GET') {
-    const batas = new Date(Date.now() - 15 * 60_000).toISOString();
+    // Yang sedang membuka KEBUN otomatis tercatat hadir (juga untuk APK lama
+    // yang detak berkalanya tidak jalan).
+    await env.DB.prepare('UPDATE profil_game SET terakhir_aktif = ?2 WHERE user_id = ?1')
+      .bind(pengguna.id, sekarangUtcIso())
+      .run();
+    const batas = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
     const { results } = await env.DB.prepare(
       `SELECT p.user_id AS userId, t.nama AS name, p.skin_aktif AS skinId,
               COALESCE(p.pos_x, 50) AS posX, COALESCE(p.pos_y, 50) AS posY,
