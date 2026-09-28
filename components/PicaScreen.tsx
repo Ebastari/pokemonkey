@@ -874,7 +874,8 @@ const StatusFonnte: React.FC<{ status: StatusWa | null }> = ({ status }) => {
 const RekapWa: React.FC<{ notify: (m: string) => void }> = ({ notify }) => {
   const [grup, setGrup] = useState('');
   const [aktif, setAktif] = useState(false);
-  const [tersimpan, setTersimpan] = useState({ grup: '', aktif: false });
+  const [notifAktivitas, setNotifAktivitas] = useState(true);
+  const [tersimpan, setTersimpan] = useState({ grup: '', aktif: false, notifAktivitas: true });
   const [status, setStatus] = useState<StatusWa | null>(null);
   const [daftarGrup, setDaftarGrup] = useState<{ id: string; nama: string }[] | null>(null);
   // Jumat (WITA) = rekap mingguan, sama seperti jadwal otomatisnya.
@@ -886,9 +887,14 @@ const RekapWa: React.FC<{ notify: (m: string) => void }> = ({ notify }) => {
     api<{ pengaturan: { kunci: string; nilai: string }[]; fonnte_terpasang?: boolean }>('/api/pengaturan')
       .then((d) => {
         const nilai = (k: string) => d.pengaturan.find((x) => x.kunci === k)?.nilai ?? '';
-        const awal = { grup: nilai('wa_grup_id'), aktif: nilai('wa_aktif') === '1' };
+        const awal = {
+          grup: nilai('wa_grup_id'),
+          aktif: nilai('wa_aktif') === '1',
+          notifAktivitas: nilai('wa_notif_pica') !== '0',
+        };
         setGrup(awal.grup);
         setAktif(awal.aktif);
+        setNotifAktivitas(awal.notifAktivitas);
         setTersimpan(awal);
       })
       .catch(() => undefined);
@@ -919,14 +925,20 @@ const RekapWa: React.FC<{ notify: (m: string) => void }> = ({ notify }) => {
 
   const grupBersih = grup.trim();
   const grupSah = !grupBersih || grupBersih.endsWith('@g.us');
-  const berubah = grupBersih !== tersimpan.grup || aktif !== tersimpan.aktif;
+  const berubah = grupBersih !== tersimpan.grup || aktif !== tersimpan.aktif || notifAktivitas !== tersimpan.notifAktivitas;
   const siapKirim = Boolean(tersimpan.grup) && tersimpan.aktif && !berubah;
 
   const simpan = async () => {
     setSibuk('simpan');
     try {
-      await api('/api/pengaturan', { body: { wa_grup_id: grupBersih, wa_aktif: aktif ? '1' : '0' } });
-      setTersimpan({ grup: grupBersih, aktif });
+      await api('/api/pengaturan', {
+        body: {
+          wa_grup_id: grupBersih,
+          wa_aktif: aktif ? '1' : '0',
+          wa_notif_pica: notifAktivitas ? '1' : '0',
+        },
+      });
+      setTersimpan({ grup: grupBersih, aktif, notifAktivitas });
       notify('PENGATURAN WHATSAPP DISIMPAN');
     } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENYIMPAN'); }
     finally { setSibuk(null); }
@@ -981,6 +993,13 @@ const RekapWa: React.FC<{ notify: (m: string) => void }> = ({ notify }) => {
         <label htmlFor="wa-aktif" className="flex items-center gap-2 mt-2 text-[13px] text-zinc-200 cursor-pointer">
           <input id="wa-aktif" type="checkbox" checked={aktif} onChange={(e) => setAktif(e.target.checked)} className="w-4 h-4 accent-emerald-500" />
           Pengiriman WhatsApp aktif
+        </label>
+        <label htmlFor="wa-notif-pica" className="flex items-start gap-2 mt-2.5 text-[12px] text-zinc-200 cursor-pointer bg-black/40 border border-white/10 p-2">
+          <input id="wa-notif-pica" type="checkbox" checked={notifAktivitas} onChange={(e) => setNotifAktivitas(e.target.checked)} className="w-4 h-4 mt-0.5 accent-emerald-500 shrink-0" />
+          <span className="leading-snug">
+            <b className="text-emerald-300 block mb-0.5">Notifikasi Aktivitas PICA</b>
+            Kirim notifikasi instan ke WA grup &amp; Info aplikasi saat ada anggota membuat PICA, mengubah status, mengunggah bukti, atau menutup PICA.
+          </span>
         </label>
         <div className="grid grid-cols-[1fr_auto] gap-1.5 mt-2">
           <button onClick={simpan} disabled={!berubah || !grupSah || sibuk !== null} className="btn-retro btn-retro-sm bg-zinc-700">

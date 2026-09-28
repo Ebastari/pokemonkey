@@ -46,6 +46,7 @@ import {
   selisihHari,
   geserHari,
   utcDariWita,
+  tanggalIndonesia,
 } from './waktu';
 
 // ---------- Pembantu jawaban ----------
@@ -567,6 +568,11 @@ async function buatPica(req: Request, env: Env, pengguna: Pengguna): Promise<Res
     .bind(id, b.judul, pengguna.id)
     .run();
 
+  await kirimNotifikasiAktivitasPica(env, pengguna, {
+    jenis: 'buat',
+    pica: { id, nomor, judul: b.judul, bidang: b.bidang, status: b.status ?? 'Open' },
+  });
+
   return json({ id, nomor }, 201);
 }
 
@@ -733,6 +739,17 @@ async function ubahPica(id: string, req: Request, env: Env, pengguna: Pengguna):
   );
   await env.DB.batch(batch);
 
+  const statusUbah = perubahan.find((p) => p.kolom === 'status');
+  if (statusUbah) {
+    await kirimNotifikasiAktivitasPica(env, pengguna, {
+      jenis: 'status',
+      pica: { id, nomor: lama.nomor, judul: lama.judul, bidang: lama.bidang, status: String(statusUbah.ke) },
+      statusLama: String(statusUbah.dari),
+      statusBaru: String(statusUbah.ke),
+      catatan: alasan,
+    });
+  }
+
   return json({ ok: true, perubahan: perubahan.length });
 }
 
@@ -765,7 +782,130 @@ async function tambahUpdate(id: string, req: Request, env: Env, pengguna: Penggu
       .bind(id, b.realisasi, sekarangUtcIso())
       .run();
   }
+
+  const picaData = await env.DB.prepare('SELECT id, nomor, judul, bidang, status FROM pica WHERE id = ?1').bind(id).first<any>();
+  if (picaData) {
+    await kirimNotifikasiAktivitasPica(env, pengguna, {
+      jenis: 'update',
+      pica: picaData,
+      catatan: b.catatan,
+    });
+  }
+
   return json({ ok: true }, 201);
+}
+
+/**
+ * Mengirim notifikasi aktivitas PICA ke grup WhatsApp dan pengumuman aplikasi
+ * jika saklar `wa_notif_pica` aktif (default: 1 / aktif).
+ */
+async function kirimNotifikasiAktivitasPica(
+  env: Env,
+  pengguna: Pengguna,
+  opsi: {
+    jenis: 'buat' | 'status' | 'update' | 'bukti';
+    pica: { id: string; nomor?: number | null; judul: string; bidang?: string | null; status?: string | null };
+    catatan?: string | null;
+    statusLama?: string | null;
+    statusBaru?: string | null;
+    namaBerkas?: string | null;
+  },
+): Promise<void> {
+  try {
+    const aktif = (await ambilPengaturan(env, 'wa_notif_pica')) !== '0';
+    if (!aktif) return;
+
+    const noStr = opsi.pica.nomor ? `PICA #${opsi.pica.nomor}` : opsi.pica.id;
+    let judulNotif = '';
+    let teksWa = '';
+    let isiApp = '';
+
+    if (opsi.jenis === 'buat') {
+      judulNotif = `PICA Baru: ${noStr} (${opsi.pica.bidang || 'Umum'})`;
+      isiApp = `${pengguna.nama} telah membuat ${noStr}: "${opsi.pica.judul}".`;
+      teksWa = `📌 *PICA BARU DITAMBAHKAN*\n\n` +
+        `*${pengguna.nama}* telah menambahkan *${noStr}*:\n` +
+        `"${opsi.pica.judul}"\n\n` +
+        `🏷 *Bidang:* ${opsi.pica.bidang || '-'}\n` +
+        `📊 *Status:* ${opsi.pica.status || 'Open'}\n` +
+        `📅 *Tanggal:* ${tanggalIndonesia(tanggalWita())}\n\n` +
+        `— Sistem POKEMONKEY`;
+    } else if (opsi.jenis === 'status') {
+      if (opsi.statusBaru === 'Closed') {
+        judulNotif = `PICA Ditutup: ${noStr}`;
+        isiApp = `${pengguna.nama} telah mengirim bukti dan menutup ${noStr}: "${opsi.pica.judul}".${opsi.catatan ? ` Catatan: "${opsi.catatan}"` : ''}`;
+        teksWa = `🔔 *PICA SELESAI & DITUTUP*\n\n` +
+          `*${pengguna.nama}* telah mengirim bukti dan menutup *${noStr}*:\n` +
+          `"${opsi.pica.judul}"\n\n` +
+          `📊 *Status:* Closed (Selesai)\n` +
+          `${opsi.catatan ? `💬 *Catatan/Alasan:* ${opsi.catatan}\n` : ''}` +
+          `📌 *Bidang:* ${opsi.pica.bidang || '-'}\n` +
+          `📅 *Tanggal:* ${tanggalIndonesia(tanggalWita())}\n\n` +
+          `— Sistem POKEMONKEY`;
+      } else if (opsi.statusBaru === 'Verifikasi') {
+        judulNotif = `Verifikasi PICA: ${noStr}`;
+        isiApp = `${pengguna.nama} telah mengirim bukti dan mengajukan verifikasi untuk ${noStr}: "${opsi.pica.judul}".`;
+        teksWa = `⏳ *PICA DIAJUKAN VERIFIKASI*\n\n` +
+          `*${pengguna.nama}* telah mengirim bukti dan mengajukan verifikasi penutupan untuk *${noStr}*:\n` +
+          `"${opsi.pica.judul}"\n\n` +
+          `📊 *Status:* Menunggu Verifikasi\n` +
+          `${opsi.catatan ? `💬 *Catatan:* ${opsi.catatan}\n` : ''}` +
+          `Mohon Supervisor / Admin memeriksa kelengkapan bukti.\n\n` +
+          `— Sistem POKEMONKEY`;
+      } else {
+        judulNotif = `Status PICA Diperbarui: ${noStr}`;
+        isiApp = `${pengguna.nama} mengubah status ${noStr} dari ${opsi.statusLama || '-'} menjadi ${opsi.statusBaru}.`;
+        teksWa = `🔄 *STATUS PICA DIPERBARUI*\n\n` +
+          `*${pengguna.nama}* memperbarui status *${noStr}*:\n` +
+          `"${opsi.pica.judul}"\n\n` +
+          `Status: *${opsi.statusLama || '-'}* ➔ *${opsi.statusBaru}*\n` +
+          `${opsi.catatan ? `💬 *Catatan/Alasan:* ${opsi.catatan}\n` : ''}` +
+          `— Sistem POKEMONKEY`;
+      }
+    } else if (opsi.jenis === 'update') {
+      judulNotif = `Update PICA: ${noStr}`;
+      isiApp = `${pengguna.nama} mencatat progres ${noStr}: "${opsi.catatan}".`;
+      teksWa = `📋 *CATATAN PROGRES PICA*\n\n` +
+        `*${pengguna.nama}* menambahkan perkembangan untuk *${noStr}*:\n` +
+        `"${opsi.pica.judul}"\n\n` +
+        `💬 *Catatan:* ${opsi.catatan}\n\n` +
+        `— Sistem POKEMONKEY`;
+    } else if (opsi.jenis === 'bukti') {
+      judulNotif = `Bukti PICA Diunggah: ${noStr}`;
+      isiApp = `${pengguna.nama} mengunggah bukti untuk ${noStr} (${opsi.namaBerkas || 'Lampiran'}).`;
+      teksWa = `📎 *BUKTI PICA DIUNGGAH*\n\n` +
+        `*${pengguna.nama}* telah mengunggah bukti untuk *${noStr}*:\n` +
+        `"${opsi.pica.judul}"\n\n` +
+        `📁 *Berkas:* ${opsi.namaBerkas || 'Lampiran'}\n\n` +
+        `— Sistem POKEMONKEY`;
+    }
+
+    // 1. Simpan ke Pengumuman In-App
+    if (judulNotif && isiApp) {
+      await env.DB.prepare(
+        `INSERT INTO pengumuman (id, judul, isi, penting, kirim_wa, oleh)
+         VALUES (?1, ?2, ?3, 0, 0, ?4)`,
+      )
+        .bind(idBaru('ann'), judulNotif, isiApp, pengguna.id)
+        .run()
+        .catch((e) => console.warn('Gagal buat pengumuman pica', e));
+    }
+
+    // 2. Kirim ke WhatsApp Grup jika WA aktif
+    const waAktif = (await ambilPengaturan(env, 'wa_aktif')) === '1';
+    const grup = await ambilPengaturan(env, 'wa_grup_id');
+    if (waAktif && grup && teksWa) {
+      await antre(env, {
+        tujuan: grup,
+        isi: teksWa,
+        jenis: 'pengumuman',
+        ref_id: `${opsi.pica.id}-${opsi.jenis}-${Date.now()}`,
+      });
+      await prosesAntrean(env, 3);
+    }
+  } catch (err) {
+    console.error('Gagal kirim notifikasi aktivitas pica', err);
+  }
 }
 
 async function kunciPeriode(id: string, env: Env, pengguna: Pengguna): Promise<Response> {
@@ -1049,6 +1189,17 @@ async function unggahLampiran(req: Request, env: Env, pengguna: Pengguna): Promi
   )
     .bind(id, entitas, entitasId, kunci, berkas.name, berkas.type, berkas.size, pengguna.id)
     .run();
+
+  if (entitas === 'pica') {
+    const picaData = await env.DB.prepare('SELECT id, nomor, judul, bidang, status FROM pica WHERE id = ?1').bind(entitasId).first<any>();
+    if (picaData) {
+      await kirimNotifikasiAktivitasPica(env, pengguna, {
+        jenis: 'bukti',
+        pica: picaData,
+        namaBerkas: berkas.name,
+      });
+    }
+  }
 
   return json({ id, kunci, url: `/api/berkas/${encodeURIComponent(kunci)}` }, 201);
 }
