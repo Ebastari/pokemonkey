@@ -103,6 +103,7 @@ export interface RabRnr {
   uraian: UraianRab[];
   pemohonId: string;
   pemohonNama: string;
+  pemohonJabatan?: string;
   dibuatPada: string;
   diubahPada: string;
 }
@@ -117,7 +118,7 @@ export const PENYETUJU_PIMPINAN = { nama: 'Bambang Octaryono', jabatan: 'Pimpina
 const hariIni = () => new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
 export const idUraian = () => `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
-export function rabBaru(p: { bulan: string; tahun: number; nomorRab: string; nomorUrut: number; lokasi: string; judul: string; pemohonId: string; pemohonNama: string }): RabRnr {
+export function rabBaru(p: { bulan: string; tahun: number; nomorRab: string; nomorUrut: number; lokasi: string; judul: string; pemohonId: string; pemohonNama: string; pemohonJabatan?: string }): RabRnr {
   const kini = new Date().toISOString();
   return {
     id: `rabrnr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -127,7 +128,7 @@ export function rabBaru(p: { bulan: string; tahun: number; nomorRab: string; nom
     verifikasiNama: PENYETUJU_VERIFIKASI.nama, jabatanVerifikasi: PENYETUJU_VERIFIKASI.jabatan,
     pimpinanNama: PENYETUJU_PIMPINAN.nama, jabatanPimpinan: PENYETUJU_PIMPINAN.jabatan,
     penyetuju: PENYETUJU_DIREKTUR.nama, jabatanPenyetuju: PENYETUJU_DIREKTUR.jabatan, catatan: '',
-    status: 'Draf', kartu: [], uraian: [], pemohonId: p.pemohonId, pemohonNama: p.pemohonNama, dibuatPada: kini, diubahPada: kini,
+    status: 'Draf', kartu: [], uraian: [], pemohonId: p.pemohonId, pemohonNama: p.pemohonNama, pemohonJabatan: p.pemohonJabatan || 'Staff RNR', dibuatPada: kini, diubahPada: kini,
   };
 }
 
@@ -306,8 +307,12 @@ export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> 
   const tgl = r.tanggal ? `${Number(r.tanggal.slice(8, 10))} ${DAFTAR_BULAN[Number(r.tanggal.slice(5, 7)) - 1]} ${r.tanggal.slice(0, 4)}` : '';
   t.isi('D2', 'PT ENERGI BATUBARA LESTARI\nRENCANA ANGGARAN BULANAN (RAB)\nDepartemen RNR')
     .isi('E7', `: ${r.lokasi}`)
-    .isi('G8', `Bulan : ${r.bulan}                                          Tahun : ${r.tahun}`)
-    .isi('D10', r.kepada).isi('D11', r.up).isi('D12', r.nomorRab).isi('D14', tgl);
+    .isi('G8', `Bulan : ${r.bulan}                                          Tahun : ${r.tahun}`);
+  // Gabungkan kolom D–E agar No. RAB dan Tanggal mengisi ruang dengan rapi tanpa jeda kosong.
+  t.hapusGabungan('D12:D13').hapusGabungan('E12:E14');
+  t.gabungSel('D10:E10').gabungSel('D11:E11').gabungSel('D12:E13').gabungSel('D14:E15');
+  for (let b = 10; b <= 15; b++) t.salinGaya(`D${b}`, `E${b}`);
+  t.isi('D10', r.kepada).isi('D11', r.up).isi('D12', r.nomorRab).isi('D14', tgl);
   // Hapus gabungan sel di area persetujuan agar 5 kotak terpisah (F, G, H, I, J, masing-masing 1 kolom).
   for (const ref of ['F10:G10', 'F11:G11', 'F12:G14', 'F15:G15', 'H10:I10', 'H11:I11', 'H12:I14', 'H15:I15', 'J12:J14']) {
     t.hapusGabungan(ref);
@@ -316,8 +321,10 @@ export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> 
   for (let b = 10; b <= 15; b++) {
     for (const col of ['G', 'H', 'I', 'J']) t.salinGaya(`F${b}`, `${col}${b}`);
   }
-  // Kotak 1: Dibuat (kolom F)
-  t.isi('F10', 'Dibuat').isi('F11', 'Diisi Di Form').isi('F14', 'Diisi DI form').isi('F15', '');
+  // Kotak 1: Dibuat (kolom F) — gunakan nama & jabatan pembuat dari form
+  const namaPembuat = r.pemohonNama || 'Pemohon';
+  const jabatanPembuat = r.pemohonJabatan || 'Staff RNR';
+  t.isi('F10', 'Dibuat').isi('F11', jabatanPembuat).isi('F14', namaPembuat).isi('F15', '');
   // Kotak 2: Diverifikasi (kolom G)
   t.isi('G10', 'Diverifikasi').isi('G11', r.jabatanVerifikasi || PENYETUJU_VERIFIKASI.jabatan)
     .isi('G14', r.verifikasiNama || PENYETUJU_VERIFIKASI.nama).isi('G15', 'Tanggal :');

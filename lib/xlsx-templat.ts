@@ -168,6 +168,20 @@ export class TemplatXlsx {
     return this;
   }
 
+  /** Tambahkan gabungan sel (mergeCell) baru. */
+  gabungSel(ref: string): this {
+    let gabungan = this.lembar.getElementsByTagNameNS(NS, 'mergeCells')[0];
+    if (!gabungan) {
+      gabungan = this.lembar.createElementNS(NS, 'mergeCells');
+      this.lembar.documentElement.appendChild(gabungan);
+    }
+    const m = this.lembar.createElementNS(NS, 'mergeCell');
+    m.setAttribute('ref', ref);
+    gabungan.appendChild(m);
+    gabungan.setAttribute('count', String(gabungan.getElementsByTagNameNS(NS, 'mergeCell').length));
+    return this;
+  }
+
   /** Atur tinggi baris (poin). */
   tinggi(nomor: number, pt: number): this {
     const r = this.baris(nomor)!;

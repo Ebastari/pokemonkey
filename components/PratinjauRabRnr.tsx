@@ -54,7 +54,7 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
   const isi = barisRekap(rab).filter((u) => u.uraian.trim() && totalUraian(u) > 0);
   const direktur = perluDirektur(rab);
   const namaBerkas = `RAB RNR ${rab.bulan} ${rab.tahun} ${rab.nomorRab.replace(/\//g, '-')}`;
-  const pemohon = { nama: rab.pemohonNama || 'Diisi DI form', jabatan: 'Diisi Di Form' };
+  const pemohon = { nama: rab.pemohonNama || 'Pemohon', jabatan: rab.pemohonJabatan || 'Staff RNR' };
   const verifikasi = { nama: rab.verifikasiNama || PENYETUJU_VERIFIKASI.nama, jabatan: rab.jabatanVerifikasi || PENYETUJU_VERIFIKASI.jabatan };
   const pimpinan = { nama: rab.pimpinanNama || PENYETUJU_PIMPINAN.nama, jabatan: rab.jabatanPimpinan || PENYETUJU_PIMPINAN.jabatan };
   const divHead = { nama: rab.penyetujuDivHead || PENYETUJU_DIV_HEAD.nama, jabatan: rab.jabatanDivHead || PENYETUJU_DIV_HEAD.jabatan };
@@ -153,22 +153,19 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
                   {/* Baris 10–15: identitas + 4 atau 5 kotak persetujuan */}
                   <tr style={{ height: TINGGI.biasa }}>
                     <td colSpan={2} className="px-1" style={garis({ kiri: TEBAL, atas: TEBAL })}>Kepada</td>
-                    <td className="px-1" style={garis({ kiri: RAMBUT, atas: TEBAL, bawah: RAMBUT })}>{rab.kepada}</td>
-                    <td style={garis({ atas: TEBAL })} />
+                    <td colSpan={2} className="px-1" style={garis({ kiri: RAMBUT, atas: TEBAL, bawah: RAMBUT })}>{rab.kepada}</td>
                     {k1.b10}{k2.b10}{k3.b10}{k4.b10}
                     {direktur ? k5.b10 : <td style={garis({ kanan: TEBAL, atas: TEBAL })} />}
                   </tr>
                   <tr style={{ height: TINGGI.biasa }}>
                     <td colSpan={2} className="px-1" style={garis({ kiri: TEBAL })}>Up.</td>
-                    <td className="px-1" style={garis({ kiri: RAMBUT, bawah: RAMBUT })}>{rab.up}</td>
-                    <td />
+                    <td colSpan={2} className="px-1" style={garis({ kiri: RAMBUT, bawah: RAMBUT })}>{rab.up}</td>
                     {k1.b11}{k2.b11}{k3.b11}{k4.b11}
                     {direktur ? k5.b11 : <td style={garis({ kanan: TEBAL })} />}
                   </tr>
                   <tr style={{ height: TINGGI.biasa }}>
                     <td colSpan={2} className="px-1" style={garis({ kiri: TEBAL, atas: TIPIS })}>No. RAB</td>
-                    <td rowSpan={2} className="px-1 align-middle" style={{ ...garis({ kiri: RAMBUT, atas: TIPIS, bawah: RAMBUT }), fontSize: '9pt' }}>{rab.nomorRab}</td>
-                    <td rowSpan={3} />
+                    <td colSpan={2} rowSpan={2} className="px-1 align-middle" style={{ ...garis({ kiri: RAMBUT, atas: TIPIS, bawah: RAMBUT }), fontSize: '9pt' }}>{rab.nomorRab}</td>
                     {k1.b12}{k2.b12}{k3.b12}{k4.b12}
                     {direktur ? k5.b12 : <td rowSpan={3} style={garis({ kanan: TEBAL })} />}
                   </tr>
@@ -177,12 +174,11 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
                   </tr>
                   <tr style={{ height: TINGGI.biasa }}>
                     <td colSpan={2} className="px-1" style={garis({ kiri: TEBAL })}>Tanggal</td>
-                    <td className="px-1" style={garis({ kiri: RAMBUT, atas: RAMBUT, bawah: RAMBUT })}>{tglPanjang(rab.tanggal)}</td>
+                    <td colSpan={2} className="px-1" style={garis({ kiri: RAMBUT, atas: RAMBUT, bawah: RAMBUT })}>{tglPanjang(rab.tanggal)}</td>
                   </tr>
                   <tr style={{ height: TINGGI.biasa }}>
                     <td colSpan={2} style={garis({ kiri: TEBAL, bawah: TEBAL })} />
-                    <td style={garis({ kiri: RAMBUT, atas: RAMBUT, bawah: TEBAL })} />
-                    <td style={garis({ bawah: TEBAL })} />
+                    <td colSpan={2} style={garis({ kiri: RAMBUT, atas: RAMBUT, bawah: TEBAL })} />
                     {k1.b15}{k2.b15}{k3.b15}{k4.b15}
                     {direktur ? k5.b15 : <td style={garis({ kanan: TEBAL, bawah: TEBAL })} />}
                   </tr>

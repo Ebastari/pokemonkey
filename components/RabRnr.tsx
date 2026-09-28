@@ -348,8 +348,13 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify }) => {
       {baris.some((u) => u.qty.some((q, m) => q && !nilaiMinggu(u, m))) && <p className="text-[11px] text-amber-300">Ada uraian dengan harga 0 — isi harga satuannya.</p>}
       </>}
 
-      {/* Persetujuan sesuai template RAB: Verifikasi, Pimpinan Site, Div Head, dan Operation & HCA Director (> 25 jt) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[12px]">
+      {/* Persetujuan sesuai template RAB: Dibuat, Verifikasi, Pimpinan Site, Div Head, dan Operation & HCA Director (> 25 jt) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-[12px]">
+        <div className="border-2 border-purple-500/60 bg-purple-950/20 p-2 space-y-1.5">
+          <span className="label-retro !text-purple-300">Dibuat (Pembuat / Pemohon)</span>
+          <input value={r.pemohonNama || ''} onChange={(e) => ubah({ ...r, pemohonNama: e.target.value })} className={kelas} placeholder="Nama Pembuat" aria-label="Nama Pembuat" />
+          <input value={r.pemohonJabatan ?? 'Staff RNR'} onChange={(e) => ubah({ ...r, pemohonJabatan: e.target.value })} className={kelas} placeholder="Jabatan Pembuat" aria-label="Jabatan Pembuat" />
+        </div>
         <div className="border-2 border-blue-500/60 bg-blue-950/20 p-2 space-y-1.5">
           <span className="label-retro !text-blue-300">Diverifikasi (Finance Site)</span>
           <input value={r.verifikasiNama ?? PENYETUJU_VERIFIKASI.nama} onChange={(e) => ubah({ ...r, verifikasiNama: e.target.value })} className={kelas} aria-label="Nama verifikasi" />
