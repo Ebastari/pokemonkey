@@ -143,7 +143,7 @@ export function barisRekap(r: RabRnr): UraianRab[] {
     // Baris kosong (uraian belum diisi) tidak digabung dengan baris lain.
     let b = k.uraian.trim() ? baris.find((x) => x.uraian.trim() && samaUraian(x, k)) : undefined;
     if (!b) {
-      b = { id: k.id, uraian: k.uraian.trim(), wbs: k.wbs || WBS_BAWAAN, satuan: k.satuan, harga: k.harga, qty: [0, 0, 0, 0] };
+      b = { id: k.id, uraian: k.uraian, wbs: k.wbs || WBS_BAWAAN, satuan: k.satuan, harga: k.harga, qty: [0, 0, 0, 0] };
       baris.push(b);
     }
     b.qty[k.minggu - 1] += k.qty;
@@ -242,7 +242,51 @@ export function hapusBaris(r: RabRnr, idBaris: string): RabRnr {
 
 /** Salin ke bulan depan: semua ajuan RAB lama masuk keranjang RAB baru untuk dipilah. */
 export const salinKeKeranjang = (dari: RabRnr, ke: RabRnr): RabRnr =>
-  ({ ...ke, kartu: barisRekap(dari).filter((u) => u.uraian.trim()).map((u) => ({ id: idKartu(), uraian: u.uraian, wbs: u.wbs, satuan: u.satuan, harga: u.harga, minggu: 0 as const, qty: 1 })) });
+  ({ ...ke, kartu: barisRekap(dari).filter((u) => u.uraian.trim()).map((u) => ({ id: idKartu(), uraian: u.uraian.trim(), wbs: u.wbs, satuan: u.satuan, harga: u.harga, minggu: 0 as const, qty: 1 })) });
+
+/** Lebar kolom C, D, E lembar RAB RNR (satuan lebar kolom Excel), dipakai juga oleh pratinjau. */
+export const LEBAR_KOLOM_TEKS = { kode: 19.27, desk: 33.9, uraian: 32.5 } as const;
+
+// Lebar huruf Arial per 1000 em untuk karakter ASCII 32–126 (metrik Helvetica/Arial baku).
+const LEBAR_ARIAL = [
+  278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556,
+  556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778,
+  667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556, 333, 556, 556, 500, 556, 556, 278, 556,
+  556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584,
+];
+const lebarTeks = (t: string) => Array.from(t).reduce((n, c) => {
+  const k = c.charCodeAt(0);
+  return n + (k >= 32 && k < 127 ? LEBAR_ARIAL[k - 32] : 556);
+}, 0);
+
+/**
+ * Perkiraan jumlah baris teks Arial 10 yang dibungkus di kolom selebar `lebar`
+ * (satuan lebar kolom Excel ≈ 535/1000 em, dikurangi jarak tepi sel), dipotong
+ * per kata seperti Excel, supaya tinggi baris cukup dan teks tidak terpotong.
+ */
+export function jumlahBarisTeks(teks: string, lebar: number): number {
+  const muat = lebar * 535 - 450;
+  const spasi = LEBAR_ARIAL[0];
+  let baris = 1;
+  let isi = 0;
+  for (const kata of teks.trim().split(/\s+/).filter(Boolean)) {
+    const p = lebarTeks(kata);
+    if (isi && isi + spasi + p > muat) { baris++; isi = 0; }
+    if (p > muat) { baris += Math.ceil(p / muat) - 1; isi = p % muat; }
+    else isi += (isi ? spasi : 0) + p;
+  }
+  return baris;
+}
+
+/** Tinggi baris uraian (poin): satu baris teks 20 pt, tiap baris tambahan 13 pt. */
+export function tinggiBarisRab(u: UraianRab): number {
+  const n = Math.max(
+    jumlahBarisTeks(u.wbs, LEBAR_KOLOM_TEKS.kode),
+    jumlahBarisTeks(deskripsiWbs(u.wbs), LEBAR_KOLOM_TEKS.desk),
+    jumlahBarisTeks(u.uraian, LEBAR_KOLOM_TEKS.uraian),
+  );
+  return 20 + (n - 1) * 13;
+}
 
 /** Ekspor lembar rekap RAB RNR (satu lembar, baris uraian 19–32 menyesuaikan jumlah uraian). */
 export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> {
@@ -258,6 +302,8 @@ export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> 
   t.isi('F10', 'Disetujui Oleh,').isi('F11', r.jabatanDivHead || PENYETUJU_DIV_HEAD.jabatan)
     .isi('F12', r.penyetujuDivHead || PENYETUJU_DIV_HEAD.nama).isi('F15', 'Tanggal :');
   if (perluDirektur(r)) {
+    // Kotak H–I di template polos: garisnya disalin dari kotak F–G.
+    for (let b = 10; b <= 15; b++) t.salinGaya(`F${b}`, `H${b}`).salinGaya(`G${b}`, `I${b}`);
     t.isi('H10', 'Disetujui Oleh,').isi('H11', r.jabatanPenyetuju || PENYETUJU_DIREKTUR.jabatan)
       .isi('H12', r.penyetuju || PENYETUJU_DIREKTUR.nama).isi('H15', 'Tanggal :');
   }
@@ -270,7 +316,7 @@ export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> 
     t.isi(`B${b}`, i + 1).isi(`C${b}`, u.wbs.trim()).isi(`D${b}`, deskripsiWbs(u.wbs)).isi(`E${b}`, u.uraian.trim());
     ['F', 'G', 'H', 'I'].forEach((k, m) => t.isi(`${k}${b}`, nilaiMinggu(u, m) || ''));
     t.rumus(`J${b}`, `SUM(F${b}:I${b})`, totalUraian(u));
-    if (u.uraian.length > 38) t.tinggi(b, Math.max(t.tinggiSekarang(b), Math.ceil(u.uraian.length / 38) * 14 + 4));
+    t.tinggi(b, tinggiBarisRab(u));
   });
   const rt = 19 + n;
   ['F', 'G', 'H', 'I'].forEach((k, m) => t.rumus(`${k}${rt}`, `SUM(${k}19:${k}${rt - 1})`, totalMinggu(r, m)));

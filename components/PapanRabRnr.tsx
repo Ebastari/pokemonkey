@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, Minus, Trash2, Settings2, Save, ShoppingCart, LayoutGrid, Loader2, PackagePlus, Undo2 } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Settings2, Save, ShoppingCart, LayoutGrid, Loader2, PackagePlus, Undo2, Pencil, X } from 'lucide-react';
 import { muatKatalog, simpanBarangKatalog, hapusBarangKatalog, type BarangKatalog } from '../lib/katalog-rab';
 import {
   kartuRab, isiKeranjang, tambahKeKeranjang, pindahKartu, susunRab, ubahKartu, hapusKartu,
@@ -48,6 +48,7 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
   const [cari, setCari] = useState('');
   const [kelompok, setKelompok] = useState('');
   const [kelola, setKelola] = useState(false);
+  const [editSatuId, setEditSatuId] = useState<string | null>(null);
   const [suntingan, setSuntingan] = useState<Record<string, BarangKatalog>>({});
   const [baru, setBaru] = useState({ uraian: '', satuan: 'Paket', harga: '', wbs: WBS_BAWAAN });
   const [diseret, setDiseret] = useState<string | null>(null);
@@ -92,13 +93,18 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
     try {
       await simpanBarangKatalog(b);
       setSuntingan((s) => { const x = { ...s }; delete x[b.id]; return x; });
+      if (editSatuId === b.id) setEditSatuId(null);
       muat();
       notify('KATALOG DIPERBARUI');
     } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENYIMPAN'); }
   };
   const hapusKatalog = async (b: BarangKatalog) => {
     if (!confirm(`Hapus "${b.nama}" dari katalog?`)) return;
-    try { await hapusBarangKatalog(b.id); muat(); } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENGHAPUS'); }
+    try {
+      await hapusBarangKatalog(b.id);
+      if (editSatuId === b.id) setEditSatuId(null);
+      muat();
+    } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENGHAPUS'); }
   };
 
   const jatuhkan = (minggu: KartuRab['minggu']) => {
@@ -149,7 +155,15 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="font-title text-[11px] text-emerald-300 mr-auto">1. PENGISIAN CEPAT · KATALOG URAIAN</h3>
           {bolehKelola && (
-            <button type="button" onClick={() => setKelola((v) => !v)} className={`btn-retro btn-retro-sm ${kelola ? 'bg-amber-600' : 'bg-zinc-800'}`}>
+            <button
+              type="button"
+              onClick={() => {
+                setKelola((v) => !v);
+                setEditSatuId(null);
+              }}
+              className={`btn-retro btn-retro-sm ${kelola ? 'bg-amber-600' : 'bg-zinc-800'}`}
+              title="Kelola semua kolom katalog sekaligus"
+            >
               <Settings2 size={12} /> {kelola ? 'Selesai kelola' : 'Kelola katalog'}
             </button>
           )}
@@ -168,21 +182,61 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
         {galatKatalog && <p className="text-[12px] text-amber-300">Katalog tidak terjangkau ({galatKatalog}). Pakai mode Isi Manual untuk mengetik uraian sendiri.</p>}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
           {tampil.map((b) => {
-            if (kelola && bolehKelola) {
+            const sedangEdit = (kelola && bolehKelola) || (editSatuId === b.id && bolehKelola);
+            if (sedangEdit) {
               const s = suntingan[b.id] ?? b;
               const ubahS = (patch: Partial<BarangKatalog>) => setSuntingan((x) => ({ ...x, [b.id]: { ...s, ...patch } }));
+              const modeSatu = editSatuId === b.id && !kelola;
               return (
                 <div key={b.id} className="border-2 border-amber-500/60 bg-amber-950/20 p-1.5 space-y-1">
-                  <input value={s.nama} onChange={(e) => ubahS({ nama: e.target.value })} className={kelas} aria-label="Uraian" />
+                  {modeSatu && (
+                    <div className="flex items-center justify-between text-[10px] text-amber-300 font-bold px-0.5 pb-0.5 border-b border-amber-500/30">
+                      <span className="flex items-center gap-1"><Pencil size={10} /> SUNTING SATU KOLOM</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSuntingan((prev) => { const copy = { ...prev }; delete copy[b.id]; return copy; });
+                          setEditSatuId(null);
+                        }}
+                        className="text-zinc-400 hover:text-white"
+                        title="Batal"
+                        aria-label="Tutup / Batal sunting"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+                  <input value={s.nama} onChange={(e) => ubahS({ nama: e.target.value })} className={kelas} aria-label="Uraian" placeholder="Nama uraian" />
                   <div className="flex gap-1">
-                    <input type="number" value={s.harga} onChange={(e) => ubahS({ harga: Number(e.target.value) || 0 })} className={`${kelas} font-mono`} aria-label="Harga" />
-                    <input value={s.satuan} onChange={(e) => ubahS({ satuan: e.target.value })} className={`${kelas} !w-20`} aria-label="Satuan" />
+                    <input type="number" value={s.harga} onChange={(e) => ubahS({ harga: Number(e.target.value) || 0 })} className={`${kelas} font-mono`} aria-label="Harga" placeholder="Harga" />
+                    <input value={s.satuan} onChange={(e) => ubahS({ satuan: e.target.value })} className={`${kelas} !w-20`} aria-label="Satuan" placeholder="Satuan" />
                   </div>
-                  <input value={s.kelompok} onChange={(e) => ubahS({ kelompok: e.target.value })} className={kelas} aria-label="Kelompok" />
+                  <input value={s.kelompok} onChange={(e) => ubahS({ kelompok: e.target.value })} className={kelas} aria-label="Kelompok" placeholder="Kelompok" />
                   <PilihWbs nilai={s.wbs} ubah={(v) => ubahS({ wbs: v })} />
-                  <div className="flex gap-1">
-                    <button type="button" disabled={!suntingan[b.id]} onClick={() => simpanSuntingan(s)} className="btn-retro btn-retro-sm bg-emerald-700 flex-1 disabled:opacity-30"><Save size={11} /> Simpan</button>
-                    <button type="button" onClick={() => hapusKatalog(b)} className="btn-ikon !w-7 !h-7 bg-rose-900" aria-label="Hapus dari katalog"><Trash2 size={11} /></button>
+                  <div className="flex gap-1 pt-0.5">
+                    <button
+                      type="button"
+                      disabled={!suntingan[b.id] && !modeSatu}
+                      onClick={() => simpanSuntingan(s)}
+                      className="btn-retro btn-retro-sm bg-emerald-700 flex-1 disabled:opacity-30"
+                      title="Simpan perubahan ke katalog"
+                    >
+                      <Save size={11} /> Simpan
+                    </button>
+                    {modeSatu && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSuntingan((prev) => { const copy = { ...prev }; delete copy[b.id]; return copy; });
+                          setEditSatuId(null);
+                        }}
+                        className="btn-retro btn-retro-sm bg-zinc-800 text-zinc-300"
+                        title="Batal sunting"
+                      >
+                        <X size={11} /> Batal
+                      </button>
+                    )}
+                    <button type="button" onClick={() => hapusKatalog(b)} className="btn-ikon !w-7 !h-7 bg-rose-900" aria-label="Hapus dari katalog" title="Hapus dari katalog"><Trash2 size={11} /></button>
                   </div>
                 </div>
               );
@@ -192,11 +246,27 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
               <div key={b.id} className={`border-2 p-2 flex flex-col gap-1 ${n ? 'border-yellow-400 bg-yellow-950/20' : 'border-white/20 bg-zinc-900'}`}>
                 <div className="text-[12px] font-bold text-white leading-tight flex-1">{b.nama}</div>
                 <div className="text-[11px] text-emerald-300 font-mono">{formatRupiah(b.harga)} <span className="text-zinc-400">/ {b.satuan}</span></div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 mt-auto pt-1">
                   {n > 0 && <span className="chip-retro !text-[10px] border-yellow-400 text-yellow-200">{n} di keranjang</span>}
-                  <button type="button" onClick={() => add({ uraian: b.nama, wbs: b.wbs, satuan: b.satuan, harga: b.harga })} className="btn-retro btn-retro-sm bg-amber-600 ml-auto">
-                    <Plus size={12} /> ADD
-                  </button>
+                  <div className="ml-auto flex items-center gap-1">
+                    {bolehKelola && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSuntingan((x) => ({ ...x, [b.id]: { ...b } }));
+                          setEditSatuId(b.id);
+                        }}
+                        className="btn-retro btn-retro-sm bg-zinc-800 hover:bg-amber-600 text-zinc-300 hover:text-white border border-white/20 hover:border-amber-400 !px-1.5"
+                        title={`Edit uraian "${b.nama}"`}
+                        aria-label={`Edit uraian "${b.nama}"`}
+                      >
+                        <Pencil size={11} />
+                      </button>
+                    )}
+                    <button type="button" onClick={() => add({ uraian: b.nama, wbs: b.wbs, satuan: b.satuan, harga: b.harga })} className="btn-retro btn-retro-sm bg-amber-600">
+                      <Plus size={12} /> ADD
+                    </button>
+                  </div>
                 </div>
               </div>
             );

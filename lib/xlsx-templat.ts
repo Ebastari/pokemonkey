@@ -148,6 +148,15 @@ export class TemplatXlsx {
     return this;
   }
 
+  /** Pakai gaya (garis, huruf, format) sel `dari` untuk sel `ke`; isi sel tujuan tidak berubah. */
+  salinGaya(dari: string, ke: string): this {
+    const s = this.sel(dari).getAttribute('s');
+    const c = this.sel(ke);
+    if (s) c.setAttribute('s', s);
+    else c.removeAttribute('s');
+    return this;
+  }
+
   /** Atur tinggi baris (poin). */
   tinggi(nomor: number, pt: number): this {
     const r = this.baris(nomor)!;

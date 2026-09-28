@@ -134,6 +134,7 @@ interface Db {
   foto: Record<string, string>;
   libur: Baris[];
   revegetasi: Baris[];
+  katalog: Baris[];
   versi: number;
   opsi: Baris[];
   properti: Baris[];
@@ -176,6 +177,12 @@ function bentukAwal(): Db {
     versi: VERSI,
     libur: LIBUR_BAWAAN.map((l, i) => ({ id: i + 1, tanggal: l.tanggal, nama: l.nama, jenis: l.jenis, perkiraan: l.perkiraan ? 1 : 0 })),
     revegetasi: [],
+    katalog: [
+      { id: 'kat-rtn-01', kelompok: 'Pengajuan Rutin', nama: 'Kunjungan Verifikasi PNBP PKH SK 966', satuan: 'Paket', harga: 7200000, urutan: 1, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
+      { id: 'kat-rtn-02', kelompok: 'Pengajuan Rutin', nama: 'Kunjungan Verifikasi PNBP PKH SK 892', satuan: 'Paket', harga: 7200000, urutan: 2, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
+      { id: 'kat-rtn-03', kelompok: 'Pengajuan Rutin', nama: 'Kunjungan Verifikasi PNBP PKH SK 78', satuan: 'Paket', harga: 7200000, urutan: 3, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
+      { id: 'kat-rtn-04', kelompok: 'Pengajuan Rutin', nama: 'Operasional Tahura', satuan: 'Paket', harga: 2000000, urutan: 4, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
+    ],
     opsi: [
       { grup: 'memo_kategori', nilai: 'Operasional', label: 'Operasional', warna: 'emerald', urutan: 1 },
       { grup: 'memo_kategori', nilai: 'Lapangan', label: 'Lapangan', warna: 'cyan', urutan: 2 },
@@ -928,6 +935,55 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   }
   // Web Push butuh server sungguhan (kunci VAPID); demo memakai notifikasi browser biasa.
   if (path === '/api/push/vapid') return { publicKey: '', aktif: false };
+
+  // ----- katalog RAB RNR -----
+  if (path === '/api/katalog-rab' && method === 'GET') {
+    if (!Array.isArray(d.katalog) || !d.katalog.length) {
+      d.katalog = [
+        { id: 'kat-rtn-01', kelompok: 'Pengajuan Rutin', nama: 'Kunjungan Verifikasi PNBP PKH SK 966', satuan: 'Paket', harga: 7200000, urutan: 1, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
+        { id: 'kat-rtn-02', kelompok: 'Pengajuan Rutin', nama: 'Kunjungan Verifikasi PNBP PKH SK 892', satuan: 'Paket', harga: 7200000, urutan: 2, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
+        { id: 'kat-rtn-03', kelompok: 'Pengajuan Rutin', nama: 'Kunjungan Verifikasi PNBP PKH SK 78', satuan: 'Paket', harga: 7200000, urutan: 3, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
+        { id: 'kat-rtn-04', kelompok: 'Pengajuan Rutin', nama: 'Operasional Tahura', satuan: 'Paket', harga: 2000000, urutan: 4, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
+      ];
+      simpan();
+    }
+    return {
+      katalog: d.katalog
+        .filter((k) => k.aktif !== 0)
+        .sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0) || String(a.nama).localeCompare(String(b.nama))),
+    };
+  }
+  if (path === '/api/katalog-rab' && method === 'POST') {
+    if (!bolehKelola(saya)) gagal('Hanya Admin/Supervisor yang boleh mengubah katalog.', 403);
+    if (!Array.isArray(d.katalog)) d.katalog = [];
+    const nama = String(body?.nama ?? '').trim().slice(0, 120);
+    if (!nama) gagal('Nama uraian wajib diisi.');
+    const id = String(body?.id ?? '').replace(/[^\w-]/g, '').slice(0, 60) || `kat-${Date.now().toString(36)}`;
+    const idx = d.katalog.findIndex((k) => k.id === id);
+    const item = {
+      id,
+      kelompok: String(body?.kelompok ?? '').trim().slice(0, 60) || 'Pengajuan Rutin',
+      nama,
+      satuan: String(body?.satuan ?? '').trim().slice(0, 20) || 'Paket',
+      harga: Math.max(0, Number(body?.harga) || 0),
+      urutan: Math.round(Number(body?.urutan) || 50),
+      wbs: String(body?.wbs ?? '').trim().slice(0, 40) || 'AB3.11-06.02.22.04',
+      aktif: 1,
+    };
+    if (idx >= 0) d.katalog[idx] = { ...d.katalog[idx], ...item };
+    else d.katalog.push(item);
+    simpan();
+    return { id };
+  }
+  if ((m = path.match(/^\/api\/katalog-rab\/([\w-]+)$/)) && method === 'DELETE') {
+    if (!bolehKelola(saya)) gagal('Hanya Admin/Supervisor yang boleh mengubah katalog.', 403);
+    if (Array.isArray(d.katalog)) {
+      const item = d.katalog.find((k) => k.id === m![1]);
+      if (item) item.aktif = 0;
+      simpan();
+    }
+    return { ok: true };
+  }
 
   // ----- tim -----
   if (/^\/api\/tim\/[\w-]+\/reset-password$/.test(path) && method === 'POST') {

@@ -136,7 +136,7 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify }) => {
     const berisi = barisRekap(r).filter((u) => u.uraian.trim());
     if (!berisi.some((u) => totalUraian(u) > 0)) { notify('SUSUN MINIMAL SATU URAIAN DENGAN HARGA & QTY'); return; }
     setMenyimpan(true);
-    ubah({ ...r, kartu: kartuRab(r).filter((k) => k.uraian.trim()) });
+    ubah({ ...r, kartu: kartuRab(r).filter((k) => k.uraian.trim()).map((k) => ({ ...k, uraian: k.uraian.trim() })) });
     const sisaKeranjang = isiKeranjang(r).length;
     if (sisaKeranjang) notify(`${sisaKeranjang} AJUAN MASIH DI KERANJANG · TIDAK IKUT RAB SEBELUM DISUSUN`);
     let baru = 0;

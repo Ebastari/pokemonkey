@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { X, FileSpreadsheet, FileText, Loader2 } from 'lucide-react';
 import {
-  eksporRabRnr, barisRekap, totalRab, totalUraian, totalMinggu, nilaiMinggu, deskripsiWbs, perluDirektur,
-  PENYETUJU_DIV_HEAD, PENYETUJU_DIREKTUR, type RabRnr,
+  eksporRabRnr, barisRekap, totalRab, totalUraian, totalMinggu, nilaiMinggu, deskripsiWbs, perluDirektur, tinggiBarisRab,
+  PENYETUJU_DIV_HEAD, PENYETUJU_DIREKTUR, LEBAR_KOLOM_TEKS, type RabRnr,
 } from '../lib/rab-rnr';
 import { DAFTAR_BULAN } from '../lib/rab-hcga';
 import { eksporLembarPdf } from '../lib/pdf-laporan';
@@ -12,7 +12,8 @@ import logoRab from '../aset/logo-rab-rnr.png';
 /**
  * Pratinjau RAB RNR, meniru lembar rekap Excel (public/template-rab-rnr.xlsx):
  * kolom B–J dengan lebar yang sama, sel gabungan, garis tebal/tipis, kotak
- * persetujuan F–G dan H–I, format angka "Rp". Export PDF memakai A4 mendatar
+ * persetujuan F–G dan H–I, format angka "Rp", tinggi baris uraian sama dengan
+ * hasil ekspor (tinggiBarisRab). Export PDF memakai A4 mendatar
  * dan diperkecil agar muat satu halaman, sama seperti pengaturan cetak Excel.
  */
 
@@ -22,9 +23,11 @@ interface Props {
   onTutup: () => void;
 }
 
-// Lebar kolom Excel B–J (satuan karakter) → piksel.
-const KOLOM = [4.5, 17.5, 33.9, 32.5, 18.8, 13, 13, 13, 18.9].map((w) => Math.round(w * 7));
-const TINGGI = { biasa: 20, judul: 19, isi: 24, total: 32, blok13: 45 };
+// Lebar kolom Excel B–J (satuan lebar kolom) → piksel, sama dengan template.
+const KOLOM = [4.54, LEBAR_KOLOM_TEKS.kode, LEBAR_KOLOM_TEKS.desk, LEBAR_KOLOM_TEKS.uraian, 18.82, 18.82, 18.82, 18.82, 18.9].map((w) => Math.round(w * 7));
+const TINGGI = { biasa: 20, judul: 19, total: 32, blok13: 45 };
+/** Poin Excel → piksel layar. */
+const px = (pt: number) => Math.round((pt * 4) / 3);
 const TEBAL = '2px solid #000';
 const TIPIS = '1px solid #000';
 const RAMBUT = '1px solid #9ca3af';
@@ -36,12 +39,15 @@ const garis = (g: Garis): React.CSSProperties => ({
 
 const tglPanjang = (iso: string) => (iso ? `${Number(iso.slice(8, 10))} ${DAFTAR_BULAN[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '');
 
-/** Format akuntansi Excel: "Rp" rata kiri, angka rata kanan, nol jadi "-". */
-const Rupiah: React.FC<{ n: number; kecil?: boolean }> = ({ n, kecil }) => (
-  <span className="flex justify-between gap-0.5 px-1 whitespace-nowrap" style={kecil ? { fontSize: '8.5pt' } : undefined}>
+/**
+ * Format akuntansi Excel: "Rp" rata kiri, angka rata kanan, nol jadi "-".
+ * `kosongBilaNol`: sel minggu uraian yang tidak diajukan dibiarkan kosong, seperti hasil ekspor.
+ */
+const Rupiah: React.FC<{ n: number; kosongBilaNol?: boolean }> = ({ n, kosongBilaNol }) => (n || !kosongBilaNol ? (
+  <span className="flex justify-between gap-0.5 px-1 whitespace-nowrap">
     <span>Rp</span><span>{n ? n.toLocaleString('id-ID') : '-'}</span>
   </span>
-);
+) : null);
 
 export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
   const [sibuk, setSibuk] = useState<'excel' | 'pdf' | null>(null);
@@ -71,15 +77,21 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
   const f10: React.CSSProperties = { fontFamily: 'Arial, sans-serif', fontSize: '10pt' };
   const kepala: React.CSSProperties = { fontFamily: 'Verdana, sans-serif', fontSize: '10pt', fontWeight: 700 };
 
-  /** Satu kotak persetujuan (4 baris: judul, jabatan, ruang tanda tangan + nama, tanggal). */
-  const kotakSetuju = (p: { nama: string; jabatan: string } | null, kanan: boolean) => ({
-    b10: <td colSpan={2} className="text-center" style={{ ...garis({ atas: TEBAL, kanan: kanan ? TIPIS : undefined, kiri: kanan ? undefined : TIPIS }) }}>{p ? 'Disetujui Oleh,' : ''}</td>,
-    b11: <td colSpan={2} className="text-center" style={garis({ kanan: kanan ? TIPIS : undefined, kiri: kanan ? undefined : TIPIS })}>{p?.jabatan ?? ''}</td>,
-    b12: <td colSpan={2} rowSpan={3} className="text-center align-bottom" style={garis({ kanan: kanan ? TIPIS : undefined, kiri: kanan ? undefined : TIPIS })}>{p?.nama ?? ''}</td>,
-    b15: <td colSpan={2} className="text-left px-1" style={garis({ bawah: TEBAL, atas: p ? TIPIS : undefined, kanan: kanan ? TIPIS : undefined, kiri: kanan ? undefined : TIPIS })}>{p ? 'Tanggal :' : ''}</td>,
-  });
-  const k1 = kotakSetuju(divHead, false);
-  const k2 = kotakSetuju(direktur ? dir : null, true);
+  /**
+   * Satu kotak persetujuan (judul, jabatan, ruang tanda tangan + nama, tanggal),
+   * bergaris tipis kiri-kanan seperti template. Tanpa penyetuju: kosong tanpa garis.
+   */
+  const kotakSetuju = (p: { nama: string; jabatan: string } | null) => {
+    const sisi = p ? { kiri: TIPIS, kanan: TIPIS } : {};
+    return {
+      b10: <td colSpan={2} className="text-center" style={garis({ ...sisi, atas: TEBAL })}>{p ? 'Disetujui Oleh,' : ''}</td>,
+      b11: <td colSpan={2} className="text-center" style={garis(sisi)}>{p?.jabatan ?? ''}</td>,
+      b12: <td colSpan={2} rowSpan={3} className="text-center align-bottom" style={garis(sisi)}>{p?.nama ?? ''}</td>,
+      b15: <td colSpan={2} className="text-left px-1" style={garis({ ...sisi, atas: p ? TIPIS : undefined, bawah: TEBAL })}>{p ? 'Tanggal :' : ''}</td>,
+    };
+  };
+  const k1 = kotakSetuju(divHead);
+  const k2 = kotakSetuju(direktur ? dir : null);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/85 flex flex-col">
@@ -183,13 +195,13 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
                   {isi.map((u, i) => {
                     const atas = i === 0 ? TEBAL : RAMBUT;
                     return (
-                      <tr key={u.id} style={{ height: TINGGI.isi }}>
+                      <tr key={u.id} style={{ height: px(tinggiBarisRab(u)) }}>
                         <td className="text-center" style={garis({ kiri: TEBAL, kanan: TIPIS, atas, bawah: RAMBUT })}>{i + 1}</td>
-                        <td className="px-1 whitespace-nowrap" style={{ ...garis({ kiri: TIPIS, kanan: TIPIS, atas, bawah: RAMBUT }), fontSize: '9pt' }}>{u.wbs}</td>
+                        <td className="px-1 leading-tight" style={garis({ kiri: TIPIS, kanan: TIPIS, atas, bawah: RAMBUT })}>{u.wbs}</td>
                         <td className="px-1 leading-tight" style={garis({ atas, bawah: RAMBUT })}>{deskripsiWbs(u.wbs)}</td>
                         <td className="px-1 leading-tight" style={garis({ kiri: TIPIS, kanan: TIPIS, atas, bawah: RAMBUT })}>{u.uraian}</td>
                         {[0, 1, 2, 3].map((m) => (
-                          <td key={m} style={garis({ kiri: TIPIS, kanan: TIPIS, atas, bawah: RAMBUT })}><Rupiah n={nilaiMinggu(u, m)} /></td>
+                          <td key={m} style={garis({ kiri: TIPIS, kanan: TIPIS, atas, bawah: RAMBUT })}><Rupiah n={nilaiMinggu(u, m)} kosongBilaNol /></td>
                         ))}
                         <td style={{ ...garis({ kiri: TIPIS, kanan: TEBAL, atas, bawah: RAMBUT }), fontWeight: 700 }}><Rupiah n={totalUraian(u)} /></td>
                       </tr>
@@ -200,9 +212,9 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
                   <tr style={{ height: TINGGI.total }}>
                     <td colSpan={4} rowSpan={2} className="text-center align-middle" style={{ ...kepala, ...garis({ kiri: TEBAL, kanan: TIPIS, atas: TEBAL, bawah: TEBAL }) }}>Total</td>
                     {[0, 1, 2, 3].map((m) => (
-                      <td key={m} rowSpan={2} className="align-middle" style={{ ...kepala, fontStyle: 'italic', ...garis({ kiri: TIPIS, kanan: TIPIS, atas: TEBAL, bawah: TEBAL }) }}><Rupiah n={totalMinggu(rab, m)} kecil /></td>
+                      <td key={m} rowSpan={2} className="align-middle" style={{ ...kepala, fontStyle: 'italic', ...garis({ kiri: TIPIS, kanan: TIPIS, atas: TEBAL, bawah: TEBAL }) }}><Rupiah n={totalMinggu(rab, m)} /></td>
                     ))}
-                    <td rowSpan={2} className="align-middle" style={{ ...kepala, fontStyle: 'italic', ...garis({ kiri: TIPIS, kanan: TEBAL, atas: TEBAL, bawah: TEBAL }) }}><Rupiah n={totalRab(rab)} kecil /></td>
+                    <td rowSpan={2} className="align-middle" style={{ ...kepala, fontStyle: 'italic', ...garis({ kiri: TIPIS, kanan: TEBAL, atas: TEBAL, bawah: TEBAL }) }}><Rupiah n={totalRab(rab)} /></td>
                   </tr>
                   <tr style={{ height: TINGGI.total }} />
                 </tbody>
