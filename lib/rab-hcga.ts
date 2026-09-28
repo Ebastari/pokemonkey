@@ -1482,18 +1482,21 @@ export async function eksporRabKeExcel(data: DataRabHcga): Promise<'dibagikan' |
     rekapSheet.getCell('I14').value = 'Cecep H. Setiadi';
     rekapSheet.getCell('I15').value = 'Tanggal :';
 
-    // Kotak 5: Approval s/d Pak Rahmad (Kolom N) — Hanya bila total > 25 Juta
+    // Kotak 5: Approval s/d Pak Rahmad (Kolom J) — Hanya bila total > 25 Juta
     if (totals.grandTotal > 25_000_000) {
-      rekapSheet.getCell('N9').value = 'jika total nilai >25jt (Approval s/d Pak Rahmad)';
-      rekapSheet.getCell('N10').value = 'Disetujui Oleh,';
-      rekapSheet.getCell('N11').value = 'Operation & HCA Director';
-      rekapSheet.getCell('N14').value = data.header.disetujuiOleh || 'Rahmad Pudjotomo';
-      rekapSheet.getCell('N15').value = 'Tanggal :';
+      rekapSheet.getCell('J10').value = 'Disetujui Oleh,';
+      rekapSheet.getCell('J11').value = 'Operation & HCA Director';
+      rekapSheet.getCell('J14').value = data.header.disetujuiOleh || 'Rahmad Pudjotomo';
+      rekapSheet.getCell('J15').value = 'Tanggal :';
     } else {
-      ['N9', 'N10', 'N11', 'N12', 'N13', 'N14', 'N15'].forEach((ref) => {
+      ['J10', 'J11', 'J14', 'J15'].forEach((ref) => {
         rekapSheet.getCell(ref).value = null;
       });
     }
+    // Bersihkan catatan lama di kolom N
+    ['N9', 'N10', 'N11', 'N12', 'N13', 'N14', 'N15'].forEach((ref) => {
+      rekapSheet.getCell(ref).value = null;
+    });
   }
 
   // 2. Perbarui Sheet Rincian Kategori

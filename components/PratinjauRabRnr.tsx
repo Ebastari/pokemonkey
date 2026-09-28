@@ -97,6 +97,7 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
   const k2 = kotakSetuju('Diverifikasi', verifikasi.jabatan, verifikasi.nama, true);
   const k3 = kotakSetuju('Disetujui Oleh,', pimpinan.jabatan, pimpinan.nama, true);
   const k4 = kotakSetuju('Disetujui Oleh,', divHead.jabatan, divHead.nama, true);
+  const k5 = kotakSetuju('Disetujui Oleh,', dir.jabatan, dir.nama, true);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/85 flex flex-col">
@@ -113,7 +114,7 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
 
       <div className="flex-1 overflow-auto custom-scrollbar p-3">
         <div className="mx-auto w-fit bg-white shadow-2xl p-4">
-          <div id="dokumen-rab-rnr" className="bg-white text-black flex items-start gap-4">
+          <div id="dokumen-rab-rnr" className="bg-white text-black" style={{ width: KOLOM.reduce((a, b) => a + b, 0) }}>
             <section data-halaman="1">
               <table className="border-collapse table-fixed" style={{ ...f10, width: KOLOM.reduce((a, b) => a + b, 0) }}>
                 <colgroup>{KOLOM.map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>
@@ -149,27 +150,27 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
                   </tr>
                   <tr style={{ height: TINGGI.biasa }}><td colSpan={9} /></tr>
 
-                  {/* Baris 10–15: identitas + 4 kotak persetujuan */}
+                  {/* Baris 10–15: identitas + 4 atau 5 kotak persetujuan */}
                   <tr style={{ height: TINGGI.biasa }}>
                     <td colSpan={2} className="px-1" style={garis({ kiri: TEBAL, atas: TEBAL })}>Kepada</td>
                     <td className="px-1" style={garis({ kiri: RAMBUT, atas: TEBAL, bawah: RAMBUT })}>{rab.kepada}</td>
                     <td style={garis({ atas: TEBAL })} />
                     {k1.b10}{k2.b10}{k3.b10}{k4.b10}
-                    <td style={garis({ kanan: TEBAL, atas: TEBAL })} />
+                    {direktur ? k5.b10 : <td style={garis({ kanan: TEBAL, atas: TEBAL })} />}
                   </tr>
                   <tr style={{ height: TINGGI.biasa }}>
                     <td colSpan={2} className="px-1" style={garis({ kiri: TEBAL })}>Up.</td>
                     <td className="px-1" style={garis({ kiri: RAMBUT, bawah: RAMBUT })}>{rab.up}</td>
                     <td />
                     {k1.b11}{k2.b11}{k3.b11}{k4.b11}
-                    <td style={garis({ kanan: TEBAL })} />
+                    {direktur ? k5.b11 : <td style={garis({ kanan: TEBAL })} />}
                   </tr>
                   <tr style={{ height: TINGGI.biasa }}>
                     <td colSpan={2} className="px-1" style={garis({ kiri: TEBAL, atas: TIPIS })}>No. RAB</td>
                     <td rowSpan={2} className="px-1 align-middle" style={{ ...garis({ kiri: RAMBUT, atas: TIPIS, bawah: RAMBUT }), fontSize: '9pt' }}>{rab.nomorRab}</td>
                     <td rowSpan={3} />
                     {k1.b12}{k2.b12}{k3.b12}{k4.b12}
-                    <td rowSpan={3} style={garis({ kanan: TEBAL })} />
+                    {direktur ? k5.b12 : <td rowSpan={3} style={garis({ kanan: TEBAL })} />}
                   </tr>
                   <tr style={{ height: TINGGI.blok13 }}>
                     <td colSpan={2} style={garis({ kiri: TEBAL })} />
@@ -183,7 +184,7 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
                     <td style={garis({ kiri: RAMBUT, atas: RAMBUT, bawah: TEBAL })} />
                     <td style={garis({ bawah: TEBAL })} />
                     {k1.b15}{k2.b15}{k3.b15}{k4.b15}
-                    <td style={garis({ kanan: TEBAL, bawah: TEBAL })} />
+                    {direktur ? k5.b15 : <td style={garis({ kanan: TEBAL, bawah: TEBAL })} />}
                   </tr>
                   <tr style={{ height: TINGGI.biasa }}><td colSpan={9} /></tr>
 
@@ -225,17 +226,6 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
                 </tbody>
               </table>
             </section>
-            {direktur && (
-              <div className="shrink-0 border border-black text-center text-black shadow-sm" style={{ width: 155, marginTop: 155, ...f10 }}>
-                <div className="bg-yellow-300 font-bold p-1 text-[8pt] border-b border-black leading-tight">
-                  jika total nilai &gt;25jt (Approval s/d Pak Rahmad)
-                </div>
-                <div className="text-[9pt] p-1 font-bold">Disetujui Oleh,</div>
-                <div className="text-[8.5pt] px-1 leading-tight">{dir.jabatan}</div>
-                <div className="h-16 flex items-end justify-center font-bold text-[9pt] pb-1 px-1">{dir.nama}</div>
-                <div className="text-left text-[8pt] border-t border-black p-1">Tanggal :</div>
-              </div>
-            )}
           </div>
         </div>
       </div>

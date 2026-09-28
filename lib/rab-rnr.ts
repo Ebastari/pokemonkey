@@ -308,13 +308,13 @@ export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> 
     .isi('E7', `: ${r.lokasi}`)
     .isi('G8', `Bulan : ${r.bulan}                                          Tahun : ${r.tahun}`)
     .isi('D10', r.kepada).isi('D11', r.up).isi('D12', r.nomorRab).isi('D14', tgl);
-  // Hapus gabungan sel di area persetujuan agar 4 kotak terpisah (F, G, H, I, masing-masing 1 kolom).
-  for (const ref of ['F10:G10', 'F11:G11', 'F12:G14', 'F15:G15', 'H10:I10', 'H11:I11', 'H12:I14', 'H15:I15']) {
+  // Hapus gabungan sel di area persetujuan agar 5 kotak terpisah (F, G, H, I, J, masing-masing 1 kolom).
+  for (const ref of ['F10:G10', 'F11:G11', 'F12:G14', 'F15:G15', 'H10:I10', 'H11:I11', 'H12:I14', 'H15:I15', 'J12:J14']) {
     t.hapusGabungan(ref);
   }
-  // Salin gaya kotak F ke G, H, I agar semua kotak persetujuan bergaris rapi.
+  // Salin gaya kotak F ke G, H, I, J agar semua kotak persetujuan bergaris rapi.
   for (let b = 10; b <= 15; b++) {
-    for (const col of ['G', 'H', 'I']) t.salinGaya(`F${b}`, `${col}${b}`);
+    for (const col of ['G', 'H', 'I', 'J']) t.salinGaya(`F${b}`, `${col}${b}`);
   }
   // Kotak 1: Dibuat (kolom F)
   t.isi('F10', 'Dibuat').isi('F11', 'Diisi Di Form').isi('F14', 'Diisi DI form').isi('F15', '');
@@ -327,21 +327,21 @@ export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> 
   // Kotak 4: Disetujui Oleh — Eng & Opr. Div Head (kolom I)
   t.isi('I10', 'Disetujui Oleh,').isi('I11', r.jabatanDivHead || PENYETUJU_DIV_HEAD.jabatan)
     .isi('I14', r.penyetujuDivHead || PENYETUJU_DIV_HEAD.nama).isi('I15', 'Tanggal :');
-  // Kolom J (kanan): dikosongkan agar tetap rapi sebagai batas kanan tabel
-  for (let b = 10; b <= 15; b++) t.isi(`J${b}`, '');
 
-  // Kotak 5: Approval s/d Pak Rahmad (kolom N) — HANYA JIKA TOTAL > 25 JUTA
+  // Kotak 5: Disetujui Oleh — Operation & HCA Director (kolom J) — HANYA JIKA TOTAL > 25 JUTA
   if (perluDirektur(r)) {
-    t.isi('N9', 'jika total nilai >25jt (Approval s/d Pak Rahmad)')
-      .isi('N10', 'Disetujui Oleh,')
-      .isi('N11', r.jabatanPenyetuju || PENYETUJU_DIREKTUR.jabatan)
-      .isi('N14', r.penyetuju || PENYETUJU_DIREKTUR.nama)
-      .isi('N15', 'Tanggal :');
+    t.isi('J10', 'Disetujui Oleh,')
+      .isi('J11', r.jabatanPenyetuju || PENYETUJU_DIREKTUR.jabatan)
+      .isi('J14', r.penyetuju || PENYETUJU_DIREKTUR.nama)
+      .isi('J15', 'Tanggal :');
   } else {
-    // Bila total <= 25 juta, kolom TTD Pak Rahmad dihilangkan / dibersihkan
-    for (const ref of ['N9', 'O9', 'N10', 'O10', 'N11', 'O11', 'N12', 'N13', 'N14', 'N15']) t.bersihkan(ref);
-    t.hapusGabungan('O10:O11');
+    // Bila total <= 25 juta, kolom J dikosongkan (hanya 4 tanda tangan)
+    for (let b = 10; b <= 15; b++) t.isi(`J${b}`, '');
   }
+
+  // Blok pengingat lama di luar area cetak (kolom N) selalu dibersihkan agar hasil ekspor rapi
+  for (const ref of ['N9', 'O9', 'N10', 'O10', 'N11', 'O11', 'N12', 'N13', 'N14', 'N15']) t.bersihkan(ref);
+  t.hapusGabungan('O10:O11');
   // Template: uraian di baris 19–32 (14 baris), total di baris 33.
   t.aturJumlahBaris(19, 14, n);
   isi.forEach((u, i) => {
