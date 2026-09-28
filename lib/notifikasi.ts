@@ -58,8 +58,34 @@ interface PluginApp {
   addListener(nama: 'appStateChange', penangan: (s: { isActive: boolean }) => void): Promise<{ remove: () => Promise<void> }>;
 }
 
+interface PluginWidgetBridge {
+  bukaPengaturanNotifikasi?(): Promise<void>;
+  bukaPengaturanBaterai?(): Promise<void>;
+}
+
 const BackgroundRunner = registerPlugin<PluginRunner>('BackgroundRunner');
 const AplikasiNative = registerPlugin<PluginApp>('App');
+const WidgetBridge = registerPlugin<PluginWidgetBridge>('WidgetBridge');
+
+export async function bukaSetelanNotifikasiHp(): Promise<void> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      await WidgetBridge.bukaPengaturanNotifikasi?.();
+    } catch (e) {
+      console.warn('Gagal membuka setelan notifikasi', e);
+    }
+  }
+}
+
+export async function bukaSetelanBateraiHp(): Promise<void> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      await WidgetBridge.bukaPengaturanBaterai?.();
+    } catch (e) {
+      console.warn('Gagal membuka setelan baterai', e);
+    }
+  }
+}
 
 // -- Jalur --
 
@@ -123,6 +149,14 @@ let channelSudahDibuat = false;
 export async function pastikanChannelNotif(): Promise<void> {
   if (!Capacitor.isNativePlatform() || channelSudahDibuat) return;
   try {
+    await LocalNotifications.createChannel({
+      id: 'default',
+      name: 'Pengingat POKEMONKEY',
+      description: 'Pengingat harian dan notifikasi pop-up layar HP',
+      importance: 5, // IMPORTANCE_HIGH: banner muncul di atas layar HP (heads-up notification)
+      visibility: 1, // VISIBILITY_PUBLIC: muncul di layar kunci
+      vibration: true,
+    });
     await LocalNotifications.createChannel({
       id: 'alarm_channel',
       name: 'Alarm & Pengingat Meeting',

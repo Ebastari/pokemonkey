@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Bell, BellOff, BellRing, CalendarClock, ClipboardList, Loader2, Megaphone, RefreshCw, Send, Share, Smartphone, SquarePlus, Star,
+  Sliders, BatteryCharging, ExternalLink,
 } from 'lucide-react';
 import { api, demoAktif } from '../lib/api';
 import { ambilAlarmPica, simpanJamBawaanAlarm } from '../lib/pica-alarm';
@@ -9,7 +10,7 @@ import type { AcaraSiap } from '../server/src/ringkasan';
 import {
   SEMUA_SLOT, PESAN_LANGGANAN, jalurNotifikasi, perluPasangKeLayarUtama, jamDariPengaturan,
   statusIzin, mintaIzin, bacaSlot, simpanSlot, kirimContoh, tampilkanSlot, periksaSekarang,
-  perbaruiLangganan, ambilDiagnosa,
+  perbaruiLangganan, ambilDiagnosa, bukaSetelanNotifikasiHp, bukaSetelanBateraiHp,
   type Diagnosa, type HasilLangganan, type Izin, type NotifSiap, type Slot,
 } from '../lib/notifikasi';
 
@@ -335,6 +336,38 @@ export const NotifikasiScreen: React.FC<Props> = ({ boot, notify }) => {
               {sibuk === 'periksa' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Periksa sekarang
             </button>
           </div>
+
+          {jalur === 'native' && (
+            <section className="retro-box !bg-zinc-900/90 border-amber-500 !p-3">
+              <p className="text-[14px] font-bold text-amber-300 flex items-center gap-2">
+                <Sliders size={16} /> Agar Notifikasi Pop-up di Layar HP
+              </p>
+              <p className="text-[12px] text-zinc-300 mt-1 leading-relaxed">
+                Di Android 8–15 (terutama Xiaomi, Oppo, Vivo, dan Samsung), agar banner pop-up selalu muncul mengambang di atas layar:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => void bukaSetelanNotifikasiHp()}
+                  className="btn-retro btn-retro-sm bg-zinc-800 text-amber-300 border-amber-500 hover:bg-zinc-700 flex items-center justify-center gap-1.5"
+                >
+                  <ExternalLink size={13} /> Setelan Notifikasi HP
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void bukaSetelanBateraiHp()}
+                  className="btn-retro btn-retro-sm bg-zinc-800 text-amber-300 border-amber-500 hover:bg-zinc-700 flex items-center justify-center gap-1.5"
+                >
+                  <BatteryCharging size={13} /> Setelan Baterai HP
+                </button>
+              </div>
+              <ul className="mt-3 flex flex-col gap-1 text-[11px] text-zinc-400 list-disc list-inside">
+                <li><b>Notifikasi Mengambang / Sembul:</b> Di Setelan Notifikasi HP, pastikan pilihan <i>"Izinkan notifikasi mengambang"</i> atau <i>"Tampilkan sebagai sembul / pop-up"</i> sudah aktif (ON).</li>
+                <li><b>Baterai 'Tidak Ada Batasan':</b> Di Setelan Baterai, pilih <i>"Tidak Ada Batasan" (Unrestricted)</i> agar sistem tidak mematikan jadwal notifikasi saat HP tertidur.</li>
+                <li><b>Mulai Otomatis (Xiaomi/Oppo/Vivo):</b> Izinkan <i>"Mulai Otomatis" (Auto-start)</i> di info aplikasi POKEMONKEY.</li>
+              </ul>
+            </section>
+          )}
 
           {jalur === 'native' && (
             <section className="panel-retro">
