@@ -4,7 +4,7 @@ import {
   muatRabRnr, simpanRabRnr, rabBaru, eksporRabRnr, kartuRab, barisRekap, isiKeranjang, salinKeKeranjang,
   ubahBaris, aturQtyBaris, tambahBarisKosong, hapusBaris, susunRab,
   totalRab, totalUraian, totalMinggu, nilaiMinggu, deskripsiWbs, perluDirektur,
-  BATAS_PERSETUJUAN, PENYETUJU_DIV_HEAD, PENYETUJU_DIREKTUR,
+  BATAS_PERSETUJUAN, PENYETUJU_DIV_HEAD, PENYETUJU_DIREKTUR, PENYETUJU_VERIFIKASI, PENYETUJU_PIMPINAN,
   DAFTAR_STATUS_RAB, DAFTAR_WBS, type RabRnr as TipeRab, type StatusRab,
 } from '../lib/rab-rnr';
 import { DAFTAR_BULAN, formatRupiah } from '../lib/rab-hcga';
@@ -348,23 +348,33 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify }) => {
       {baris.some((u) => u.qty.some((q, m) => q && !nilaiMinggu(u, m))) && <p className="text-[11px] text-amber-300">Ada uraian dengan harga 0 — isi harga satuannya.</p>}
       </>}
 
-      {/* Persetujuan: Div Head selalu; Operation & HCA Director ikut bila total > Rp 25 juta. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[12px]">
+      {/* Persetujuan sesuai template RAB: Verifikasi, Pimpinan Site, Div Head, dan Operation & HCA Director (> 25 jt) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[12px]">
+        <div className="border-2 border-blue-500/60 bg-blue-950/20 p-2 space-y-1.5">
+          <span className="label-retro !text-blue-300">Diverifikasi (Finance Site)</span>
+          <input value={r.verifikasiNama ?? PENYETUJU_VERIFIKASI.nama} onChange={(e) => ubah({ ...r, verifikasiNama: e.target.value })} className={kelas} aria-label="Nama verifikasi" />
+          <input value={r.jabatanVerifikasi ?? PENYETUJU_VERIFIKASI.jabatan} onChange={(e) => ubah({ ...r, jabatanVerifikasi: e.target.value })} className={kelas} aria-label="Jabatan verifikasi" />
+        </div>
+        <div className="border-2 border-cyan-500/60 bg-cyan-950/20 p-2 space-y-1.5">
+          <span className="label-retro !text-cyan-300">Disetujui Oleh (Pimpinan Site)</span>
+          <input value={r.pimpinanNama ?? PENYETUJU_PIMPINAN.nama} onChange={(e) => ubah({ ...r, pimpinanNama: e.target.value })} className={kelas} aria-label="Nama pimpinan site" />
+          <input value={r.jabatanPimpinan ?? PENYETUJU_PIMPINAN.jabatan} onChange={(e) => ubah({ ...r, jabatanPimpinan: e.target.value })} className={kelas} aria-label="Jabatan pimpinan site" />
+        </div>
         <div className="border-2 border-emerald-500/60 bg-emerald-950/20 p-2 space-y-1.5">
-          <span className="label-retro !text-emerald-300">Disetujui oleh (selalu)</span>
+          <span className="label-retro !text-emerald-300">Disetujui Oleh (Div Head)</span>
           <input value={r.penyetujuDivHead ?? PENYETUJU_DIV_HEAD.nama} onChange={(e) => ubah({ ...r, penyetujuDivHead: e.target.value })} className={kelas} aria-label="Nama penyetuju Div Head" />
           <input value={r.jabatanDivHead ?? PENYETUJU_DIV_HEAD.jabatan} onChange={(e) => ubah({ ...r, jabatanDivHead: e.target.value })} className={kelas} aria-label="Jabatan penyetuju Div Head" />
         </div>
         <div className={`border-2 p-2 space-y-1.5 ${perluDirektur(r) ? 'border-amber-400 bg-amber-950/30' : 'border-white/15 bg-black/30 opacity-60'}`}>
-          <span className={`label-retro ${perluDirektur(r) ? '!text-amber-300' : ''}`}>Disetujui oleh (bila total &gt; {formatRupiah(BATAS_PERSETUJUAN)})</span>
-          <input value={r.penyetuju || PENYETUJU_DIREKTUR.nama} onChange={(e) => ubah({ ...r, penyetuju: e.target.value })} className={kelas} aria-label="Nama penyetuju kedua" />
-          <input value={r.jabatanPenyetuju || PENYETUJU_DIREKTUR.jabatan} onChange={(e) => ubah({ ...r, jabatanPenyetuju: e.target.value })} className={kelas} aria-label="Jabatan penyetuju kedua" />
+          <span className={`label-retro ${perluDirektur(r) ? '!text-amber-300' : ''}`}>Disetujui Oleh (&gt; 25 Juta)</span>
+          <input value={r.penyetuju || PENYETUJU_DIREKTUR.nama} onChange={(e) => ubah({ ...r, penyetuju: e.target.value })} className={kelas} aria-label="Nama Operation & HCA Director" />
+          <input value={r.jabatanPenyetuju || PENYETUJU_DIREKTUR.jabatan} onChange={(e) => ubah({ ...r, jabatanPenyetuju: e.target.value })} className={kelas} aria-label="Jabatan Operation & HCA Director" />
         </div>
       </div>
       <p className={`text-[12px] font-bold ${perluDirektur(r) ? 'text-amber-300' : 'text-emerald-300'}`}>
         {perluDirektur(r)
-          ? `Total ${formatRupiah(total)} lebih dari 25 juta → perlu persetujuan ${r.penyetuju || PENYETUJU_DIREKTUR.nama} di samping ${r.penyetujuDivHead ?? PENYETUJU_DIV_HEAD.nama}.`
-          : `Total ${formatRupiah(total)} ≤ 25 juta → cukup persetujuan ${r.penyetujuDivHead ?? PENYETUJU_DIV_HEAD.nama}.`}
+          ? `Total ${formatRupiah(total)} lebih dari 25 juta → ada kolom TTD Pak Rahmad (${r.penyetuju || PENYETUJU_DIREKTUR.nama}) di samping para penyetuju site & div head.`
+          : `Total ${formatRupiah(total)} ≤ 25 juta → TTD cukup sampai Div Head (${r.penyetujuDivHead ?? PENYETUJU_DIV_HEAD.nama}), kolom TTD Pak Rahmad ditiadakan.`}
       </p>
 
       {pratinjau && <PratinjauRabRnr rab={r} notify={notify} onTutup={() => setPratinjau(false)} />}

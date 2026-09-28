@@ -1460,6 +1460,40 @@ export async function eksporRabKeExcel(data: DataRabHcga): Promise<'dibagikan' |
     const cTot = rekapSheet.getCell('J33');
     if (cTot.formula) cTot.value = { formula: cTot.formula, result: totals.grandTotal };
     else cTot.value = totals.grandTotal;
+
+    // Persetujuan (Baris 10–15): Dibuat, Diverifikasi, Pimpinan Site, Div Head
+    rekapSheet.getCell('F10').value = 'Dibuat';
+    rekapSheet.getCell('F11').value = 'Diisi Di Form';
+    rekapSheet.getCell('F14').value = 'Diisi DI form';
+    rekapSheet.getCell('F15').value = '';
+
+    rekapSheet.getCell('G10').value = 'Diverifikasi';
+    rekapSheet.getCell('G11').value = 'Finance Site';
+    rekapSheet.getCell('G14').value = 'Azmi Rahmadi & M.';
+    rekapSheet.getCell('G15').value = 'Tanggal :';
+
+    rekapSheet.getCell('H10').value = 'Disetujui Oleh,';
+    rekapSheet.getCell('H11').value = 'Pimpinan Site';
+    rekapSheet.getCell('H14').value = 'Bambang Octaryono';
+    rekapSheet.getCell('H15').value = 'Tanggal :';
+
+    rekapSheet.getCell('I10').value = 'Disetujui Oleh,';
+    rekapSheet.getCell('I11').value = 'Eng & Opr. Div Head';
+    rekapSheet.getCell('I14').value = 'Cecep H. Setiadi';
+    rekapSheet.getCell('I15').value = 'Tanggal :';
+
+    // Kotak 5: Approval s/d Pak Rahmad (Kolom N) — Hanya bila total > 25 Juta
+    if (totals.grandTotal > 25_000_000) {
+      rekapSheet.getCell('N9').value = 'jika total nilai >25jt (Approval s/d Pak Rahmad)';
+      rekapSheet.getCell('N10').value = 'Disetujui Oleh,';
+      rekapSheet.getCell('N11').value = 'Operation & HCA Director';
+      rekapSheet.getCell('N14').value = data.header.disetujuiOleh || 'Rahmad Pudjotomo';
+      rekapSheet.getCell('N15').value = 'Tanggal :';
+    } else {
+      ['N9', 'N10', 'N11', 'N12', 'N13', 'N14', 'N15'].forEach((ref) => {
+        rekapSheet.getCell(ref).value = null;
+      });
+    }
   }
 
   // 2. Perbarui Sheet Rincian Kategori

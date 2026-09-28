@@ -84,6 +84,12 @@ export interface RabRnr {
   /** Penyetuju utama (selalu): Eng & Opr. Div Head. */
   penyetujuDivHead?: string;
   jabatanDivHead?: string;
+  /** Verifikasi: Finance Site. */
+  verifikasiNama?: string;
+  jabatanVerifikasi?: string;
+  /** Disetujui oleh Pimpinan Site. */
+  pimpinanNama?: string;
+  jabatanPimpinan?: string;
   /** Penyetuju kedua, hanya bila total > Rp 25 juta. */
   penyetuju: string;
   jabatanPenyetuju: string;
@@ -105,6 +111,8 @@ export interface RabRnr {
 export const BATAS_PERSETUJUAN = 25_000_000;
 export const PENYETUJU_DIV_HEAD = { nama: 'Cecep H. Setiadi', jabatan: 'Eng & Opr. Div Head' };
 export const PENYETUJU_DIREKTUR = { nama: 'Rahmad Pudjotomo', jabatan: 'Operation & HCA Director' };
+export const PENYETUJU_VERIFIKASI = { nama: 'Azmi Rahmadi & M.', jabatan: 'Finance Site' };
+export const PENYETUJU_PIMPINAN = { nama: 'Bambang Octaryono', jabatan: 'Pimpinan Site' };
 
 const hariIni = () => new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
 export const idUraian = () => `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -116,6 +124,8 @@ export function rabBaru(p: { bulan: string; tahun: number; nomorRab: string; nom
     nomorRab: p.nomorRab, nomorUrut: p.nomorUrut, judul: p.judul, bulan: p.bulan, tahun: p.tahun, lokasi: p.lokasi,
     kepada: 'Finance HO', up: 'Operation & HCA Director', tanggal: hariIni(),
     penyetujuDivHead: PENYETUJU_DIV_HEAD.nama, jabatanDivHead: PENYETUJU_DIV_HEAD.jabatan,
+    verifikasiNama: PENYETUJU_VERIFIKASI.nama, jabatanVerifikasi: PENYETUJU_VERIFIKASI.jabatan,
+    pimpinanNama: PENYETUJU_PIMPINAN.nama, jabatanPimpinan: PENYETUJU_PIMPINAN.jabatan,
     penyetuju: PENYETUJU_DIREKTUR.nama, jabatanPenyetuju: PENYETUJU_DIREKTUR.jabatan, catatan: '',
     status: 'Draf', kartu: [], uraian: [], pemohonId: p.pemohonId, pemohonNama: p.pemohonNama, dibuatPada: kini, diubahPada: kini,
   };
@@ -298,17 +308,40 @@ export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> 
     .isi('E7', `: ${r.lokasi}`)
     .isi('G8', `Bulan : ${r.bulan}                                          Tahun : ${r.tahun}`)
     .isi('D10', r.kepada).isi('D11', r.up).isi('D12', r.nomorRab).isi('D14', tgl);
-  // Persetujuan: kotak kiri (F–G) selalu Div Head; kotak kanan (H–I) hanya bila total > Rp 25 juta.
-  t.isi('F10', 'Disetujui Oleh,').isi('F11', r.jabatanDivHead || PENYETUJU_DIV_HEAD.jabatan)
-    .isi('F12', r.penyetujuDivHead || PENYETUJU_DIV_HEAD.nama).isi('F15', 'Tanggal :');
-  if (perluDirektur(r)) {
-    // Kotak H–I di template polos: garisnya disalin dari kotak F–G.
-    for (let b = 10; b <= 15; b++) t.salinGaya(`F${b}`, `H${b}`).salinGaya(`G${b}`, `I${b}`);
-    t.isi('H10', 'Disetujui Oleh,').isi('H11', r.jabatanPenyetuju || PENYETUJU_DIREKTUR.jabatan)
-      .isi('H12', r.penyetuju || PENYETUJU_DIREKTUR.nama).isi('H15', 'Tanggal :');
+  // Hapus gabungan sel di area persetujuan agar 4 kotak terpisah (F, G, H, I, masing-masing 1 kolom).
+  for (const ref of ['F10:G10', 'F11:G11', 'F12:G14', 'F15:G15', 'H10:I10', 'H11:I11', 'H12:I14', 'H15:I15']) {
+    t.hapusGabungan(ref);
   }
-  // Blok pengingat lama di luar area cetak (kolom N) tidak dipakai lagi: aturannya dijalankan aplikasi.
-  for (const ref of ['N9', 'N10', 'N11', 'N12', 'N13', 'N14', 'N15', 'O10', 'O11']) t.bersihkan(ref);
+  // Salin gaya kotak F ke G, H, I agar semua kotak persetujuan bergaris rapi.
+  for (let b = 10; b <= 15; b++) {
+    for (const col of ['G', 'H', 'I']) t.salinGaya(`F${b}`, `${col}${b}`);
+  }
+  // Kotak 1: Dibuat (kolom F)
+  t.isi('F10', 'Dibuat').isi('F11', 'Diisi Di Form').isi('F14', 'Diisi DI form').isi('F15', '');
+  // Kotak 2: Diverifikasi (kolom G)
+  t.isi('G10', 'Diverifikasi').isi('G11', r.jabatanVerifikasi || PENYETUJU_VERIFIKASI.jabatan)
+    .isi('G14', r.verifikasiNama || PENYETUJU_VERIFIKASI.nama).isi('G15', 'Tanggal :');
+  // Kotak 3: Disetujui Oleh — Pimpinan Site (kolom H)
+  t.isi('H10', 'Disetujui Oleh,').isi('H11', r.jabatanPimpinan || PENYETUJU_PIMPINAN.jabatan)
+    .isi('H14', r.pimpinanNama || PENYETUJU_PIMPINAN.nama).isi('H15', 'Tanggal :');
+  // Kotak 4: Disetujui Oleh — Eng & Opr. Div Head (kolom I)
+  t.isi('I10', 'Disetujui Oleh,').isi('I11', r.jabatanDivHead || PENYETUJU_DIV_HEAD.jabatan)
+    .isi('I14', r.penyetujuDivHead || PENYETUJU_DIV_HEAD.nama).isi('I15', 'Tanggal :');
+  // Kolom J (kanan): dikosongkan agar tetap rapi sebagai batas kanan tabel
+  for (let b = 10; b <= 15; b++) t.isi(`J${b}`, '');
+
+  // Kotak 5: Approval s/d Pak Rahmad (kolom N) — HANYA JIKA TOTAL > 25 JUTA
+  if (perluDirektur(r)) {
+    t.isi('N9', 'jika total nilai >25jt (Approval s/d Pak Rahmad)')
+      .isi('N10', 'Disetujui Oleh,')
+      .isi('N11', r.jabatanPenyetuju || PENYETUJU_DIREKTUR.jabatan)
+      .isi('N14', r.penyetuju || PENYETUJU_DIREKTUR.nama)
+      .isi('N15', 'Tanggal :');
+  } else {
+    // Bila total <= 25 juta, kolom TTD Pak Rahmad dihilangkan / dibersihkan
+    for (const ref of ['N9', 'O9', 'N10', 'O10', 'N11', 'O11', 'N12', 'N13', 'N14', 'N15']) t.bersihkan(ref);
+    t.hapusGabungan('O10:O11');
+  }
   // Template: uraian di baris 19–32 (14 baris), total di baris 33.
   t.aturJumlahBaris(19, 14, n);
   isi.forEach((u, i) => {

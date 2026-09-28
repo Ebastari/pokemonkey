@@ -157,6 +157,17 @@ export class TemplatXlsx {
     return this;
   }
 
+  /** Hapus gabungan sel (mergeCell) dengan alamat ref tertentu. */
+  hapusGabungan(ref: string): this {
+    const gabungan = this.lembar.getElementsByTagNameNS(NS, 'mergeCells')[0];
+    if (!gabungan) return this;
+    for (const m of Array.from(gabungan.getElementsByTagNameNS(NS, 'mergeCell'))) {
+      if (m.getAttribute('ref') === ref) { gabungan.removeChild(m); break; }
+    }
+    gabungan.setAttribute('count', String(gabungan.getElementsByTagNameNS(NS, 'mergeCell').length));
+    return this;
+  }
+
   /** Atur tinggi baris (poin). */
   tinggi(nomor: number, pt: number): this {
     const r = this.baris(nomor)!;
