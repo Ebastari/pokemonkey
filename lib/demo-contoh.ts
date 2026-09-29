@@ -131,7 +131,7 @@ export function dataContohDemo() {
 
   const surat: Baris[] = [
     { id: `${AWALAN_CONTOH}surat-1`, kategori: 'im', nomorUrut: 1, nomorSurat: '001/DEMO/IX/2026', namaSurat: `${LABEL_CONTOH} Permohonan perjalanan dinas`, namaYangDitugaskan: 'Budi Santoso', tanggalMulai: geserHari(hariIni, 2), tanggalBerakhir: geserHari(hariIni, 3), lamaHari: 2, tujuanDinas: 'Kantor pusat', keperluan: 'Rapat koordinasi anggaran', namaPembuat: 'Pengguna Demo', dibuatPada: kini },
-    { id: `${AWALAN_CONTOH}surat-2`, kategori: 'sk', nomorUrut: 1, nomorSurat: '002/DEMO/IX/2026', namaSurat: `${LABEL_CONTOH} Surat keluar permintaan suku cadang`, tujuanSurat: 'Pemasok alat berat', tanggal: hariIni, namaPembuat: 'Pengguna Demo', dibuatPada: kini },
+    { id: `${AWALAN_CONTOH}surat-2`, kategori: 'surat_keluar', nomorUrut: 1, nomorSurat: '002/DEMO/IX/2026', namaSurat: `${LABEL_CONTOH} Surat keluar permintaan suku cadang`, tujuanSurat: 'Pemasok alat berat', tanggal: hariIni, namaPembuat: 'Pengguna Demo', dibuatPada: kini },
   ];
 
   return { tim, profil, pica: daftarPica, jadwal, roster, memo, pengumuman, laporan, misi, surat };

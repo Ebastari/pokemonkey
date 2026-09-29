@@ -19,14 +19,24 @@ interface Props {
   onSimpanItem: (item: ItemSurat, bukaDiMemoDinas?: boolean) => void;
   onHapusItem: (id: string) => void;
   onBukaMemoDinasDariSurat?: (item: ItemSurat) => void;
+  /** Buka RAB RNR (Money Monkey) yang nomornya tercatat di sini. */
+  onBukaRab?: (idRab: string) => void;
   notify: (pesan: string) => void;
 }
+
+/**
+ * Dokumen yang dibuat di aplikasi tertaut langsung ke nomor suratnya, tanpa upload:
+ * RAB RNR (id surat `rab-<id RAB>`) dan Internal Memo Dinas (`internalMemoId`).
+ */
+const idRabTertaut = (item: ItemSurat) => (item.kategori === 'rab' && item.id.startsWith('rab-rabrnr-') ? item.id.slice(4) : null);
+const memoTertaut = (item: ItemSurat) => item.kategori === 'im' && Boolean(item.internalMemoId);
 
 export const TampilanNomorSurat: React.FC<Props> = ({
   daftar,
   onSimpanItem,
   onHapusItem,
   onBukaMemoDinasDariSurat,
+  onBukaRab,
   notify,
 }) => {
   const [cari, setCari] = useState('');
@@ -621,9 +631,12 @@ export const TampilanNomorSurat: React.FC<Props> = ({
             </thead>
             <tbody>
               {tersaring.map((item, idx) => {
-                const infoKat = KATEGORI_SURAT_INFO[item.kategori];
+                // Kategori asing (data lama/impor) tetap tampil, tidak merusak seluruh tabel.
+                const infoKat = KATEGORI_SURAT_INFO[item.kategori] ?? { singkatan: String(item.kategori || '?').toUpperCase(), lingkup: '—' };
                 const jmlDok = item.dokumen?.length || 0;
                 const disalin = tersalinId === item.id;
+                const idRab = onBukaRab ? idRabTertaut(item) : null;
+                const adaMemo = Boolean(onBukaMemoDinasDariSurat) && memoTertaut(item);
 
                 const lencanaClass =
                   item.kategori === 'im'
@@ -728,8 +741,27 @@ export const TampilanNomorSurat: React.FC<Props> = ({
                       {item.author || item.namaPembuat || '—'}
                     </td>
 
-                    {/* 8. Dokumen Lampiran (Opsional) */}
+                    {/* 8. Dokumen: buatan aplikasi (tautan langsung) + lampiran unggahan (opsional) */}
                     <td className="text-center px-2 py-2 whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1">
+                      {idRab && (
+                        <button
+                          onClick={() => onBukaRab!(idRab)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-yellow-400 bg-yellow-500/15 text-yellow-300 text-[11px] font-bold hover:bg-yellow-500 hover:text-black"
+                          title="Buka dokumen RAB ini di Money Monkey"
+                        >
+                          <FileSpreadsheet size={11} /> RAB
+                        </button>
+                      )}
+                      {adaMemo && (
+                        <button
+                          onClick={() => onBukaMemoDinasDariSurat!(item)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-amber-400 bg-amber-500/15 text-amber-300 text-[11px] font-bold hover:bg-amber-500 hover:text-black"
+                          title="Buka dokumen Internal Memo Dinas ini"
+                        >
+                          <FileText size={11} /> Memo
+                        </button>
+                      )}
                       {jmlDok > 0 ? (
                         <button
                           onClick={() => setDokumenLihat({ nomorSurat: item.nomorSurat, list: item.dokumen! })}
@@ -744,12 +776,13 @@ export const TampilanNomorSurat: React.FC<Props> = ({
                             setSuratTerpilih(item);
                             setBukaModalForm(true);
                           }}
-                          className="text-zinc-500 hover:text-zinc-300 text-[11px] flex items-center justify-center gap-0.5 mx-auto font-mono"
+                          className="text-zinc-500 hover:text-zinc-300 text-[11px] flex items-center justify-center gap-0.5 font-mono"
                           title="Tambah Lampiran (Opsional)"
                         >
-                          <Paperclip size={11} /> —
+                          <Paperclip size={11} /> {idRab || adaMemo ? '+' : '—'}
                         </button>
                       )}
+                      </div>
                     </td>
 
                     {/* 9. Aksi */}

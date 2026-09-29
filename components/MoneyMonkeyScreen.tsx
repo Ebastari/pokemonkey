@@ -13,13 +13,17 @@ import type { Pengguna } from '../lib/tipe-api';
 interface Props {
   pengguna: Pengguna;
   notify: (pesan: string) => void;
+  /** RAB RNR yang diminta dibuka (dari Data Surat); menu RAB RNR ikut dipilih. */
+  bukaRabId?: string | null;
+  onRabDibuka?: () => void;
 }
 
 type Menu = 'rab' | JenisFormulir;
 const MENU: [Menu, string][] = [['rab', 'RAB RNR'], ['disposisi', 'Disposisi'], ['insidental', 'RAB Insidental'], ['lbpd', 'LBPD']];
 
-export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
+export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify, bukaRabId, onRabDibuka }) => {
   const [menu, setMenu] = useState<Menu>(() => {
+    if (bukaRabId) return 'rab';
     try {
       const m = localStorage.getItem('pokemonkey_money_menu') as Menu | null;
       return m && MENU.some(([k]) => k === m) ? m : 'rab';
@@ -50,7 +54,9 @@ export const MoneyMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
         </div>
       </div>
       <div className="flex-1 overflow-auto custom-scrollbar px-2 pb-4 min-h-0">
-        {menu === 'rab' ? <RabRnr pengguna={pengguna} notify={notify} /> : <FormulirKeuangan jenis={menu} pengguna={pengguna} notify={notify} />}
+        {menu === 'rab'
+          ? <RabRnr pengguna={pengguna} notify={notify} bukaId={bukaRabId} onDibuka={onRabDibuka} />
+          : <FormulirKeuangan jenis={menu} pengguna={pengguna} notify={notify} />}
       </div>
     </div>
   );

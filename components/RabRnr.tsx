@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, FileSpreadsheet, Loader2, ArrowLeft, CopyPlus, X, Save } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, Trash2, FileSpreadsheet, Loader2, ArrowLeft, CopyPlus, X, Save, Cloud, CloudOff, HardDrive } from 'lucide-react';
 import {
-  muatRabRnr, simpanRabRnr, rabBaru, eksporRabRnr, kartuRab, barisRekap, isiKeranjang, salinKeKeranjang,
+  muatRabRnr, simpanRabRnr, rabBaru, ambilRabServer, kirimRabServer, hapusRabServer, kirimHapusTertunda, gabungRab, sinkronRabAktif, eksporRabRnr, kartuRab, barisRekap, isiKeranjang, salinKeKeranjang,
   ubahBaris, aturQtyBaris, tambahBarisKosong, hapusBaris, susunRab,
   totalRab, totalUraian, totalMinggu, nilaiMinggu, deskripsiWbs, perluDirektur,
   BATAS_PERSETUJUAN, PENYETUJU_DIV_HEAD, PENYETUJU_DIREKTUR, PENYETUJU_VERIFIKASI, PENYETUJU_PIMPINAN,
@@ -20,11 +20,36 @@ import type { Pengguna } from '../lib/tipe-api';
  * RAB RNR: daftar pengajuan bulanan → papan (pengisian cepat → keranjang →
  * susun per minggu) + tabel isian manual yang sinkron → Simpan RAB → pratinjau
  * Export Excel/PDF. "Salin ke bulan depan" memasukkan ajuan bulan lalu ke keranjang.
+ * RAB tersimpan di server (sinkron antar perangkat) dengan salinan di perangkat
+ * untuk tampil seketika dan tetap bisa diisi saat offline.
  */
+
+type StatusSinkron = 'memuat' | 'menyimpan' | 'tersimpan' | 'offline' | 'lokal';
+
+const LABEL_SINKRON: Record<StatusSinkron, { teks: string; warna: string }> = {
+  memuat: { teks: 'Memuat dari server…', warna: 'text-zinc-400' },
+  menyimpan: { teks: 'Menyimpan ke server…', warna: 'text-amber-300' },
+  tersimpan: { teks: 'Tersimpan di server', warna: 'text-emerald-300' },
+  offline: { teks: 'Offline · tersimpan di perangkat, dikirim saat online', warna: 'text-rose-300' },
+  lokal: { teks: 'Mode demo · hanya di perangkat ini', warna: 'text-zinc-400' },
+};
+
+const TandaSinkron: React.FC<{ status: StatusSinkron }> = ({ status }) => {
+  const { teks, warna } = LABEL_SINKRON[status];
+  const Ikon = status === 'offline' ? CloudOff : status === 'lokal' ? HardDrive : status === 'tersimpan' ? Cloud : Loader2;
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] ${warna}`} role="status">
+      <Ikon size={12} className={status === 'memuat' || status === 'menyimpan' ? 'animate-spin' : ''} /> {teks}
+    </span>
+  );
+};
 
 interface Props {
   pengguna: Pengguna;
   notify: (pesan: string) => void;
+  /** Buka RAB ini langsung dalam pratinjau dokumen (dari tautan Data Surat). */
+  bukaId?: string | null;
+  onDibuka?: () => void;
 }
 
 const WARNA_STATUS: Record<StatusRab, string> = {
@@ -39,7 +64,7 @@ const ROMAWI = ['I', 'II', 'III', 'IV'];
 const kelas = 'input-retro !py-1 !text-[12px]';
 const angka = (v: string) => Math.max(0, Number(v.replace(/[^\d.]/g, '')) || 0);
 
-export const RabRnr: React.FC<Props> = ({ pengguna, notify }) => {
+export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) => {
   const [daftar, setDaftar] = useState<TipeRab[]>(muatRabRnr);
   const [aktifId, setAktifId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'semua' | StatusRab>('semua');
@@ -51,8 +76,85 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify }) => {
   const bolehKelola = pengguna.peran === 'admin' || pengguna.peran === 'supervisor';
 
   useEffect(() => { simpanRabRnr(daftar); }, [daftar]);
+
+  // ---------- sinkron server: salinan perangkat tampil dulu, lalu digabung dengan server.
+  const [sinkron, setSinkron] = useState<StatusSinkron>(sinkronRabAktif() ? 'memuat' : 'lokal');
+  const daftarRef = useRef(daftar);
+  daftarRef.current = daftar;
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
+  const antre = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  const kirim = useCallback(async (id: string) => {
+    delete antre.current[id];
+    const r = daftarRef.current.find((x) => x.id === id);
+    if (!r || !sinkronRabAktif()) return;
+    setSinkron('menyimpan');
+    try {
+      const terbaru = await kirimRabServer(r);
+      if (terbaru) {
+        setDaftar((d) => d.map((x) => (x.id === id ? terbaru : x)));
+        notifyRef.current(`${terbaru.nomorRab} DIPERBARUI DARI PERANGKAT LAIN`);
+      }
+      if (!Object.keys(antre.current).length) setSinkron('tersimpan');
+    } catch {
+      setSinkron('offline');
+    }
+  }, []);
+
+  /** Kirim RAB ke server sesaat setelah perubahan terakhir (diberi jeda supaya tidak tiap ketikan). */
+  const jadwalkan = useCallback((id: string, jeda = 1200) => {
+    if (!sinkronRabAktif()) return;
+    clearTimeout(antre.current[id]);
+    antre.current[id] = setTimeout(() => { kirim(id); }, jeda);
+  }, [kirim]);
+
+  useEffect(() => {
+    if (!sinkronRabAktif()) return;
+    let batal = false;
+    (async () => {
+      try {
+        await kirimHapusTertunda();
+        const { rab, dihapus } = await ambilRabServer();
+        if (batal) return;
+        // RAB lama yang baru ada di perangkat ini ikut terkirim ke server.
+        const { daftar: gabung, perluKirim } = gabungRab(daftarRef.current, rab, dihapus, pengguna.id);
+        daftarRef.current = gabung;
+        setDaftar(gabung);
+        perluKirim.forEach((x, i) => jadwalkan(x.id, 100 + i * 150));
+        setSinkron(perluKirim.length ? 'menyimpan' : 'tersimpan');
+      } catch {
+        if (!batal) setSinkron('offline');
+      }
+    })();
+    return () => { batal = true; };
+  }, [pengguna.id, jadwalkan]);
+
+  // Keluar dari Money Monkey: yang masih menunggu jeda langsung dikirim.
+  useEffect(() => () => {
+    for (const id of Object.keys(antre.current)) {
+      clearTimeout(antre.current[id]);
+      kirim(id);
+    }
+  }, [kirim]);
+
+  // Tautan dari Data Surat: tunggu daftar selesai digabung dengan server, lalu buka pratinjaunya.
+  useEffect(() => {
+    if (!bukaId || sinkron === 'memuat') return;
+    if (daftar.some((r) => r.id === bukaId)) {
+      setAktifId(bukaId);
+      setPratinjau(true);
+    } else {
+      notify('DOKUMEN RAB TIDAK DITEMUKAN · MUNGKIN SUDAH DIHAPUS ATAU BELUM TERSIMPAN DI SERVER');
+    }
+    onDibuka?.();
+  }, [bukaId, sinkron, daftar, notify, onDibuka]);
+
   const aktif = daftar.find((r) => r.id === aktifId) ?? null;
-  const ubah = (r: TipeRab) => setDaftar((d) => d.map((x) => (x.id === r.id ? { ...r, diubahPada: new Date().toISOString() } : x)));
+  const ubah = (r: TipeRab, jeda?: number) => {
+    setDaftar((d) => d.map((x) => (x.id === r.id ? { ...r, diubahPada: new Date().toISOString() } : x)));
+    jadwalkan(r.id, jeda);
+  };
   const tampil = useMemo(() => daftar.filter((r) => filter === 'semua' || r.status === filter), [daftar, filter]);
 
   // ---------- nomor RAB: urut berjalan dari Data Surat (kategori RAB)
@@ -103,6 +205,7 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify }) => {
     // Mode manual tidak memakai keranjang: salinan bulan lalu langsung jadi baris tabel (Minggu I).
     if (mode === 'manual') r = kartuRab(r).length ? susunRab(r) : tambahBarisKosong(r);
     setDaftar((d) => [r, ...d]);
+    jadwalkan(r.id, 300);
     setModal(null);
     setAktifId(r.id);
     notify(sumber ? `RAB ${r.nomorRab} DIBUAT · AJUAN BULAN LALU ADA DI KERANJANG` : `RAB ${r.nomorRab} DIBUAT`);
@@ -119,6 +222,11 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify }) => {
     if (!confirm(`Hapus ${r.judul} (${r.nomorRab})?`)) return;
     setDaftar((d) => d.filter((x) => x.id !== r.id));
     if (aktifId === r.id) setAktifId(null);
+    clearTimeout(antre.current[r.id]);
+    delete antre.current[r.id];
+    if (sinkronRabAktif()) {
+      hapusRabServer(r.id).catch(() => notify('RAB DIHAPUS DI PERANGKAT · SERVER BELUM TERJANGKAU, DICOBA LAGI NANTI'));
+    }
   };
   const ekspor = async (r: TipeRab) => {
     if (!totalRab(r)) { notify('BELUM ADA URAIAN BERNILAI'); return; }
@@ -136,7 +244,7 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify }) => {
     const berisi = barisRekap(r).filter((u) => u.uraian.trim());
     if (!berisi.some((u) => totalUraian(u) > 0)) { notify('SUSUN MINIMAL SATU URAIAN DENGAN HARGA & QTY'); return; }
     setMenyimpan(true);
-    ubah({ ...r, kartu: kartuRab(r).filter((k) => k.uraian.trim()).map((k) => ({ ...k, uraian: k.uraian.trim() })) });
+    ubah({ ...r, kartu: kartuRab(r).filter((k) => k.uraian.trim()).map((k) => ({ ...k, uraian: k.uraian.trim() })) }, 200);
     const sisaKeranjang = isiKeranjang(r).length;
     if (sisaKeranjang) notify(`${sisaKeranjang} AJUAN MASIH DI KERANJANG · TIDAK IKUT RAB SEBELUM DISUSUN`);
     let baru = 0;
@@ -169,6 +277,7 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify }) => {
           <div className="mr-auto">
             <div className="font-title text-[12px] text-yellow-300">RAB RNR</div>
             <div className="text-[11px] text-zinc-400">Rencana Anggaran Bulanan Departemen RNR · {daftar.length} pengajuan · {formatRupiah(totalSemua)}</div>
+            <TandaSinkron status={sinkron} />
           </div>
           <button type="button" onClick={() => bukaModal()} className="btn-retro bg-amber-600 !py-1.5 text-[12px]"><Plus size={14} /> RAB baru</button>
         </div>
@@ -256,6 +365,7 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify }) => {
         <div className="mr-auto min-w-0">
           <div className="font-bold text-white text-[13px] truncate">{r.judul}</div>
           <div className="text-[11px] text-cyan-300 font-mono">{r.nomorRab}</div>
+          <TandaSinkron status={sinkron} />
         </div>
         <select value={r.status} onChange={(e) => ubah({ ...r, status: e.target.value as StatusRab })} className={`px-2 py-1 text-[11px] font-bold uppercase border ${WARNA_STATUS[r.status]}`} aria-label="Status">
           {DAFTAR_STATUS_RAB.map((s) => <option key={s} value={s} className="bg-zinc-900 text-white">{s}</option>)}

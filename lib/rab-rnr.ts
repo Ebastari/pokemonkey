@@ -11,6 +11,8 @@
 
 import { TemplatXlsx } from './xlsx-templat';
 import { DAFTAR_BULAN } from './rab-hcga';
+import { api, demoAktif } from './api';
+import { GalatApi } from './galat';
 
 export type StatusRab = 'Draf' | 'Diajukan' | 'Verifikasi' | 'Disetujui' | 'Dicairkan' | 'Ditolak';
 export const DAFTAR_STATUS_RAB: StatusRab[] = ['Draf', 'Diajukan', 'Verifikasi', 'Disetujui', 'Dicairkan', 'Ditolak'];
@@ -366,15 +368,85 @@ export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> 
 
 // ------------------------------------------------------------------ simpanan perangkat
 
+// Salinan di perangkat: tampil seketika dan tetap bisa diisi saat offline.
+// Mode demo memakai kunci sendiri supaya RAB asli tidak tercampur contoh.
 const KUNCI = 'pokemonkey_rab_rnr_v1';
+const KUNCI_DEMO = 'pokemonkey_rab_rnr_demo';
+const KUNCI_HAPUS = 'pokemonkey_rab_rnr_hapus_tertunda';
+const kunciDaftar = () => (demoAktif() ? KUNCI_DEMO : KUNCI);
 
-export function muatRabRnr(): RabRnr[] {
+const bacaJson = <T,>(kunci: string, awal: T): T => {
   try {
-    const d = JSON.parse(localStorage.getItem(KUNCI) || '[]');
-    return Array.isArray(d) ? d : [];
-  } catch { return []; }
+    const d = JSON.parse(localStorage.getItem(kunci) || 'null');
+    return Array.isArray(d) ? (d as T) : awal;
+  } catch { return awal; }
+};
+const tulisJson = (kunci: string, nilai: unknown) => {
+  try { localStorage.setItem(kunci, JSON.stringify(nilai)); } catch { /* penyimpanan penuh */ }
+};
+
+export const muatRabRnr = (): RabRnr[] => bacaJson<RabRnr[]>(kunciDaftar(), []);
+export const simpanRabRnr = (daftar: RabRnr[]): void => tulisJson(kunciDaftar(), daftar);
+
+// ------------------------------------------------------------------ server
+
+/** Sinkron ke server hanya untuk akun sungguhan; mode demo cukup di perangkat. */
+export const sinkronRabAktif = () => !demoAktif();
+
+export const ambilRabServer = () => api<{ rab: RabRnr[]; dihapus: string[] }>('/api/rab-rnr');
+
+/**
+ * Kirim satu RAB. Hasil `null` = tersimpan; bila server punya versi lebih baru
+ * (diubah dari perangkat lain), versi server dikembalikan untuk dipakai.
+ */
+export async function kirimRabServer(r: RabRnr): Promise<RabRnr | null> {
+  try {
+    await api(`/api/rab-rnr/${encodeURIComponent(r.id)}`, { method: 'POST', body: { rab: r } });
+    return null;
+  } catch (e) {
+    if (e instanceof GalatApi && e.status === 409 && e.data.rab) return e.data.rab as RabRnr;
+    throw e;
+  }
 }
 
-export function simpanRabRnr(daftar: RabRnr[]): void {
-  try { localStorage.setItem(KUNCI, JSON.stringify(daftar)); } catch { /* penyimpanan penuh */ }
+/** Hapus di server; bila gagal (offline) dicatat dan dicoba lagi saat sinkron berikutnya. */
+export async function hapusRabServer(id: string): Promise<void> {
+  try {
+    await api(`/api/rab-rnr/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  } catch (e) {
+    tulisJson(KUNCI_HAPUS, [...new Set([...bacaJson<string[]>(KUNCI_HAPUS, []), id])]);
+    throw e;
+  }
+}
+
+/** Kirim ulang penghapusan yang tertunda; yang berhasil dilepas dari antrean. */
+export async function kirimHapusTertunda(): Promise<void> {
+  const sisa: string[] = [];
+  for (const id of bacaJson<string[]>(KUNCI_HAPUS, [])) {
+    try { await api(`/api/rab-rnr/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch { sisa.push(id); }
+  }
+  tulisJson(KUNCI_HAPUS, sisa);
+}
+
+/**
+ * Gabungkan salinan perangkat dengan server: per RAB, yang `diubahPada`-nya
+ * lebih baru menang; yang dihapus di server dibuang. RAB milik pengguna yang
+ * belum ada di server (dibuat sebelum sinkron, atau saat offline) ikut dikirim.
+ */
+export function gabungRab(lokal: RabRnr[], server: RabRnr[], dihapus: string[], penggunaId: string): { daftar: RabRnr[]; perluKirim: RabRnr[] } {
+  const buang = new Set([...dihapus, ...bacaJson<string[]>(KUNCI_HAPUS, [])]);
+  const peta = new Map(server.filter((r) => !buang.has(r.id)).map((r) => [r.id, r]));
+  const perluKirim: RabRnr[] = [];
+  for (const r of lokal) {
+    if (buang.has(r.id)) continue;
+    const s = peta.get(r.id);
+    if (s) {
+      if ((r.diubahPada ?? '') > (s.diubahPada ?? '')) { peta.set(r.id, r); perluKirim.push(r); }
+    } else if (r.pemohonId === penggunaId) {
+      peta.set(r.id, r);
+      perluKirim.push(r);
+    }
+  }
+  const daftar = [...peta.values()].sort((a, b) => (b.dibuatPada ?? '').localeCompare(a.dibuatPada ?? ''));
+  return { daftar, perluKirim };
 }

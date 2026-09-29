@@ -36,6 +36,7 @@ import { halamanLihatPica, tautanLihatPica } from './lihat';
 import { periksaTitikApi, ruteTitikApi } from './titik-api';
 import { ruteLaporanKarhutla } from './laporan-karhutla';
 import { ruteKatalogRab } from './katalog-rab';
+import { ruteRabRnr } from './rab-rnr';
 import { ruteDokumen } from './dokumen';
 import { siapkanNotif, siapkanRekapPica, liburPada, acaraPengingat } from './sumber';
 import { rutePush, kirimPushTerjadwal, kirimPushAcara } from './push';
@@ -139,6 +140,10 @@ export default {
       // Money Monkey: katalog barang untuk form belanja RAB.
       const hasilKatalog = await ruteKatalogRab(jalur, req, env, pengguna);
       if (hasilKatalog) return hasilKatalog;
+
+      // Money Monkey: RAB RNR tersimpan di server (sinkron antar perangkat).
+      const hasilRabRnr = await ruteRabRnr(jalur, req, env, pengguna);
+      if (hasilRabRnr) return hasilRabRnr;
 
       // Dokumen administrasi (nomor surat, Internal Memo dinas, MoM) dan foto profil.
       const hasilDokumen = await ruteDokumen(jalur, req, env, pengguna);

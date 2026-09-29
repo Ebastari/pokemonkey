@@ -69,9 +69,11 @@ interface Props {
   boot: Bootstrap;
   pengguna: Pengguna;
   notify: (m: string) => void;
+  /** Dari Data Surat: buka RAB RNR yang nomornya tercatat (pindah ke Money Monkey). */
+  onBukaRab?: (idRab: string) => void;
 }
 
-export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
+export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab }) => {
   const [tab, setTabState] = useState<Tab>(() => {
     try { return (localStorage.getItem(KUNCI_TAB) as Tab) || 'ikhtisar'; } catch { return 'ikhtisar'; }
   });
@@ -561,6 +563,7 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
             onSimpanItem={handleSimpanItemSurat}
             onHapusItem={handleHapusItemSurat}
             onBukaMemoDinasDariSurat={handleBukaMemoDinasDariSurat}
+            onBukaRab={onBukaRab}
             notify={notify}
           />
         )}

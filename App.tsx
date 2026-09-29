@@ -168,6 +168,8 @@ const App: React.FC = () => {
   });
 
   const [activeTab, setActiveTab] = useState<AppTab>(() => tabDariUrl() ?? 'habitat');
+  // RAB RNR yang diminta dibuka dari Data Surat (tombol "RAB" di kolom Dokumen).
+  const [bukaRabId, setBukaRabId] = useState<string | null>(null);
   const [tema, setTema] = useState<Tema>(bacaTema);
   const [fokus, setFokus] = useState(false);
   const [menuBuka, setMenuBuka] = useState(false);
@@ -818,14 +820,14 @@ const App: React.FC = () => {
       {activeTab === 'jadwal' && <KalenderScreen pengguna={pengguna} tim={boot.tim} opsiRoster={boot.opsi.filter((o) => o.grup === 'roster')} onBukaPica={bukaPica} notify={notify} fokus={fokus} onFokus={() => setFokus((f) => !f)} onPerubahanJadwal={() => api<{ jadwal: JadwalItem[] }>('/api/jadwal').then((d) => setSemuaJadwal(d.jadwal ?? [])).catch(() => undefined)} />}
       {activeTab === 'pengumuman' && <PengumumanScreen pengguna={pengguna} jumlahTim={boot.tim.length} notify={notify} />}
       {activeTab === 'roster' && <RosterScreen boot={boot} pengguna={pengguna} notify={notify} />}
-      {activeTab === 'memo' && <MemoScreen boot={boot} pengguna={pengguna} notify={notify} />}
+      {activeTab === 'memo' && <MemoScreen boot={boot} pengguna={pengguna} notify={notify} onBukaRab={(id) => { setBukaRabId(id); setActiveTab('money'); }} />}
       {activeTab === 'notif' && <NotifikasiScreen boot={boot} notify={notify} />}
       {activeTab === 'team' && <TeamScreen pengguna={pengguna} onBootUlang={bootUlang} notify={notify} />}
       {activeTab === 'market' && <MarketScreen state={gameState} onBuy={handleBuySkin} onEquip={handleEquipSkin} />}
       {activeTab === 'missions' && <MissionsScreen state={gameState} admin={pengguna.peran === 'admin'} onStart={handleMissionStart} onSimpan={handleMisiSimpan} onHapus={handleMisiHapus} />}
       {activeTab === 'reports' && <ReportsScreen state={gameState} picaTerbuka={picaTerbuka} onSubmit={handleReportSubmit} />}
       {activeTab === 'calendar' && <CalendarScreen state={gameState} onRead={(r) => { setMonkeyDialogue(`Uu-aa! ${r.activityType}: ${r.achievedUnit.toFixed(2)} unit. Semangat!`); setActiveTab('habitat'); }} />}
-      {activeTab === 'money' && <MoneyMonkeyScreen pengguna={pengguna} notify={notify} />}
+      {activeTab === 'money' && <MoneyMonkeyScreen pengguna={pengguna} notify={notify} bukaRabId={bukaRabId} onRabDibuka={() => setBukaRabId(null)} />}
       {activeTab === 'fire' && <FireMonkeyScreen pengguna={pengguna} notify={notify} />}
     </>
   );
