@@ -141,8 +141,10 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
   // Tautan dari Data Surat: tunggu daftar selesai digabung dengan server, lalu buka pratinjaunya.
   useEffect(() => {
     if (!bukaId || sinkron === 'memuat') return;
-    if (daftar.some((r) => r.id === bukaId)) {
-      setAktifId(bukaId);
+    const nomor = bukaId.startsWith('nomor:') ? bukaId.slice(6).trim() : null;
+    const cocok = daftar.find((r) => (nomor ? r.nomorRab.trim() === nomor : r.id === bukaId));
+    if (cocok) {
+      setAktifId(cocok.id);
       setPratinjau(true);
     } else {
       notify('DOKUMEN RAB TIDAK DITEMUKAN · MUNGKIN SUDAH DIHAPUS ATAU BELUM TERSIMPAN DI SERVER');

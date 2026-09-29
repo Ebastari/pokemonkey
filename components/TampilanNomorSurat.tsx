@@ -28,7 +28,11 @@ interface Props {
  * Dokumen yang dibuat di aplikasi tertaut langsung ke nomor suratnya, tanpa upload:
  * RAB RNR (id surat `rab-<id RAB>`) dan Internal Memo Dinas (`internalMemoId`).
  */
-const idRabTertaut = (item: ItemSurat) => (item.kategori === 'rab' && item.id.startsWith('rab-rabrnr-') ? item.id.slice(4) : null);
+// Catatan lama (mis. dari RAB HCGA) dicocokkan lewat nomornya: `nomor:<nomor RAB>`.
+const idRabTertaut = (item: ItemSurat) => {
+  if (item.kategori !== 'rab') return null;
+  return item.id.startsWith('rab-rabrnr-') ? item.id.slice(4) : `nomor:${item.nomorSurat}`;
+};
 const memoTertaut = (item: ItemSurat) => item.kategori === 'im' && Boolean(item.internalMemoId);
 
 export const TampilanNomorSurat: React.FC<Props> = ({

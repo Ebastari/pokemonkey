@@ -17,6 +17,7 @@ import { warna } from '../lib/warna';
 import * as W from '../lib/waktu';
 import { ModalMonkeyPoint } from './ModalMonkeyPoint';
 import { ModalImporPica } from './ModalImporPica';
+import { useKursorTabel } from '../lib/kursor-tabel';
 
 /** Mengecek apakah suatu PICA sudah berstatus progress / sedang dikerjakan */
 export const cekSudahProgress = (p: PicaItem): boolean => {
@@ -97,6 +98,16 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
   }), [tampil]);
 
   const kolomProps = boot.properti.filter((p) => p.tampil_di_tabel === 1);
+
+  // Tabel ala Excel: kursor sel (panah/Tab/Enter), tahan-seret untuk menggeser, kolom No dan judul dikunci.
+  const kursor = useKursorTabel({
+    id: 'tabel-pica',
+    jumlahBaris: tampil.length,
+    jumlahKolom: 14 + kolomProps.length,
+    onBuka: (b) => { const p = tampil[b]; if (p) setTerpilih(p.id); },
+  });
+  // Layar sentuh: ketuk baris langsung membuka PICA; di laptop klik memilih sel, klik 2× / Enter membuka.
+  const sentuh = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
   const kunciPeriode = async () => {
     if (!periodeAktif) return;
@@ -241,16 +252,27 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
 
       {aturBuka && bolehKelola && <PanelAtur boot={boot} pengguna={pengguna} onSelesai={onBootUlang} onKunci={kunciPeriode} notify={notify} />}
 
-      <div className="flex-1 overflow-auto custom-scrollbar px-2 pb-4 min-h-0">
+      <div className={`flex-1 custom-scrollbar px-2 pb-4 min-h-0 ${tampilan === 'tabel' && daftar.length > 0 ? 'flex flex-col overflow-hidden' : 'overflow-auto'}`}>
         {memuat && daftar.length === 0 && <p className="text-[13px] text-zinc-400 text-center py-10 flex items-center justify-center gap-2"><Loader2 size={14} className="animate-spin" /> Memuat…</p>}
         {!memuat && daftar.length === 0 && <p className="text-[13px] text-zinc-400 text-center py-10 uppercase">Tidak ada PICA yang cocok.</p>}
 
         {tampilan === 'tabel' && daftar.length > 0 && (
-          <div className="overflow-x-auto border-[3px] border-white/40">
+          <div className="hidden sm:flex items-center gap-2 pb-1.5 text-[11px] text-zinc-400 shrink-0">
+            <span className="mr-auto">Klik sel lalu pakai <b className="text-zinc-200">← ↑ ↓ →</b> seperti Excel · <b className="text-zinc-200">Enter</b> / klik 2× membuka · tahan klik lalu seret untuk menggeser</span>
+            <button type="button" onClick={() => kursor.geser(-1)} className="btn-ikon !w-7 !h-7 bg-zinc-800" aria-label="Kolom sebelumnya" title="Kolom sebelumnya">◀</button>
+            <button type="button" onClick={() => kursor.geser(1)} className="btn-ikon !w-7 !h-7 bg-zinc-800" aria-label="Kolom berikutnya" title="Kolom berikutnya">▶</button>
+          </div>
+        )}
+        {tampilan === 'tabel' && daftar.length > 0 && (
+          <div {...kursor.propsWadah} className="min-h-0 overflow-auto custom-scrollbar border-[3px] border-white/40">
+            <style>{kursor.gaya}</style>
             <table className="min-w-[1380px] w-full text-[12px] border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-[4]">
                 <tr className="bg-[#2f5d33] text-white teks-atas-warna uppercase text-[11px]">
-                  {['No', 'Bidang', 'Prioritas', 'Masalah (fakta di laporan)', 'Akar masalah', 'Tindakan korektif', 'Target & Realisasi', 'Progres', 'PIC', 'Due Date', 'Status', 'Sisa / Keterangan', 'Update Terakhir', 'Bukti', ...kolomProps.map((k) => k.label)].map((h) => <th key={h} className="text-left p-2 border border-white/25 font-bold whitespace-nowrap">{h}</th>)}
+                  {['No', 'Bidang', 'Prioritas', 'Masalah (fakta di laporan)', 'Akar masalah', 'Tindakan korektif', 'Target & Realisasi', 'Progres', 'PIC', 'Due Date', 'Status', 'Sisa / Keterangan', 'Update Terakhir', 'Bukti', ...kolomProps.map((k) => k.label)].map((h, k) => (
+                    <th key={h} data-kol={k} data-beku={k === 0 ? '' : undefined}
+                      className={`text-left p-2 border border-white/25 font-bold whitespace-nowrap ${k === 0 ? 'sticky left-0 z-[5] bg-[#2f5d33] shadow-[2px_0_0_rgba(255,255,255,0.35)]' : ''}`}>{h}</th>
+                  ))}
                 </tr>
                 <BarisSaring saring={saring} ubah={(k, v) => setSaring((x) => ({ ...x, [k]: v }))} boot={boot} kolomProps={kolomProps.length} />
               </thead>
@@ -263,17 +285,17 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
                   const pct = hitungPersen(p.target, p.realisasi);
                   const telat = p.status !== 'Closed' && !sudahProg && (p.sisa_hari ?? 1) < 0;
                   return (
-                    <tr key={p.id} onClick={() => setTerpilih(p.id)} className={`cursor-pointer align-top ${i % 2 ? 'bg-white/5' : 'bg-black/30'} hover:bg-amber-500/10`}>
-                      <td className="p-2 border border-white/10 whitespace-nowrap"><span className="font-bold text-amber-300">{noPica(p)}</span><br /><span className="text-[10px] text-zinc-500">{p.id}</span></td>
-                      <td className="p-2 border border-white/10 whitespace-nowrap">{p.bidang}</td>
-                      <td className="p-2 border border-white/10"><Pill nilai={p.prioritas} grup="prioritas" boot={boot} /></td>
-                      <td className="p-2 border border-white/10 min-w-[280px] leading-relaxed text-white">{p.judul}{p.terkait_id && <span className="block text-[11px] text-cyan-300 mt-1">↳ terkait {p.terkait_id}</span>}</td>
-                      <td className="p-2 border border-white/10 min-w-[180px] leading-relaxed text-zinc-200">{p.akar || <span className="text-zinc-500">—</span>}</td>
-                      <td className="p-2 border border-white/10 min-w-[200px] leading-relaxed text-zinc-200">{p.tindakan || <span className="text-zinc-500">—</span>}</td>
-                      <td className="p-2 border border-white/10 whitespace-nowrap text-zinc-200 font-mono-code">
+                    <tr key={p.id} onClick={sentuh ? () => setTerpilih(p.id) : undefined} onDoubleClick={() => setTerpilih(p.id)} className={`cursor-cell align-top ${i % 2 ? 'bg-white/5' : 'bg-black/30'} hover:bg-amber-500/10`}>
+                      <td data-sel={`${i}-0`} data-beku="" className="p-2 border border-white/10 whitespace-nowrap sticky left-0 z-[1] bg-zinc-900 shadow-[2px_0_0_rgba(255,255,255,0.25)]"><span className="font-bold text-amber-300">{noPica(p)}</span><br /><span className="text-[10px] text-zinc-500">{p.id}</span></td>
+                      <td data-sel={`${i}-1`} className="p-2 border border-white/10 whitespace-nowrap">{p.bidang}</td>
+                      <td data-sel={`${i}-2`} className="p-2 border border-white/10"><Pill nilai={p.prioritas} grup="prioritas" boot={boot} /></td>
+                      <td data-sel={`${i}-3`} className="p-2 border border-white/10 min-w-[280px] leading-relaxed text-white">{p.judul}{p.terkait_id && <span className="block text-[11px] text-cyan-300 mt-1">↳ terkait {p.terkait_id}</span>}</td>
+                      <td data-sel={`${i}-4`} className="p-2 border border-white/10 min-w-[180px] leading-relaxed text-zinc-200">{p.akar || <span className="text-zinc-500">—</span>}</td>
+                      <td data-sel={`${i}-5`} className="p-2 border border-white/10 min-w-[200px] leading-relaxed text-zinc-200">{p.tindakan || <span className="text-zinc-500">—</span>}</td>
+                      <td data-sel={`${i}-6`} className="p-2 border border-white/10 whitespace-nowrap text-zinc-200 font-mono-code">
                         {p.target !== null ? `${p.realisasi ?? 0} / ${p.target} ${p.satuan ?? ''}` : <span className="text-zinc-500">—</span>}
                       </td>
-                      <td className="p-2 border border-white/10 whitespace-nowrap">
+                      <td data-sel={`${i}-7`} className="p-2 border border-white/10 whitespace-nowrap">
                         {pct !== null ? (
                           <div className="flex items-center gap-1.5 min-w-[90px]">
                             <div className="flex-1 h-2 bg-black/60 border border-white/20 rounded-sm overflow-hidden">
@@ -285,10 +307,10 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
                           <span className="text-zinc-500">—</span>
                         )}
                       </td>
-                      <td className="p-2 border border-white/10 whitespace-nowrap">{p.pic_nama ? namaTampil(p.pic_nama) : <span className="text-zinc-500">—</span>}</td>
-                      <td className="p-2 border border-white/10 whitespace-nowrap">{p.due_date ? W.formatPendek(p.due_date) : '—'}</td>
-                      <td className="p-2 border border-white/10"><Pill nilai={p.status} grup="status" boot={boot} /></td>
-                      <td className="p-2 border border-white/10 whitespace-nowrap">
+                      <td data-sel={`${i}-8`} className="p-2 border border-white/10 whitespace-nowrap">{p.pic_nama ? namaTampil(p.pic_nama) : <span className="text-zinc-500">—</span>}</td>
+                      <td data-sel={`${i}-9`} className="p-2 border border-white/10 whitespace-nowrap">{p.due_date ? W.formatPendek(p.due_date) : '—'}</td>
+                      <td data-sel={`${i}-10`} className="p-2 border border-white/10"><Pill nilai={p.status} grup="status" boot={boot} /></td>
+                      <td data-sel={`${i}-11`} className="p-2 border border-white/10 whitespace-nowrap">
                         {p.status === 'Closed' ? (
                           <span className="text-emerald-400 font-bold">selesai</span>
                         ) : sudahProg ? (
@@ -303,7 +325,7 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
                           <span className="text-zinc-300">{W.teksSisa(p.sisa_hari)}</span>
                         )}
                       </td>
-                      <td className="p-2 border border-white/10 min-w-[160px] max-w-[220px]">
+                      <td data-sel={`${i}-12`} className="p-2 border border-white/10 min-w-[160px] max-w-[220px]">
                         {p.update_terakhir ? (
                           <span className="line-clamp-2 text-[11px] text-zinc-300 leading-snug" title={p.update_terakhir}>
                             {p.update_terakhir}
@@ -312,7 +334,7 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
                           <span className="text-zinc-500 italic text-[11px]">—</span>
                         )}
                       </td>
-                      <td className="p-2 border border-white/10 whitespace-nowrap text-center">
+                      <td data-sel={`${i}-13`} className="p-2 border border-white/10 whitespace-nowrap text-center">
                         {p.jumlah_lampiran && p.jumlah_lampiran > 0 ? (
                           <span className="chip-retro border-cyan-400 bg-cyan-950/50 text-cyan-300 inline-flex items-center gap-1 text-[10px]">
                             <Paperclip size={10} /> {p.jumlah_lampiran}
@@ -321,7 +343,7 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
                           <span className="text-zinc-500 text-[10px]">—</span>
                         )}
                       </td>
-                      {kolomProps.map((k) => <td key={k.id} className="p-2 border border-white/10 whitespace-nowrap text-zinc-200">{String(p.props[k.id] ?? '')}</td>)}
+                      {kolomProps.map((k, j) => <td key={k.id} data-sel={`${i}-${14 + j}`} className="p-2 border border-white/10 whitespace-nowrap text-zinc-200">{String(p.props[k.id] ?? '')}</td>)}
                     </tr>
                   );
                 })}
@@ -402,7 +424,7 @@ const BarisSaring: React.FC<{ saring: SaringKolom; ubah: (k: keyof SaringKolom, 
   const sel = 'p-1 border border-white/20 bg-[#1f3d22]';
   return (
     <tr>
-      <th className={sel}>{teks('no', 'PICA-…')}</th>
+      <th data-beku="" className={`${sel} sticky left-0 z-[5] shadow-[2px_0_0_rgba(255,255,255,0.35)]`}>{teks('no', 'PICA-…')}</th>
       <th className={sel}>{pilih('bidang', opsi('bidang'))}</th>
       <th className={sel}>{pilih('prioritas', opsi('prioritas'))}</th>
       <th className={sel}>{teks('judul')}</th>
