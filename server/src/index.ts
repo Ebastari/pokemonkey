@@ -37,6 +37,7 @@ import { periksaTitikApi, ruteTitikApi } from './titik-api';
 import { ruteLaporanKarhutla } from './laporan-karhutla';
 import { ruteKatalogRab } from './katalog-rab';
 import { ruteRabRnr } from './rab-rnr';
+import { ruteHati } from './hati';
 import { ruteDokumen } from './dokumen';
 import { siapkanNotif, siapkanRekapPica, liburPada, acaraPengingat } from './sumber';
 import { rutePush, kirimPushTerjadwal, kirimPushAcara } from './push';
@@ -102,6 +103,11 @@ export default {
       // Papan PICA hanya-baca dari tautan di rekap WhatsApp (kunci berganti tiap Senin).
       if (jalur === '/lihat/pica' && req.method === 'GET') return halamanLihatPica(url, env);
 
+      // Versi APK terbaru dan berkasnya: dipakai layar login (tautan unduh) dan
+      // peringatan pembaruan, jadi harus bisa dibuka tanpa login.
+      if (jalur === '/api/versi' && req.method === 'GET') return versiAplikasi(env, url.origin);
+      if (jalur === '/unduh/apk' && (req.method === 'GET' || req.method === 'HEAD')) return unduhApk(env, req.method === 'HEAD');
+
       // Login adalah satu-satunya rute lain yang boleh tanpa token.
       if (jalur === '/api/auth/login' && req.method === 'POST') return login(req, env);
 
@@ -140,6 +146,10 @@ export default {
       // Money Monkey: katalog barang untuk form belanja RAB.
       const hasilKatalog = await ruteKatalogRab(jalur, req, env, pengguna);
       if (hasilKatalog) return hasilKatalog;
+
+      // Sistem hati: hari kerja tanpa membuka aplikasi mematikan hati; dihidupkan Admin/Supervisor.
+      const hasilHati = await ruteHati(jalur, req, env, pengguna, url.origin);
+      if (hasilHati) return hasilHati;
 
       // Money Monkey: RAB RNR tersimpan di server (sinkron antar perangkat).
       const hasilRabRnr = await ruteRabRnr(jalur, req, env, pengguna);
@@ -392,6 +402,47 @@ async function login(req: Request, env: Env): Promise<Response> {
   const token = await buatSesi(env, userId);
   const { password_hash, ...pengguna } = baris;
   return json({ token, pengguna, passwordBaruDibuat: baruSaja });
+}
+
+// ============================================================
+// Rilis APK (dicatat oleh scripts/rilis-apk.mjs)
+// ============================================================
+
+async function infoRilisApk(env: Env): Promise<Record<string, string>> {
+  const { results } = await env.DB.prepare(
+    "SELECT kunci, nilai FROM pengaturan WHERE kunci IN ('apk_versi','apk_kode','apk_kunci','apk_ukuran','apk_catatan','apk_tanggal')",
+  )
+    .all<{ kunci: string; nilai: string }>();
+  return Object.fromEntries(results.map((r) => [r.kunci, r.nilai]));
+}
+
+async function versiAplikasi(env: Env, asal: string): Promise<Response> {
+  const r = await infoRilisApk(env);
+  if (!r.apk_versi || !r.apk_kunci) return json({ versi: null });
+  const dasar = (env.ALAMAT_PUBLIK || asal).replace(/\/+$/, '');
+  return json({
+    versi: r.apk_versi,
+    kode: Number(r.apk_kode) || 0,
+    ukuran: Number(r.apk_ukuran) || null,
+    catatan: r.apk_catatan || null,
+    tanggal: r.apk_tanggal ? tanggalIndonesia(r.apk_tanggal) : null,
+    url: `${dasar}/unduh/apk`,
+  });
+}
+
+async function unduhApk(env: Env, hanyaKepala: boolean): Promise<Response> {
+  const r = await infoRilisApk(env);
+  const objek = r.apk_kunci ? await env.BUKET.get(r.apk_kunci) : null;
+  if (!objek) return galat('APK belum tersedia.', 404);
+  return new Response(hanyaKepala ? null : objek.body, {
+    headers: {
+      'Content-Type': 'application/vnd.android.package-archive',
+      'Content-Length': String(objek.size),
+      'Content-Disposition': `attachment; filename="POKEMONKEY-${r.apk_versi ?? 'terbaru'}.apk"`,
+      'Cache-Control': 'no-store',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
 }
 
 // ============================================================
@@ -1179,6 +1230,16 @@ async function unggahLampiran(req: Request, env: Env, pengguna: Pengguna): Promi
   if (!(berkas instanceof File)) return galat('Berkas tidak ditemukan.');
   if (!entitasId) return galat('entitas_id wajib diisi.');
   if (berkas.size > 8 * 1024 * 1024) return galat('Ukuran berkas maksimal 8 MB.');
+
+  // Foto laporan lapangan (termasuk yang dilengkapi belakangan dari LOG) hanya boleh
+  // ditambahkan pembuat laporan, Admin, atau Supervisor.
+  if (entitas === 'laporan') {
+    const lap = await env.DB.prepare('SELECT user_id FROM laporan WHERE id = ?1').bind(entitasId).first<{ user_id: string }>();
+    if (!lap) return galat('Laporan tidak ditemukan.', 404);
+    if (lap.user_id !== pengguna.id && pengguna.peran !== 'admin' && pengguna.peran !== 'supervisor') {
+      return galat('Hanya pembuat laporan, Admin, atau Supervisor yang boleh menambah foto laporan ini.', 403);
+    }
+  }
 
   const ekstensi = (berkas.name.split('.').pop() ?? 'bin').toLowerCase().slice(0, 5);
   const kunci = `${entitas}/${entitasId}/${Date.now()}.${ekstensi}`;

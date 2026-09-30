@@ -7,7 +7,7 @@ interface PicaRingkas { id: string; judul: string }
 type Satuan = 'ha' | 'jam' | 'hari' | 'orang' | 'meter' | 'bibit';
 
 /** Kecilkan foto ke maksimal 1280 px sisi terpanjang, JPEG 82% — hemat kuota lapangan. */
-async function kompresFoto(file: File): Promise<string> {
+export async function kompresFoto(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file).catch(() => null);
   if (!bitmap) {
     return new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.readAsDataURL(file); });
@@ -49,8 +49,10 @@ export const ReportsScreen = ({ state, picaTerbuka = [], onSubmit }: { state: Ga
     finally { setMemproses(false); }
   };
 
-  // Cukup ada capaian dan satu tujuan: PICA, misi, atau sekadar jenis pekerjaannya.
-  const siap = Boolean(formData.achievedUnit && (formData.picaId || formData.missionId || formData.activityType.trim()));
+  // Perlu capaian, satu tujuan (PICA, misi, atau jenis pekerjaan), dan foto dokumentasi sebagai bukti.
+  const isiLengkap = Boolean(formData.achievedUnit && (formData.picaId || formData.missionId || formData.activityType.trim()));
+  const adaFoto = Boolean(formData.photoData);
+  const siap = isiLengkap && adaFoto;
 
   return (
     <div className="p-3 flex flex-col h-full overflow-auto custom-scrollbar">
@@ -61,7 +63,7 @@ export const ReportsScreen = ({ state, picaTerbuka = [], onSubmit }: { state: Ga
 
       {(
         <div className="grid md:grid-cols-2 gap-4 pb-6">
-          <div className="space-y-4">
+          <div className="space-y-4 order-2 md:order-1">
             <div>
               <label htmlFor="lap-pica" className="label-retro text-amber-300">1. PICA yang dikerjakan</label>
               <select id="lap-pica" className="input-retro" value={formData.picaId} onChange={(e) => setFormData({ ...formData, picaId: e.target.value })}>
@@ -122,18 +124,24 @@ export const ReportsScreen = ({ state, picaTerbuka = [], onSubmit }: { state: Ga
             <button disabled={!siap || memproses} onClick={() => { onSubmit(formData); setFormData(kosong); }} className={`btn-retro w-full !py-3 ${siap ? 'bg-emerald-700' : 'bg-zinc-800'}`}>
               <Star size={16} /> Kirim laporan &amp; ambil XP
             </button>
+            {!adaFoto && (
+              <p className="text-[12px] text-orange-300 flex items-start gap-1.5" role="status">
+                <Camera size={13} className="shrink-0 mt-0.5" />
+                Foto dokumentasi wajib. Ambil lewat <b className="text-white">Kamera</b> atau <b className="text-white">Galeri</b> dulu, baru laporan bisa dikirim.
+              </p>
+            )}
           </div>
 
-          <div className="space-y-3">
-            <label className="label-retro text-orange-300">Dokumentasi lapangan</label>
-            <div className="w-full aspect-[4/3] border-4 border-white bg-black/60 flex items-center justify-center relative overflow-hidden">
+          <div className="space-y-3 order-1 md:order-2">
+            <label className="label-retro text-orange-300">Dokumentasi lapangan <span className="text-red-400">· wajib</span></label>
+            <div className={`w-full aspect-[4/3] border-4 bg-black/60 flex items-center justify-center relative overflow-hidden ${adaFoto ? 'border-white' : 'border-dashed border-orange-400'}`}>
               {formData.photoData ? (
                 <>
                   <img src={formData.photoData} className="w-full h-full object-cover" alt="dokumentasi" />
                   <button onClick={() => setFormData({ ...formData, photoData: '' })} className="absolute top-2 right-2 btn-ikon !w-8 !h-8 bg-red-900"><X size={14} /></button>
                 </>
               ) : (
-                <div className="text-center opacity-60"><Camera size={48} className="mx-auto mb-2" /><p className="text-[12px] uppercase">{memproses ? 'Memproses foto…' : 'Belum ada foto'}</p></div>
+                <div className="text-center opacity-60"><Camera size={48} className="mx-auto mb-2" /><p className="text-[12px] uppercase">{memproses ? 'Memproses foto…' : 'Belum ada foto · wajib sebelum kirim'}</p></div>
               )}
             </div>
             <div className="grid grid-cols-2 gap-2">

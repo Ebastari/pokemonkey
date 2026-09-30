@@ -3,6 +3,8 @@ import { Users, Trophy, BrainCircuit, Globe, RefreshCcw, Wifi, Star, UserPlus, P
 import { api, GalatApi } from '../lib/api';
 import type { AnggotaTim, Pengguna } from '../lib/tipe-api';
 import { PanelAnggota } from './PanelAnggota';
+import { PanelHatiMati } from './PanelHatiMati';
+import { hatiAktif } from '../lib/hati';
 
 interface Peringkat { id: string; name: string; xp: number; level: number; totalHa: number; lastActive: string | null }
 interface Props { pengguna: Pengguna; onBootUlang: () => void; notify: (pesan: string) => void }
@@ -66,6 +68,8 @@ export const TeamScreen: React.FC<Props> = ({ pengguna, onBootUlang, notify }) =
           <button disabled={loading} onClick={muat} className="btn-ikon bg-indigo-600"><RefreshCcw size={16} className={loading ? 'animate-spin' : ''} /></button>
         </div>
       </div>
+
+      {(admin || pengguna.peran === 'supervisor') && hatiAktif() && <PanelHatiMati notify={notify} />}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 flex-1 overflow-auto custom-scrollbar pb-4">
         <div className="space-y-3">

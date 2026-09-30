@@ -12,7 +12,8 @@
     "db:lokal": "npm --prefix server run db:lokal",
     "android:tambah": "npx cap add android",
     "android:sync": "npm run build && npx cap sync android",
-    "android:buka": "npx cap open android"
+    "android:buka": "npx cap open android",
+    "rilis:apk": "node scripts/rilis-apk.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

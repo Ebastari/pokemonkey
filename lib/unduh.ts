@@ -58,6 +58,11 @@ export async function simpanBerkas(blob: Blob, nama: string, judul = nama): Prom
     } catch { /* dibatalkan: jatuh ke unduhan */ }
   }
 
+  unduhLewatBrowser(blob, nama);
+  return 'diunduh';
+}
+
+function unduhLewatBrowser(blob: Blob, nama: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -66,5 +71,40 @@ export async function simpanBerkas(blob: Blob, nama: string, judul = nama): Prom
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/**
+ * Bagikan `blob` lewat lembar bagikan perangkat (pemakai memilih WhatsApp, dsb.).
+ * Di APK dan di browser yang mendukung berbagi berkas hasilnya 'dibagikan'
+ * ('dibatalkan' bila lembarnya ditutup); selain itu berkas diunduh ('diunduh')
+ * untuk dilampirkan sendiri.
+ */
+export async function bagikanBerkas(blob: Blob, nama: string, judul = nama, teks?: string): Promise<'dibagikan' | 'diunduh' | 'dibatalkan'> {
+  if (diAplikasi()) {
+    const { uri } = await Filesystem.writeFile({
+      path: `POKEMONKEY/${namaAman(nama)}`,
+      data: await keBase64(blob),
+      directory: Directory.External,
+      recursive: true,
+    });
+    try {
+      await Share.share({ title: judul, text: teks, files: [uri], dialogTitle: 'Bagikan ke WhatsApp' });
+      return 'dibagikan';
+    } catch {
+      return 'dibatalkan';
+    }
+  }
+
+  const berkas = new File([blob], nama, { type: blob.type });
+  if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [berkas] })) {
+    try {
+      await navigator.share({ files: [berkas], title: judul, text: teks });
+      return 'dibagikan';
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return 'dibatalkan';
+      /* gagal berbagi: jatuh ke unduhan */
+    }
+  }
+  unduhLewatBrowser(blob, nama);
   return 'diunduh';
 }

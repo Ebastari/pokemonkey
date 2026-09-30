@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   NotebookPen, Plus, ListFilter, ArrowUpDown, Search, X, Trash2, Pencil, Eye, Loader2, KanbanSquare,
   CircleDot, Tags, Table2, Lock, Pin, PinOff, ChevronLeft, ChevronDown, User, ImageDown, FileSpreadsheet,
-  FileText, ClipboardList, Download, Clock, MapPin, Hash, Sun, Moon,
+  FileText, ClipboardList, Download, Clock, MapPin, Hash, Sun, Moon, Send,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { unduhGambar } from '../lib/gambar';
+import { unduhGambarMemo, bagikanGambarMemo, GAYA_GAMBAR_MEMO, type GayaGambarMemo } from '../lib/gambar-memo';
 import { bukuBaru, gayakanChip, lembarBaru, pasangSaringan, simpanBuku, tanggalExcel, FORMAT_TANGGAL } from '../lib/excel';
 import type { Bootstrap, Opsi, Pengguna } from '../lib/tipe-api';
 import type { Memo } from '../types';
@@ -419,6 +420,7 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab 
   };
 
   return (
+    <KonteksGambarMemo.Provider value={{ kategori, tipe, status, pengunduh: pengguna.nama, notify }}>
     <div className="flex flex-col h-full overflow-hidden">
       {/* ---------- Kepala ---------- */}
       <div className="px-3 pt-3 pb-2 shrink-0">
@@ -608,6 +610,102 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab 
         />
       )}
     </div>
+    </KonteksGambarMemo.Provider>
+  );
+};
+
+// ============================================================
+// Unduh satu memo sebagai gambar poster
+// ============================================================
+
+/** Opsi kategori/tipe/status + nama pengunduh, dipakai tombol unduh gambar di kartu dan lembar memo. */
+const KonteksGambarMemo = React.createContext<{ kategori: Opsi[]; tipe: Opsi[]; status: Opsi[]; pengunduh: string; notify: (m: string) => void } | null>(null);
+
+type MemoUntukGambar = Pick<Memo, 'judul' | 'isi' | 'ringkasan' | 'kategori' | 'tipe' | 'status' | 'tanggal' | 'penulis' | 'lingkup'>;
+
+const KUNCI_GAYA_GAMBAR = 'pokemonkey_memo_gaya_gambar';
+
+/**
+ * Tombol gambar memo: pilih gaya (Retro gelap / Retro terang / Resmi — pilihan
+ * terakhir diingat), lalu Unduh atau Bagikan ke WhatsApp. Memo lengkap jadi satu PNG.
+ */
+const TombolGambarMemo: React.FC<{ memo: MemoUntukGambar; kecil?: boolean }> = ({ memo, kecil }) => {
+  const ctx = React.useContext(KonteksGambarMemo);
+  const [buka, setBuka] = useState(false);
+  const [sibuk, setSibuk] = useState(false);
+  const [gaya, setGayaState] = useState<GayaGambarMemo>(() => {
+    try {
+      const g = localStorage.getItem(KUNCI_GAYA_GAMBAR);
+      return GAYA_GAMBAR_MEMO.some((x) => x.id === g) ? (g as GayaGambarMemo) : 'retro-gelap';
+    } catch { return 'retro-gelap'; }
+  });
+  if (!ctx) return null;
+  const setGaya = (g: GayaGambarMemo) => { setGayaState(g); try { localStorage.setItem(KUNCI_GAYA_GAMBAR, g); } catch { /* abaikan */ } };
+  const chip = (nilai: string | null, opsi: Opsi[]) => {
+    if (!nilai) return null;
+    const o = opsi.find((x) => x.nilai === nilai);
+    return { label: o?.label ?? nilai, warna: o?.warna };
+  };
+  const jalankan = async (aksi: 'unduh' | 'bagikan') => {
+    setBuka(false);
+    setSibuk(true);
+    const data = {
+      judul: memo.judul, ringkasan: memo.ringkasan, isi: memo.isi, tanggal: tglMemo(memo.tanggal), penulis: memo.penulis,
+      kategori: chip(memo.kategori, ctx.kategori), tipe: chip(memo.tipe, ctx.tipe), status: chip(memo.status, ctx.status),
+      jenis: memo.lingkup === 'pribadi' ? 'Catatan Pribadi' : 'Memo Internal', pengunduh: ctx.pengunduh,
+    };
+    try {
+      if (aksi === 'unduh') {
+        const hasil = await unduhGambarMemo(data, gaya);
+        ctx.notify(hasil === 'diunduh' ? 'GAMBAR MEMO DIUNDUH' : 'GAMBAR MEMO SIAP DISIMPAN / DIBAGIKAN');
+      } else {
+        const hasil = await bagikanGambarMemo(data, gaya);
+        if (hasil === 'diunduh') ctx.notify('PERANGKAT INI TIDAK BISA BERBAGI LANGSUNG · GAMBAR DIUNDUH, LAMPIRKAN DI WHATSAPP');
+        else if (hasil === 'dibagikan') ctx.notify('GAMBAR MEMO DIBAGIKAN');
+      }
+    } catch (e) {
+      ctx.notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUAT GAMBAR MEMO');
+    } finally {
+      setSibuk(false);
+    }
+  };
+  return (
+    <span className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={() => setBuka((v) => !v)}
+        disabled={sibuk}
+        className={kecil ? 'btn-ikon !w-7 !h-7 bg-zinc-800 disabled:opacity-60' : 'btn-retro btn-retro-sm bg-zinc-800 disabled:opacity-60'}
+        title="Unduh atau bagikan memo ini sebagai gambar"
+        aria-label="Unduh memo sebagai gambar"
+        aria-haspopup="dialog"
+        aria-expanded={buka}
+      >
+        {sibuk ? <Loader2 size={kecil ? 13 : 12} className="animate-spin" /> : <ImageDown size={kecil ? 13 : 12} />}{!kecil && ' Gambar'}
+      </button>
+      {buka && (
+        <>
+          <span className="fixed inset-0 z-[110]" onClick={() => setBuka(false)} />
+          <span role="dialog" aria-label="Gambar memo" className="absolute right-0 top-full mt-1 z-[111] w-56 flex flex-col bg-zinc-900 border-[3px] border-white shadow-[4px_4px_0_#000] text-left">
+            <span className="px-2 py-1 text-[10px] text-zinc-400 uppercase border-b border-white/20">Gaya gambar</span>
+            {GAYA_GAMBAR_MEMO.map((g) => (
+              <button key={g.id} type="button" role="radio" aria-checked={gaya === g.id} onClick={() => setGaya(g.id)}
+                className={`flex items-center gap-2 px-2 py-1.5 text-left border-b border-white/10 ${gaya === g.id ? 'bg-lime-500/20' : 'hover:bg-white/5'}`}>
+                <span className={`w-3 h-3 border-2 shrink-0 ${gaya === g.id ? 'border-lime-300 bg-lime-400' : 'border-zinc-500'}`} />
+                <span className="flex flex-col leading-tight">
+                  <span className="text-[12px] font-bold text-white">{g.label}</span>
+                  <span className="text-[10px] text-zinc-400">{g.ket}</span>
+                </span>
+              </button>
+            ))}
+            <span className="grid grid-cols-2 gap-1.5 p-1.5">
+              <button type="button" onClick={() => jalankan('unduh')} className="btn-retro btn-retro-sm bg-zinc-700 justify-center"><Download size={12} /> Unduh</button>
+              <button type="button" onClick={() => jalankan('bagikan')} className="btn-retro btn-retro-sm bg-emerald-700 justify-center" title="Bagikan langsung, pilih WhatsApp"><Send size={12} /> WhatsApp</button>
+            </span>
+          </span>
+        </>
+      )}
+    </span>
   );
 };
 
@@ -630,13 +728,17 @@ const ChipOpsi: React.FC<{ nilai: string | null; opsi: Opsi[]; bulat?: boolean }
 };
 
 const KartuMemo: React.FC<{ memo: Memo; tipe: Opsi[]; status: Opsi[]; onBuka: (id: string) => void }> = ({ memo: m, tipe, status, onBuka }) => (
+  <div className="relative">
+  {/* Kartu sendiri sebuah tombol, jadi tombol unduh ditumpuk di pojoknya (bukan di dalamnya). */}
+  <div className="absolute top-1.5 right-1.5 z-[1]"><TombolGambarMemo memo={m} kecil /></div>
   <button onClick={() => onBuka(m.id)} className="w-full text-left bg-zinc-950 border-[3px] border-white/25 p-3 shadow-[3px_3px_0_#000] hover:border-white/60 transition-colors flex flex-col gap-2">
-    <p className={`text-[15px] font-bold leading-snug ${m.judul ? 'text-white' : 'text-zinc-500 italic'}`}>{m.judul || 'Tanpa judul'}</p>
+    <p className={`text-[15px] font-bold leading-snug pr-8 ${m.judul ? 'text-white' : 'text-zinc-500 italic'}`}>{m.judul || 'Tanpa judul'}</p>
     {m.ringkasan && <p className="text-[13px] text-zinc-300 leading-snug line-clamp-3">{m.ringkasan}</p>}
     {m.tipe && <div><ChipOpsi nilai={m.tipe} opsi={tipe} /></div>}
     <p className="text-[12px] text-zinc-400">{tglMemo(m.tanggal)}{m.penulis ? ` · ${m.penulis.split(' ')[0]}` : ''}</p>
     {m.status && <div><ChipOpsi nilai={m.status} opsi={status} bulat /></div>}
   </button>
+  </div>
 );
 
 const Papan: React.FC<{
@@ -1191,6 +1293,7 @@ const LembarMemo: React.FC<{
         <div className="flex items-center gap-2 px-4 py-2 border-b-2 border-white/15 shrink-0">
           <span className="text-[12px] text-zinc-400 flex-1 truncate">Memo Internal{boleh ? '' : ' · baca-saja'}</span>
           {boleh && <span className="text-[11px] text-zinc-500">{status_ === 'tersimpan' ? 'tersimpan' : status_ === 'menyimpan' ? 'menyimpan…' : 'mengetik…'}</span>}
+          <TombolGambarMemo memo={{ ...memo, judul, ringkasan, isi }} />
           {boleh && <button onClick={hapus} className="btn-ikon !w-8 !h-8 bg-red-900" title="Hapus"><Trash2 size={14} /></button>}
           <button onClick={tutup} className="text-zinc-400 hover:text-white" aria-label="Tutup"><X size={22} /></button>
         </div>
@@ -1368,6 +1471,7 @@ const CatatanPribadi: React.FC<{ notify: (m: string) => void }> = ({ notify }) =
               <span className="text-[11px] text-zinc-400 whitespace-nowrap hidden sm:inline">{status === 'tersimpan' ? 'tersimpan' : status === 'menyimpan' ? 'menyimpan…' : 'mengetik…'}</span>
               <button onClick={() => setMode(mode === 'baca' ? 'tulis' : 'baca')} className={`btn-ikon !w-8 !h-8 ${mode === 'baca' ? 'bg-lime-600' : 'bg-zinc-800'}`} title={mode === 'baca' ? 'Tulis' : 'Baca'}>{mode === 'baca' ? <Pencil size={14} /> : <Eye size={14} />}</button>
               <button onClick={() => ubah(aktif, { disematkan: aktif.disematkan ? 0 : 1 })} className={`btn-ikon !w-8 !h-8 ${aktif.disematkan ? 'bg-lime-600' : 'bg-zinc-800'}`} title="Sematkan">{aktif.disematkan ? <PinOff size={14} /> : <Pin size={14} />}</button>
+              <TombolGambarMemo memo={{ ...aktif, judul, isi }} kecil />
               <button onClick={() => hapus(aktif)} className="btn-ikon !w-8 !h-8 bg-red-900" title="Hapus"><Trash2 size={14} /></button>
             </div>
             <div className="flex items-center gap-1 mb-2">

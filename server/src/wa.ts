@@ -19,7 +19,7 @@ const ENDPOINT = 'https://api.fonnte.com/send';
 export interface PesanBaru {
   tujuan: string;
   isi: string;
-  jenis: 'pengingat' | 'eskalasi' | 'rekap' | 'pengumuman' | 'uji' | 'balasan' | 'titik_api';
+  jenis: 'pengingat' | 'eskalasi' | 'rekap' | 'pengumuman' | 'uji' | 'balasan' | 'titik_api' | 'hati';
   ref_id?: string | null;
   kirim_pada?: string;
 }

@@ -11,6 +11,7 @@ import type { Pengguna } from '../lib/tipe-api';
 import { TombolSidikJari } from './TombolSidikJari';
 import { ModalPanduanAplikasi } from './ModalPanduanAplikasi';
 import { tautanGabung } from '../lib/demo-contoh';
+import { KotakUnduhApk } from './PembaruanAplikasi';
 // Diimpor (bukan dari public/) supaya Vite langsung menyajikannya dan nama berkasnya ber-hash.
 import gambarLogin from '../aset/login-hero.webp';
 
@@ -347,6 +348,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onMasuk }) => {
                       )}
                     </div>
                   )}
+
+                  {/* APK terbaru: tautan unduh (web) atau ajakan memperbarui (APK lama). */}
+                  <KotakUnduhApk />
 
                   {/* Untuk pemakai di luar departemen: penjelasan singkat + ajuan akses. */}
                   <div className="panel-retro !p-2.5 border-emerald-500/70 bg-emerald-950/30 space-y-1.5 text-left">

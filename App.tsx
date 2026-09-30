@@ -20,6 +20,10 @@ import { CalendarScreen } from './components/CalendarScreen';
 import { TeamScreen } from './components/TeamScreen';
 import { MarketScreen } from './components/MarketScreen';
 import { AuthScreen } from './components/AuthScreen';
+import { LayarHatiMati } from './components/LayarHatiMati';
+import { ModalHidupkanHati } from './components/PanelHatiMati';
+import { PeringatanPembaruan } from './components/PembaruanAplikasi';
+import { hatiAktif, periksaHati, type StatusHati } from './lib/hati';
 import { PicaScreen } from './components/PicaScreen';
 import { KalenderScreen } from './components/KalenderScreen';
 import { PengumumanScreen } from './components/PengumumanScreen';
@@ -170,6 +174,11 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppTab>(() => tabDariUrl() ?? 'habitat');
   // RAB RNR yang diminta dibuka dari Data Surat (tombol "RAB" di kolom Dokumen).
   const [bukaRabId, setBukaRabId] = useState<string | null>(null);
+  // Sistem hati: hari kerja tanpa membuka aplikasi mematikan hati (semua menu terkunci).
+  const [hati, setHati] = useState<StatusHati | null>(null);
+  // Tautan "hidupkan" dari pesan WhatsApp (/?hidupkan=<token>), dibuka Admin/Supervisor.
+  const [tokenHidupkan, setTokenHidupkan] = useState<string | null>(() =>
+    (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('hidupkan') : null));
   const [tema, setTema] = useState<Tema>(bacaTema);
   const [fokus, setFokus] = useState(false);
   const [menuBuka, setMenuBuka] = useState(false);
@@ -437,8 +446,22 @@ const App: React.FC = () => {
 
   // Alamat /?tab= dari notifikasi sudah dibaca saat awal; bersihkan agar muat ulang tidak membukanya lagi.
   useEffect(() => {
-    if (window.location.search.includes('tab=')) window.history.replaceState(null, '', window.location.pathname);
+    if (/[?&](tab|hidupkan)=/.test(window.location.search)) window.history.replaceState(null, '', window.location.pathname);
   }, []);
+
+  // Hati diperiksa saat aplikasi dibuka, saat kembali ke layar, dan berkala. Hanya panggilan
+  // inilah yang dihitung server sebagai "membuka aplikasi hari ini".
+  useEffect(() => {
+    if (!sesi || !hatiAktif()) { setHati(null); return; }
+    let batal = false;
+    const periksa = () => periksaHati().then((s) => { if (!batal) setHati(s); }).catch(() => undefined);
+    // Aplikasi yang hanya terbuka di latar tidak dihitung "dibuka" pada pemeriksaan berkala.
+    const bilaTampak = () => { if (document.visibilityState === 'visible') periksa(); };
+    periksa();
+    const t = setInterval(bilaTampak, 10 * 60_000);
+    document.addEventListener('visibilitychange', bilaTampak);
+    return () => { batal = true; clearInterval(t); document.removeEventListener('visibilitychange', bilaTampak); };
+  }, [sesi]);
 
   // Pengingat 07.00/12.00/17.00: titipkan token & jam ke penjadwal HP, atau segarkan langganan Web Push.
   useEffect(() => {
@@ -627,6 +650,14 @@ const App: React.FC = () => {
     await api('/api/lampiran', { form });
   };
 
+  /** LOG: melengkapi laporan yang belum berfoto (laporan lama atau yang terkirim saat offline). */
+  const tambahFotoLaporan = async (r: FieldReport, dataUrl: string) => {
+    await unggahFoto(r.id, dataUrl);
+    setGameState((p) => ({ ...p, reports: p.reports.map((x) => (x.id === r.id ? { ...x, photoData: dataUrl } : x)) }));
+    notify('FOTO LAPORAN TERSIMPAN');
+    muatGame().catch(() => undefined);
+  };
+
   const handleReportSubmit = async (report: Omit<FieldReport, 'id' | 'timestamp' | 'missionTitle'> & { picaId?: string; photoData?: string }) => {
     const now = Date.now();
     const mission = report.missionId ? gameState.missions.find((m) => m.id === report.missionId) : undefined;
@@ -761,6 +792,10 @@ const App: React.FC = () => {
   const { pengguna, boot } = sesi;
   const demo = demoAktif();
 
+  if (hati?.status === 'mati') {
+    return <LayarHatiMati hati={hati} pengguna={pengguna} onBerubah={setHati} onKeluar={handleLogout} />;
+  }
+
   /** Pita mode demo: pengingat bahwa data hanya di perangkat ini + ajakan bergabung. */
   const pitaDemo = demo ? (
     <div className="shrink-0 flex flex-wrap items-center gap-2 px-2 py-1 bg-amber-950/80 border-b-2 border-amber-500 text-[11px]">
@@ -826,7 +861,14 @@ const App: React.FC = () => {
       {activeTab === 'market' && <MarketScreen state={gameState} onBuy={handleBuySkin} onEquip={handleEquipSkin} />}
       {activeTab === 'missions' && <MissionsScreen state={gameState} admin={pengguna.peran === 'admin'} onStart={handleMissionStart} onSimpan={handleMisiSimpan} onHapus={handleMisiHapus} />}
       {activeTab === 'reports' && <ReportsScreen state={gameState} picaTerbuka={picaTerbuka} onSubmit={handleReportSubmit} />}
-      {activeTab === 'calendar' && <CalendarScreen state={gameState} onRead={(r) => { setMonkeyDialogue(`Uu-aa! ${r.activityType}: ${r.achievedUnit.toFixed(2)} unit. Semangat!`); setActiveTab('habitat'); }} />}
+      {activeTab === 'calendar' && (
+        <CalendarScreen
+          state={gameState}
+          bolehSemua={pengguna.peran === 'admin' || pengguna.peran === 'supervisor'}
+          onTambahFoto={tambahFotoLaporan}
+          onRead={(r) => { setMonkeyDialogue(`Uu-aa! ${r.activityType}: ${r.achievedUnit.toFixed(2)} unit. Semangat!`); setActiveTab('habitat'); }}
+        />
+      )}
       {activeTab === 'money' && <MoneyMonkeyScreen pengguna={pengguna} notify={notify} bukaRabId={bukaRabId} onRabDibuka={() => setBukaRabId(null)} />}
       {activeTab === 'fire' && <FireMonkeyScreen pengguna={pengguna} notify={notify} />}
     </>
@@ -1073,8 +1115,20 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* Versi yang berjalan lebih lama dari rilis terbaru: APK diminta mengunduh, web memuat ulang. */}
+      <PeringatanPembaruan />
+
+      {tokenHidupkan && !demo && (
+        <ModalHidupkanHati
+          token={tokenHidupkan}
+          boleh={pengguna.peran === 'admin' || pengguna.peran === 'supervisor'}
+          notify={notify}
+          onSelesai={() => setTokenHidupkan(null)}
+        />
+      )}
+
       {showNotification && (
-        <div className="fixed inset-x-0 bottom-20 md:bottom-10 flex justify-center z-[95] animate-bounce px-4 pointer-events-none">
+        <div className="fixed inset-x-0 bottom-20 md:bottom-10 flex justify-center z-[125] animate-bounce px-4 pointer-events-none">
           <div className="retro-box !bg-white text-black text-[13px] md:text-[14px] font-bold px-5 py-3 border-black shadow-2xl">&gt; {showNotification}</div>
         </div>
       )}
