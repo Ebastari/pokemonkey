@@ -373,6 +373,9 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
           {DAFTAR_STATUS_RAB.map((s) => <option key={s} value={s} className="bg-zinc-900 text-white">{s}</option>)}
         </select>
         <span className="font-mono text-emerald-300 font-bold">{formatRupiah(total)}</span>
+        <button type="button" onClick={() => ekspor(r)} disabled={mengekspor === r.id} className="btn-retro btn-retro-sm bg-teal-700 !py-1.5 text-[12px]" title="Export Excel lengkap (rekap + kategori)">
+          {mengekspor === r.id ? <Loader2 size={12} className="animate-spin" /> : <FileSpreadsheet size={12} />} Export Excel
+        </button>
         <button type="button" onClick={() => simpanRab(r)} disabled={menyimpan} className="btn-retro bg-emerald-700 !py-1.5 text-[12px] disabled:opacity-50" title="Simpan, masukkan uraian baru ke katalog, lalu pratinjau Export Excel/PDF">
           {menyimpan ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Simpan RAB
         </button>
