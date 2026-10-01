@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, FileSpreadsheet, FileText, Loader2 } from 'lucide-react';
 import {
-  eksporRabRnr, barisRekap, totalRab, totalUraian, totalMinggu, nilaiMinggu, deskripsiWbs, perluDirektur, tinggiBarisRab,
+  eksporRabRnr, adaRincianKategori, barisRekap, totalRab, totalUraian, totalMinggu, nilaiMinggu, deskripsiWbs, perluDirektur, tinggiBarisRab,
   PENYETUJU_DIV_HEAD, PENYETUJU_DIREKTUR, PENYETUJU_VERIFIKASI, PENYETUJU_PIMPINAN, LEBAR_KOLOM_TEKS, type RabRnr,
 } from '../lib/rab-rnr';
 import { DAFTAR_BULAN } from '../lib/rab-hcga';
@@ -50,7 +50,7 @@ const Rupiah: React.FC<{ n: number; kosongBilaNol?: boolean }> = ({ n, kosongBil
 ) : null);
 
 export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
-  const [sibuk, setSibuk] = useState<'excel' | 'pdf' | null>(null);
+  const [sibuk, setSibuk] = useState<'excel' | 'rincian' | 'pdf' | null>(null);
   const isi = barisRekap(rab).filter((u) => u.uraian.trim() && totalUraian(u) > 0);
   const direktur = perluDirektur(rab);
   const namaBerkas = `RAB RNR ${rab.bulan} ${rab.tahun} ${rab.nomorRab.replace(/\//g, '-')}`;
@@ -60,10 +60,11 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
   const divHead = { nama: rab.penyetujuDivHead || PENYETUJU_DIV_HEAD.nama, jabatan: rab.jabatanDivHead || PENYETUJU_DIV_HEAD.jabatan };
   const dir = { nama: rab.penyetuju || PENYETUJU_DIREKTUR.nama, jabatan: rab.jabatanPenyetuju || PENYETUJU_DIREKTUR.jabatan };
 
-  const excel = async () => {
-    setSibuk('excel');
+  /** Excel bawaan = satu lembar rekap; `rincian` menambah lembar per kategori. */
+  const excel = async (rincian = false) => {
+    setSibuk(rincian ? 'rincian' : 'excel');
     try {
-      const h = await eksporRabRnr(rab);
+      const h = await eksporRabRnr(rab, { rincian });
       notify(h === 'diunduh' ? 'EXCEL DIUNDUH' : 'EXCEL SIAP DIBAGIKAN');
     } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUAT EXCEL'); } finally { setSibuk(null); }
   };
@@ -103,9 +104,15 @@ export const PratinjauRabRnr: React.FC<Props> = ({ rab, notify, onTutup }) => {
     <div className="fixed inset-0 z-50 bg-black/85 flex flex-col">
       <div className="flex flex-wrap items-center gap-2 p-2 bg-zinc-900 border-b-4 border-white shrink-0">
         <span className="font-title text-[12px] text-yellow-300 mr-auto">PRATINJAU RAB · {rab.nomorRab}</span>
-        <button type="button" onClick={excel} disabled={sibuk !== null} className="btn-retro bg-emerald-700 !py-1.5 text-[12px] disabled:opacity-50">
+        <button type="button" onClick={() => excel()} disabled={sibuk !== null} className="btn-retro bg-emerald-700 !py-1.5 text-[12px] disabled:opacity-50">
           {sibuk === 'excel' ? <Loader2 size={13} className="animate-spin" /> : <FileSpreadsheet size={13} />} Export Excel
         </button>
+        {adaRincianKategori(rab) && (
+          <button type="button" onClick={() => excel(true)} disabled={sibuk !== null} className="btn-retro bg-teal-800 !py-1.5 text-[12px] disabled:opacity-50"
+            title="Rekap + satu lembar rincian W1–W4 per kategori (ATK, BBM, …), saling tersambung">
+            {sibuk === 'rincian' ? <Loader2 size={13} className="animate-spin" /> : <FileSpreadsheet size={13} />} Excel + Rincian Kategori
+          </button>
+        )}
         <button type="button" onClick={pdf} disabled={sibuk !== null} className="btn-retro bg-rose-700 !py-1.5 text-[12px] disabled:opacity-50">
           {sibuk === 'pdf' ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />} Export PDF
         </button>

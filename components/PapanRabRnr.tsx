@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, Minus, Trash2, Settings2, Save, ShoppingCart, LayoutGrid, Loader2, PackagePlus, Undo2, Pencil, X } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Settings2, Save, ShoppingCart, LayoutGrid, Loader2, PackagePlus, Undo2, Pencil, X, FileUp } from 'lucide-react';
 import { muatKatalog, simpanBarangKatalog, hapusBarangKatalog, type BarangKatalog } from '../lib/katalog-rab';
 import {
   kartuRab, isiKeranjang, tambahKeKeranjang, pindahKartu, susunRab, ubahKartu, hapusKartu, aturKategori,
   DAFTAR_WBS, DAFTAR_KATEGORI, WBS_BAWAAN, kategoriSah, namaKategori, type RabRnr, type KartuRab, type KategoriRab,
 } from '../lib/rab-rnr';
 import { formatRupiah } from '../lib/rab-hcga';
+import { ImporKatalog } from './ImporKatalog';
 
 /**
  * Papan RAB RNR:
@@ -26,7 +27,7 @@ interface Props {
 const ROMAWI = ['I', 'II', 'III', 'IV'];
 const kelas = 'input-retro !py-1 !text-[12px]';
 
-const PilihWbs: React.FC<{ nilai: string; ubah: (v: string) => void }> = ({ nilai, ubah }) => (
+export const PilihWbs: React.FC<{ nilai: string; ubah: (v: string) => void }> = ({ nilai, ubah }) => (
   <select value={nilai} onChange={(e) => ubah(e.target.value)} className={`${kelas} !text-[11px]`} aria-label="Kode WBS">
     {!DAFTAR_WBS.some((w) => w.kode === nilai) && nilai && <option value={nilai}>{nilai}</option>}
     {DAFTAR_WBS.map((w) => <option key={w.kode} value={w.kode}>{w.kode} · {w.deskripsi}</option>)}
@@ -57,6 +58,7 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
   const [cari, setCari] = useState('');
   const [kelompok, setKelompok] = useState('');
   const [kelola, setKelola] = useState(false);
+  const [impor, setImpor] = useState(false);
   const [editSatuId, setEditSatuId] = useState<string | null>(null);
   const [suntingan, setSuntingan] = useState<Record<string, BarangKatalog>>({});
   const [baru, setBaru] = useState<{ uraian: string; satuan: string; harga: string; wbs: string; kategori?: KategoriRab }>({ uraian: '', satuan: 'Paket', harga: '', wbs: WBS_BAWAAN });
@@ -164,6 +166,11 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
       <section className="border-2 border-white/25 bg-black/40 p-2.5 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="font-title text-[11px] text-emerald-300 mr-auto">1. PENGISIAN CEPAT · KATALOG URAIAN</h3>
+          {bolehKelola && (
+            <button type="button" onClick={() => setImpor(true)} className="btn-retro btn-retro-sm bg-zinc-800" title="Isi / perbarui katalog dari Excel pengajuan">
+              <FileUp size={12} /> Impor Excel
+            </button>
+          )}
           {bolehKelola && (
             <button
               type="button"
@@ -333,6 +340,7 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
           })}
         </div>
       </section>
+      {impor && <ImporKatalog katalog={katalog} notify={notify} onTutup={() => setImpor(false)} onSelesai={muat} />}
     </div>
   );
 };

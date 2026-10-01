@@ -3,11 +3,12 @@
  *
  * Satu baris = satu uraian (mis. "Kunjungan Verifikasi PNBP PKH SK 892") dengan
  * kode WBS, satuan, harga satuan, dan jumlah per minggu (I–IV). Uraian yang
- * sama di beberapa minggu tetap satu baris. Uraian boleh diberi kategori
- * (ATK, BBM, …): ekspor Excel (public/template-rab-rnr.xlsx, disiapkan dari
- * template RAB HCGA) berisi lembar rekap + satu lembar rincian W1–W4 per
- * kategori yang terisi, dan nilai minggu di rekap merujuk lembar rincian itu.
- * Uraian tanpa kategori tetap ditulis langsung di rekap tanpa lembar sendiri.
+ * sama di beberapa minggu tetap satu baris. Ekspor Excel (public/template-rab-rnr.xlsx,
+ * disiapkan dari template RAB HCGA) bawaannya satu lembar rekap berisi angka,
+ * sama dengan RAB yang diajukan. Uraian boleh diberi kategori (ATK, BBM, …):
+ * ekspor "dengan rincian" menambah satu lembar W1–W4 per kategori yang terisi,
+ * dan nilai minggu di rekap merujuk lembar itu; uraian tanpa kategori tetap
+ * ditulis langsung di rekap.
  *
  * Data disimpan di perangkat; nomor RAB dicatat di Data Surat (kategori RAB).
  */
@@ -368,11 +369,14 @@ function isiLembarKategori(l: TemplatXlsx, nama: string, r: RabRnr, milik: Uraia
   l.rumus(`H${grand}`, barisTotal.map((b) => `H${b}`).join('+'), milik.reduce((s, u) => s + totalUraian(u), 0));
 }
 
+/** Ada uraian berkategori → ekspor dengan lembar rincian bisa dibuat. */
+export const adaRincianKategori = (r: RabRnr) => barisRekap(r).some((u) => u.kategori && totalUraian(u) > 0);
+
 /**
- * Ekspor RAB RNR: lembar rekap (baris uraian 19–32 menyesuaikan jumlah uraian)
- * + lembar rincian untuk tiap kategori yang terisi.
+ * Ekspor RAB RNR: lembar rekap (baris uraian 19–32 menyesuaikan jumlah uraian).
+ * `rincian`: tambah lembar rincian untuk tiap kategori yang terisi, dirujuk rumus rekap.
  */
-export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> {
+export async function eksporRabRnr(r: RabRnr, opsi: { rincian?: boolean } = {}): Promise<'dibagikan' | 'diunduh'> {
   const t = await TemplatXlsx.buka('/template-rab-rnr.xlsx');
   const isi = barisRekap(r).filter((u) => u.uraian.trim() && totalUraian(u) > 0);
   const n = Math.max(1, isi.length);
@@ -425,12 +429,15 @@ export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> 
   t.aturJumlahBaris(19, 14, n);
 
   // Lembar rincian per kategori, disalin dari lembar model "Kategori". Disusun lebih
-  // dulu supaya nomor barisnya sudah pasti saat dirujuk rumus rekap.
+  // dulu supaya nomor barisnya sudah pasti saat dirujuk rumus rekap. Lembar model
+  // selalu dibuang, jadi ekspor biasa tetap satu lembar.
   const model = await t.lembarLain('Kategori');
   const rujukan = new Map<UraianRab, (string | null)[]>();
-  for (const kat of DAFTAR_KATEGORI) {
-    const milik = isi.filter((u) => u.kategori === kat.id);
-    if (milik.length) isiLembarKategori(await model.salin(kat.nama), kat.nama, r, milik, rujukan);
+  if (opsi.rincian) {
+    for (const kat of DAFTAR_KATEGORI) {
+      const milik = isi.filter((u) => u.kategori === kat.id);
+      if (milik.length) isiLembarKategori(await model.salin(kat.nama), kat.nama, r, milik, rujukan);
+    }
   }
   model.hapus();
 
@@ -448,7 +455,7 @@ export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> 
   const rt = 19 + n;
   ['F', 'G', 'H', 'I'].forEach((k, m) => t.rumus(`${k}${rt}`, `SUM(${k}19:${k}${rt - 1})`, totalMinggu(r, m)));
   t.rumus(`J${rt}`, `SUM(J19:J${rt - 1})`, totalRab(r));
-  return t.simpan(`RAB RNR ${r.bulan} ${r.tahun} ${r.nomorRab.replace(/\//g, '-')}.xlsx`, r.judul);
+  return t.simpan(`RAB RNR ${r.bulan} ${r.tahun} ${r.nomorRab.replace(/\//g, '-')}${opsi.rincian ? ' + rincian' : ''}.xlsx`, r.judul);
 }
 
 // ------------------------------------------------------------------ simpanan perangkat

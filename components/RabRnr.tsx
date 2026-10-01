@@ -458,7 +458,7 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
       <button type="button" onClick={() => ubah(tambahBarisKosong(r))} className="btn-retro btn-retro-sm bg-zinc-800">
         <Plus size={12} /> Baris kosong
       </button>
-      <p className="text-[11px] text-zinc-500">Nilai tiap minggu = qty × harga satuan. Excel berisi lembar rekap (satu baris per uraian) + satu lembar rincian W1–W4 untuk tiap kategori yang terisi; uraian tanpa kategori hanya tampil di rekap.</p>
+      <p className="text-[11px] text-zinc-500">Nilai tiap minggu = qty × harga satuan. Export Excel = satu lembar rekap seperti RAB yang diajukan; "Excel + Rincian Kategori" (di pratinjau) menambah lembar W1–W4 per kategori yang tersambung ke rekap.</p>
       {baris.some((u) => u.qty.some((q, m) => q && !nilaiMinggu(u, m))) && <p className="text-[11px] text-amber-300">Ada uraian dengan harga 0 — isi harga satuannya.</p>}
       </>}
 
