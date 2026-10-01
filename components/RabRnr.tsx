@@ -73,7 +73,7 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
   const [pratinjau, setPratinjau] = useState(false);
   const [menyimpan, setMenyimpan] = useState(false);
   const [mengekspor, setMengekspor] = useState<string | null>(null);
-  const bolehKelola = pengguna.peran === 'admin' || pengguna.peran === 'supervisor';
+  const bolehKelola = true;
 
   useEffect(() => { simpanRabRnr(daftar); }, [daftar]);
 

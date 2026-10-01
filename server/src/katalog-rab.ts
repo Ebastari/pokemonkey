@@ -12,7 +12,7 @@ function json(data: unknown, status = 200): Response {
   });
 }
 const galat = (pesan: string, status = 400) => json({ galat: pesan }, status);
-const bolehKelola = (p: Pengguna) => p.peran === 'admin' || p.peran === 'supervisor';
+const bolehKelola = (p: Pengguna) => Boolean(p.id);
 /** Kategori = lembar rincian Excel RAB; 'rnr' = tanpa kategori (hanya di rekap). */
 const KATEGORI = ['atk', 'bbm', 'catering', 'perdin', 'listrik', 'air', 'telp', 'pantry', 'khl', 'kunjungan', 'eksternal'];
 

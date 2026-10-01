@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, Minus, Trash2, Settings2, Save, ShoppingCart, LayoutGrid, Loader2, PackagePlus, Undo2, Pencil, X, FileUp } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Settings2, Save, ShoppingCart, LayoutGrid, Loader2, PackagePlus, Undo2, Pencil, X, FileUp, Star } from 'lucide-react';
 import { muatKatalog, simpanBarangKatalog, hapusBarangKatalog, type BarangKatalog } from '../lib/katalog-rab';
 import {
   kartuRab, isiKeranjang, tambahKeKeranjang, pindahKartu, susunRab, ubahKartu, hapusKartu, aturKategori,
@@ -26,6 +26,14 @@ interface Props {
 
 const ROMAWI = ['I', 'II', 'III', 'IV'];
 const kelas = 'input-retro !py-1 !text-[12px]';
+
+const KUNCI_FAVORIT = 'pokemonkey_katalog_favorit';
+const muatFavorit = (): string[] => {
+  try {
+    const d = JSON.parse(localStorage.getItem(KUNCI_FAVORIT) || '[]');
+    return Array.isArray(d) ? d : [];
+  } catch { return []; }
+};
 
 export const PilihWbs: React.FC<{ nilai: string; ubah: (v: string) => void }> = ({ nilai, ubah }) => (
   <select value={nilai} onChange={(e) => ubah(e.target.value)} className={`${kelas} !text-[11px]`} aria-label="Kode WBS">
@@ -74,6 +82,16 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
   };
   useEffect(muat, []);
 
+  const [favorit, setFavorit] = useState<string[]>(muatFavorit);
+  const toggleFavorit = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setFavorit((prev) => {
+      const baru = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      try { localStorage.setItem(KUNCI_FAVORIT, JSON.stringify(baru)); } catch {}
+      return baru;
+    });
+  };
+
   const kartu = kartuRab(rab);
   const keranjang = isiKeranjang(rab);
   const daftarKelompok = useMemo(() => {
@@ -84,12 +102,16 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
   const tampil = useMemo(() => {
     const q = cari.trim().toLowerCase();
     return katalog.filter((b) => {
+      if (kelompok === '__favorit__') {
+        if (!favorit.includes(b.id)) return false;
+        return !q || `${b.nama} ${b.kelompok}`.toLowerCase().includes(q);
+      }
       const cocokKelompok = !kelompok
         || b.kelompok === kelompok
         || (kelompok === 'Kunjungan Eksternal' && (b.kategori === 'kunjungan' || b.kelompok.toLowerCase().includes('kunjungan')));
       return cocokKelompok && (!q || `${b.nama} ${b.kelompok}`.toLowerCase().includes(q));
     });
-  }, [katalog, cari, kelompok]);
+  }, [katalog, cari, kelompok, favorit]);
   const diKeranjang = (b: BarangKatalog) => keranjang.filter((k) => k.uraian.trim().toLowerCase() === b.nama.trim().toLowerCase()).reduce((n, k) => n + k.qty, 0);
 
   const add = (b: { uraian: string; wbs: string; satuan: string; harga: number; kategori?: KategoriRab }) => {
@@ -103,7 +125,7 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
     const uraian = baru.uraian.trim();
     if (!uraian) { notify('ISI URAIAN DULU'); return; }
     try {
-      const kelompokBaru = (baru.kategori && namaKategori(baru.kategori)) || (kelompok && kelompok !== 'Semua' ? kelompok : 'Pengajuan Rutin');
+      const kelompokBaru = (baru.kategori && namaKategori(baru.kategori)) || (kelompok && kelompok !== 'Semua' && kelompok !== '__favorit__' ? kelompok : 'Pengajuan Rutin');
       await simpanBarangKatalog({ nama: uraian, wbs: baru.wbs, satuan: baru.satuan.trim() || 'Paket', harga: Number(baru.harga) || 0, kategori: baru.kategori ?? 'rnr', kelompok: kelompokBaru, urutan: 50 });
       notify('URAIAN MASUK KATALOG');
       setBaru({ ...baru, uraian: '', harga: '' });
@@ -123,8 +145,10 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
     if (!confirm(`Hapus "${b.nama}" dari katalog?`)) return;
     try {
       await hapusBarangKatalog(b.id);
+      setKatalog((prev) => prev.filter((x) => x.id !== b.id));
+      setFavorit((prev) => prev.filter((x) => x !== b.id));
       if (editSatuId === b.id) setEditSatuId(null);
-      muat();
+      notify('URAIAN DIHAPUS DARI KATALOG');
     } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENGHAPUS'); }
   };
 
@@ -200,9 +224,17 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
             <input value={cari} onChange={(e) => setCari(e.target.value)} placeholder="Cari uraian…" className="input-retro !pl-8 !py-1 !text-[12px]" />
           </div>
-          {['', ...daftarKelompok].map((k) => (
-            <button key={k || 'semua'} type="button" onClick={() => setKelompok(k)}
-              className={`chip-retro !text-[11px] ${kelompok === k ? 'border-yellow-300 bg-yellow-500 text-black' : 'border-white/30 text-zinc-300'}`}>{k || 'Semua'}</button>
+          <button type="button" onClick={() => setKelompok('')}
+            className={`chip-retro !text-[11px] ${!kelompok ? 'border-yellow-300 bg-yellow-500 text-black' : 'border-white/30 text-zinc-300'}`}>Semua</button>
+          <button type="button" onClick={() => setKelompok('__favorit__')}
+            className={`chip-retro !text-[11px] flex items-center gap-1 ${kelompok === '__favorit__' ? 'border-yellow-300 bg-yellow-500 text-black' : 'border-yellow-400/50 text-yellow-300 hover:bg-yellow-950/40'}`}
+            title="Tampilkan hanya uraian favorit">
+            <Star size={11} className={kelompok === '__favorit__' ? 'fill-black text-black' : 'fill-yellow-400 text-yellow-400'} />
+            Favorit {favorit.length ? `(${favorit.length})` : ''}
+          </button>
+          {daftarKelompok.map((k) => (
+            <button key={k} type="button" onClick={() => setKelompok(k)}
+              className={`chip-retro !text-[11px] ${kelompok === k ? 'border-yellow-300 bg-yellow-500 text-black' : 'border-white/30 text-zinc-300'}`}>{k}</button>
           ))}
         </div>
         {memuat && <p className="text-[12px] text-zinc-400"><Loader2 size={13} className="animate-spin inline mr-1" />Memuat katalog…</p>}
@@ -270,9 +302,21 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
               );
             }
             const n = diKeranjang(b);
+            const isFav = favorit.includes(b.id);
             return (
-              <div key={b.id} className={`border-2 p-2 flex flex-col gap-1 ${n ? 'border-yellow-400 bg-yellow-950/20' : 'border-white/20 bg-zinc-900'}`}>
-                <div className="text-[12px] font-bold text-white leading-tight flex-1">{b.nama}</div>
+              <div key={b.id} className={`border-2 p-2 flex flex-col gap-1 relative ${n ? 'border-yellow-400 bg-yellow-950/20' : 'border-white/20 bg-zinc-900'}`}>
+                <div className="flex items-start justify-between gap-1">
+                  <div className="text-[12px] font-bold text-white leading-tight flex-1">{b.nama}</div>
+                  <button
+                    type="button"
+                    onClick={(e) => toggleFavorit(b.id, e)}
+                    className="p-0.5 -mr-1 -mt-0.5 transition-colors shrink-0 text-zinc-600 hover:text-yellow-400"
+                    title={isFav ? 'Hapus dari favorit' : 'Tandai sebagai favorit'}
+                    aria-label={isFav ? 'Hapus dari favorit' : 'Tandai sebagai favorit'}
+                  >
+                    <Star size={13} className={isFav ? 'fill-yellow-400 text-yellow-400' : 'text-zinc-500 hover:text-yellow-300'} />
+                  </button>
+                </div>
                 <div className="text-[11px] text-emerald-300 font-mono">{formatRupiah(b.harga)} <span className="text-zinc-400">/ {b.satuan}</span></div>
                 {kategoriSah(b.kategori) && <div className="text-[10px] text-sky-300" title="Lembar rincian di Excel">Lembar {namaKategori(b.kategori)}</div>}
                 <div className="flex items-center gap-1 mt-auto pt-1">
@@ -292,6 +336,17 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
                         <Pencil size={11} />
                       </button>
                     )}
+                    {bolehKelola && (
+                      <button
+                        type="button"
+                        onClick={() => hapusKatalog(b)}
+                        className="btn-retro btn-retro-sm bg-zinc-800 hover:bg-rose-900 text-rose-400 hover:text-white border border-white/20 hover:border-rose-500 !px-1.5"
+                        title={`Hapus "${b.nama}" dari katalog`}
+                        aria-label={`Hapus "${b.nama}" dari katalog`}
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    )}
                     <button type="button" onClick={() => add({ uraian: b.nama, wbs: b.wbs, satuan: b.satuan, harga: b.harga, kategori: kategoriSah(b.kategori) })} className="btn-retro btn-retro-sm bg-amber-600">
                       <Plus size={12} /> ADD
                     </button>
@@ -301,6 +356,13 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
             );
           })}
         </div>
+        {kelompok === '__favorit__' && !tampil.length && (
+          <div className="p-6 text-center border-2 border-dashed border-yellow-500/40 bg-yellow-950/10 space-y-1">
+            <Star size={24} className="mx-auto text-yellow-400/60" />
+            <div className="text-[12px] font-bold text-yellow-300">Belum ada uraian favorit</div>
+            <div className="text-[11px] text-zinc-400">Ketuk ikon bintang ⭐ pada kartu uraian mana pun di atas untuk menyimpannya ke tab Favorit ini.</div>
+          </div>
+        )}
         {kelola && bolehKelola && (
         <div className="border-2 border-dashed border-cyan-500/60 p-2 space-y-1.5">
           <div className="text-[11px] font-title text-cyan-300 flex items-center gap-1"><PackagePlus size={12} /> TAMBAH URAIAN KE KATALOG</div>
