@@ -10,7 +10,9 @@
  * area, dan jangkar gambar. Excel diminta menghitung ulang rumus saat dibuka
  * (template disiapkan dengan fullCalcOnLoad dan tanpa calcChain).
  *
- * Template harus satu lembar (lihat skrip penyiapan di riwayat commit).
+ * `buka` mengembalikan lembar pertama. Lembar lain dibuka dengan `lembarLain`,
+ * digandakan dengan `salin` (gambar ikut tergandakan), atau dibuang dengan
+ * `hapus`. `simpan` dari lembar mana pun menulis seluruh buku.
  */
 
 import JSZip from 'jszip';
@@ -18,7 +20,29 @@ import { simpanBerkas } from './unduh';
 
 const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const NS_XDR = 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing';
+const NS_REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
+const NS_R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const NS_CT = 'http://schemas.openxmlformats.org/package/2006/content-types';
 const MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const CT_LEMBAR = 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml';
+const CT_GAMBAR = 'application/vnd.openxmlformats-officedocument.drawing+xml';
+
+const urai = (teks: string) => new DOMParser().parseFromString(teks, 'application/xml');
+const tulis = (d: Document) => new XMLSerializer().serializeToString(d);
+/** "xl/worksheets/sheet2.xml" → "xl/worksheets/_rels/sheet2.xml.rels" */
+const jalurRels = (p: string) => p.replace(/([^/]+)$/, '_rels/$1.rels');
+
+/** Bagian buku yang dipakai bersama semua lembar. */
+interface Buku {
+  zip: JSZip;
+  buku: Document;
+  rels: Document;
+  jenis: Document;
+  lembar: TemplatXlsx[];
+}
+
+/** Rujukan lembar di rumus: 'Perdin & Cuti'!H10. */
+export const rujukLembar = (nama: string, sel: string) => `'${nama.replace(/'/g, "''")}'!${sel}`;
 
 type Peta = (baris: number, akhir: boolean) => number;
 
@@ -48,27 +72,163 @@ export function seriTanggal(iso: string): number {
 
 export class TemplatXlsx {
   private constructor(
-    private zip: JSZip,
+    private b: Buku,
     private jalurLembar: string,
     private lembar: Document,
-    private buku: Document,
     private jalurGambar: string | null,
     private gambar: Document | null,
-  ) {}
+  ) {
+    b.lembar.push(this);
+  }
 
+  private get buku(): Document {
+    return this.b.buku;
+  }
+
+  /** Buka template dan kembalikan lembar pertamanya. */
   static async buka(url: string): Promise<TemplatXlsx> {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Template ${url} tidak ditemukan (${res.status}).`);
     const zip = await JSZip.loadAsync(await res.arrayBuffer());
-    const baca = async (p: string) => new DOMParser().parseFromString(await zip.file(p)!.async('text'), 'application/xml');
-    const relBuku = await zip.file('xl/_rels/workbook.xml.rels')!.async('text');
-    const tgt = /Type="[^"]*\/worksheet" Target="([^"]+)"/.exec(relBuku)?.[1];
-    if (!tgt) throw new Error('Template tidak berisi lembar kerja.');
-    const jalurLembar = `xl/${tgt.replace(/^\//, '').replace(/^xl\//, '')}`;
-    const relLembar = zip.file(jalurLembar.replace('worksheets/', 'worksheets/_rels/') + '.rels');
+    const baca = async (p: string) => urai(await zip.file(p)!.async('text'));
+    const b: Buku = { zip, buku: await baca('xl/workbook.xml'), rels: await baca('xl/_rels/workbook.xml.rels'), jenis: await baca('[Content_Types].xml'), lembar: [] };
+    const pertama = b.buku.getElementsByTagNameNS(NS, 'sheet')[0];
+    if (!pertama) throw new Error('Template tidak berisi lembar kerja.');
+    return TemplatXlsx.muat(b, pertama);
+  }
+
+  private static async muat(b: Buku, el: Element): Promise<TemplatXlsx> {
+    const rid = el.getAttributeNS(NS_R, 'id');
+    const rel = Array.from(b.rels.getElementsByTagNameNS(NS_REL, 'Relationship')).find((r) => r.getAttribute('Id') === rid);
+    if (!rel) throw new Error(`Lembar ${el.getAttribute('name')} tidak ditemukan.`);
+    const jalurLembar = `xl/${rel.getAttribute('Target')!.replace(/^\//, '').replace(/^xl\//, '')}`;
+    const relLembar = b.zip.file(jalurRels(jalurLembar));
     const tgtGambar = relLembar ? /Type="[^"]*\/drawing" Target="\.\.\/drawings\/([^"]+)"/.exec(await relLembar.async('text'))?.[1] : undefined;
     const jalurGambar = tgtGambar ? `xl/drawings/${tgtGambar}` : null;
-    return new TemplatXlsx(zip, jalurLembar, await baca(jalurLembar), await baca('xl/workbook.xml'), jalurGambar, jalurGambar ? await baca(jalurGambar) : null);
+    const baca = async (p: string) => urai(await b.zip.file(p)!.async('text'));
+    return new TemplatXlsx(b, jalurLembar, await baca(jalurLembar), jalurGambar, jalurGambar ? await baca(jalurGambar) : null);
+  }
+
+  private get elemen(): Element {
+    const rid = Array.from(this.b.rels.getElementsByTagNameNS(NS_REL, 'Relationship'))
+      .find((r) => `xl/${r.getAttribute('Target')!.replace(/^\//, '').replace(/^xl\//, '')}` === this.jalurLembar)?.getAttribute('Id');
+    return Array.from(this.buku.getElementsByTagNameNS(NS, 'sheet')).find((s) => s.getAttributeNS(NS_R, 'id') === rid)!;
+  }
+
+  /** Urutan lembar ini di buku (dipakai localSheetId nama terdefinisi). */
+  private get indeks(): number {
+    return Array.from(this.buku.getElementsByTagNameNS(NS, 'sheet')).indexOf(this.elemen);
+  }
+
+  get nama(): string {
+    return this.elemen.getAttribute('name') ?? '';
+  }
+
+  /** Buka lembar lain di buku yang sama. */
+  async lembarLain(nama: string): Promise<TemplatXlsx> {
+    const ada = this.b.lembar.find((l) => l.nama === nama);
+    if (ada) return ada;
+    const el = Array.from(this.buku.getElementsByTagNameNS(NS, 'sheet')).find((s) => s.getAttribute('name') === nama);
+    if (!el) throw new Error(`Lembar "${nama}" tidak ada di template.`);
+    return TemplatXlsx.muat(this.b, el);
+  }
+
+  /** Nama berkas baru yang belum terpakai: xl/worksheets/sheet7.xml, dst. */
+  private jalurBaru(awalan: string): string {
+    for (let i = 1; ; i++) if (!this.b.zip.file(`${awalan}${i}.xml`)) return `${awalan}${i}.xml`;
+  }
+
+  private tambahJenis(jalur: string, jenis: string) {
+    const o = this.b.jenis.createElementNS(NS_CT, 'Override');
+    o.setAttribute('PartName', `/${jalur}`);
+    o.setAttribute('ContentType', jenis);
+    this.b.jenis.documentElement.appendChild(o);
+  }
+
+  /**
+   * Gandakan lembar ini (keadaannya saat ini) menjadi lembar baru di akhir buku.
+   * Gambar (logo) ikut digandakan; print area ikut disalin untuk lembar baru.
+   */
+  async salin(namaBaru: string): Promise<TemplatXlsx> {
+    const { zip } = this.b;
+    const jalurLembar = this.jalurBaru('xl/worksheets/sheet');
+    const lembar = urai(tulis(this.lembar));
+    // Kode lembar dan uid harus unik per lembar.
+    lembar.documentElement.removeAttribute('xr:uid');
+    for (const p of Array.from(lembar.getElementsByTagNameNS(NS, 'sheetPr'))) p.removeAttribute('codeName');
+    for (const v of Array.from(lembar.getElementsByTagNameNS(NS, 'sheetView'))) v.removeAttribute('tabSelected');
+    zip.file(jalurLembar, tulis(lembar));
+    this.tambahJenis(jalurLembar, CT_LEMBAR);
+
+    let jalurGambar: string | null = null;
+    const relAsal = zip.file(jalurRels(this.jalurLembar));
+    if (relAsal) {
+      let rels = await relAsal.async('text');
+      if (this.jalurGambar && this.gambar) {
+        jalurGambar = this.jalurBaru('xl/drawings/drawing');
+        zip.file(jalurGambar, tulis(this.gambar));
+        const relGambar = zip.file(jalurRels(this.jalurGambar));
+        if (relGambar) zip.file(jalurRels(jalurGambar), await relGambar.async('text'));
+        this.tambahJenis(jalurGambar, CT_GAMBAR);
+        rels = rels.replace(`../drawings/${this.jalurGambar.split('/').pop()}`, `../drawings/${jalurGambar.split('/').pop()}`);
+      }
+      zip.file(jalurRels(jalurLembar), rels);
+    }
+
+    const semuaRel = Array.from(this.b.rels.getElementsByTagNameNS(NS_REL, 'Relationship'));
+    let n = semuaRel.length + 1;
+    while (semuaRel.some((r) => r.getAttribute('Id') === `rId${n}`)) n++;
+    const rel = this.b.rels.createElementNS(NS_REL, 'Relationship');
+    rel.setAttribute('Id', `rId${n}`);
+    rel.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet');
+    rel.setAttribute('Target', jalurLembar.replace(/^xl\//, ''));
+    this.b.rels.documentElement.appendChild(rel);
+
+    const daftar = this.buku.getElementsByTagNameNS(NS, 'sheets')[0];
+    const semua = Array.from(daftar.getElementsByTagNameNS(NS, 'sheet'));
+    const el = this.buku.createElementNS(NS, 'sheet');
+    el.setAttribute('name', namaBaru);
+    el.setAttribute('sheetId', String(Math.max(...semua.map((s) => Number(s.getAttribute('sheetId')) || 0)) + 1));
+    el.setAttributeNS(NS_R, 'r:id', `rId${n}`);
+    daftar.appendChild(el);
+
+    const asal = String(this.indeks);
+    for (const dn of Array.from(this.buku.getElementsByTagNameNS(NS, 'definedName'))) {
+      if (dn.getAttribute('localSheetId') !== asal || !dn.textContent) continue;
+      const baru = dn.cloneNode(true) as Element;
+      baru.setAttribute('localSheetId', String(semua.length));
+      baru.textContent = dn.textContent.replace(/^(?:'(?:[^']|'')+'|[^!]+)!/, `${rujukLembar(namaBaru, '')}`);
+      dn.parentNode!.appendChild(baru);
+    }
+    return TemplatXlsx.muat(this.b, el);
+  }
+
+  /** Buang lembar ini dari buku beserta gambarnya. */
+  hapus(): void {
+    const { zip } = this.b;
+    const el = this.elemen;
+    const idx = this.indeks;
+    const rid = el.getAttributeNS(NS_R, 'id');
+    el.parentNode!.removeChild(el);
+    for (const dn of Array.from(this.buku.getElementsByTagNameNS(NS, 'definedName'))) {
+      const id = dn.getAttribute('localSheetId');
+      if (id === null) continue;
+      if (Number(id) === idx) dn.parentNode!.removeChild(dn);
+      else if (Number(id) > idx) dn.setAttribute('localSheetId', String(Number(id) - 1));
+    }
+    for (const v of Array.from(this.buku.getElementsByTagNameNS(NS, 'workbookView'))) {
+      if (Number(v.getAttribute('activeTab')) >= idx) v.setAttribute('activeTab', '0');
+    }
+    for (const r of Array.from(this.b.rels.getElementsByTagNameNS(NS_REL, 'Relationship'))) {
+      if (r.getAttribute('Id') === rid) r.parentNode!.removeChild(r);
+    }
+    const buang = [this.jalurLembar, jalurRels(this.jalurLembar)];
+    if (this.jalurGambar) buang.push(this.jalurGambar, jalurRels(this.jalurGambar));
+    for (const p of buang) zip.remove(p);
+    for (const o of Array.from(this.b.jenis.getElementsByTagNameNS(NS_CT, 'Override'))) {
+      if (buang.includes(o.getAttribute('PartName')!.replace(/^\//, ''))) o.parentNode!.removeChild(o);
+    }
+    this.b.lembar = this.b.lembar.filter((l) => l !== this);
   }
 
   private get dataLembar(): Element {
@@ -232,8 +392,10 @@ export class TemplatXlsx {
       const id = Number(brk.getAttribute('id'));
       if (id) brk.setAttribute('id', String(peta(id, false)));
     }
+    // Hanya nama terdefinisi milik lembar ini (print area); lembar lain tidak ikut bergeser.
+    const idx = String(this.indeks);
     for (const dn of Array.from(this.buku.getElementsByTagNameNS(NS, 'definedName'))) {
-      if (dn.textContent) dn.textContent = geserTeks(dn.textContent, peta);
+      if (dn.textContent && dn.getAttribute('localSheetId') === idx) dn.textContent = geserTeks(dn.textContent, peta);
     }
     if (this.gambar) {
       for (const tag of ['from', 'to']) {
@@ -296,12 +458,17 @@ export class TemplatXlsx {
     return this;
   }
 
+  /** Tulis seluruh buku (semua lembar yang dibuka) lalu bagikan/unduh. */
   async simpan(nama: string, judul: string): Promise<'dibagikan' | 'diunduh'> {
-    const tulis = (d: Document) => new XMLSerializer().serializeToString(d);
-    this.zip.file(this.jalurLembar, tulis(this.lembar));
-    this.zip.file('xl/workbook.xml', tulis(this.buku));
-    if (this.jalurGambar && this.gambar) this.zip.file(this.jalurGambar, tulis(this.gambar));
-    const blob = await this.zip.generateAsync({ type: 'blob', mimeType: MIME, compression: 'DEFLATE' });
+    const { zip } = this.b;
+    for (const l of this.b.lembar) {
+      zip.file(l.jalurLembar, tulis(l.lembar));
+      if (l.jalurGambar && l.gambar) zip.file(l.jalurGambar, tulis(l.gambar));
+    }
+    zip.file('xl/workbook.xml', tulis(this.buku));
+    zip.file('xl/_rels/workbook.xml.rels', tulis(this.b.rels));
+    zip.file('[Content_Types].xml', tulis(this.b.jenis));
+    const blob = await zip.generateAsync({ type: 'blob', mimeType: MIME, compression: 'DEFLATE' });
     return simpanBerkas(blob, nama, judul);
   }
 }

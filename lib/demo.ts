@@ -18,6 +18,9 @@ import {
   susunPengingatAcara,
   type BarisJadwal, type NotifSiap, type Slot,
 } from '../server/src/ringkasan';
+import {
+  susunJadwalMemo, tandaJadwalMemo, setCentangTugas, lepasTenggatTugas, type BarisJadwalMemo,
+} from '../server/src/memo-blok';
 
 const KUNCI_DEMO = 'pokemonkey_demo';
 const KUNCI_DB = 'pokemonkey_demo_db';
@@ -149,6 +152,46 @@ const idBaru = (awalan: string) => `${awalan}_${Date.now().toString(36)}${Math.r
 
 // ---------- Data awal (Kosongan & Umum untuk semua bidang kerja) ----------
 
+/**
+ * Katalog RAB RNR contoh. `kategori` = lembar rincian Excel (bbm, atk, pantry, …);
+ * 'rnr' = tanpa kategori (hanya di rekap), sama seperti katalog di server.
+ */
+function katalogDemo(): Baris[] {
+  const w = 'AB3.11-06.02.22.04';
+  const perdin = 'AB3.11-06.02.22.02';
+  // Barang lembar BBM–KHL mengikuti "Contoh RAB HCGA Site.xlsx"; harga perkiraan contoh.
+  return [
+    ['kat-rtn-01', 'rnr', 'Pengajuan Rutin', 'Kunjungan Verifikasi PNBP PKH SK 966', 'Paket', 7200000],
+    ['kat-rtn-02', 'rnr', 'Pengajuan Rutin', 'Kunjungan Verifikasi PNBP PKH SK 892', 'Paket', 7200000],
+    ['kat-rtn-03', 'rnr', 'Pengajuan Rutin', 'Kunjungan Verifikasi PNBP PKH SK 78', 'Paket', 7200000],
+    ['kat-rtn-04', 'rnr', 'Pengajuan Rutin', 'Operasional Tahura', 'Paket', 2000000],
+    ['kat-bbm-01', 'bbm', 'BBM Operasional Tahura', 'Pertalite kendaraan operasional Tahura', 'Liter', 10000],
+    ['kat-bbm-02', 'bbm', 'BBM Operasional Tahura', 'Solar kendaraan / alat operasional Tahura', 'Liter', 6800],
+    ['kat-bbm-11', 'bbm', 'BBM Kendaraan', 'BBM Honda CRF motor operasional', 'Liter', 10000],
+    ['kat-bbm-12', 'bbm', 'BBM Kendaraan', 'BBM Toyota Hilux vendor 1', 'Liter', 6800],
+    ['kat-bbm-13', 'bbm', 'BBM Kendaraan', 'BBM Toyota Hilux vendor 2', 'Liter', 6800],
+    ['kat-atk-01', 'atk', 'ATK', 'Kertas HVS A4 70 gr', 'Rim', 55000],
+    ['kat-atk-05', 'atk', 'ATK', 'Tinta printer (botol)', 'Botol', 90000],
+    ['kat-cat-01', 'catering', 'Catering', 'Catering Staff (7 Orang)', 'Pack', 20000],
+    ['kat-cat-02', 'catering', 'Catering', 'Catering KHL (3 Orang)', 'Pack', 20000],
+    ['kat-prd-01', 'perdin', 'Perdin & Cuti', 'Lumpsum Cuti Periodik Karyawan', 'Orang', 1500000, perdin],
+    ['kat-prd-02', 'perdin', 'Perdin & Cuti', 'Perjalanan Dinas Karyawan', 'Paket', 2500000, perdin],
+    ['kat-lst-01', 'listrik', 'Listrik PLN', 'Listrik Stockpile EBL', 'Bulan', 1500000],
+    ['kat-lst-02', 'listrik', 'Listrik PLN', 'Listrik Mess Kupang', 'Bulan', 750000],
+    ['kat-lst-03', 'listrik', 'Listrik PLN', 'Listrik Kantor & Mess EBL', 'Bulan', 1250000],
+    ['kat-air-01', 'air', 'Air PDAM', 'Air PDAM Stockpile EBL', 'Bulan', 250000],
+    ['kat-air-02', 'air', 'Air PDAM', 'Air PDAM Kantor & Mess EBL', 'Bulan', 200000],
+    ['kat-tlp-01', 'telp', 'Telp & Internet', 'Pembayaran Indihome (Mess Kantor)', 'Bulan', 450000],
+    ['kat-tlp-02', 'telp', 'Telp & Internet', 'Pembayaran Telkom Speedy (Kantor)', 'Bulan', 550000],
+    ['kat-ptr-01', 'pantry', 'Pantry', 'Air Galon', 'Galon', 20000],
+    ['kat-ptr-02', 'pantry', 'Pantry', 'Gas LPG', 'Tabung', 25000],
+    ['kat-keb-05', 'pantry', 'Pantry', 'Sabun cuci piring', 'Pouch', 15000],
+    ['kat-keb-08', 'pantry', 'Pantry', 'Tisu gulung', 'Pack', 20000],
+    ['kat-khl-01', 'khl', 'KHL', 'Upah ART Mess & Kantor', 'Orang', 3000000],
+    ['kat-khl-02', 'khl', 'KHL', 'Upah KHL Security Mess', 'Orang', 3000000],
+  ].map(([id, kategori, kelompok, nama, satuan, harga, wbs], i) => ({ id, kategori, kelompok, nama, satuan, harga, urutan: i + 1, wbs: wbs ?? w, aktif: 1 }));
+}
+
 function bentukAwal(): Db {
   // Mode demo dibekali contoh fiktif berlabel "CONTOH ·" agar orang di luar
   // departemen langsung melihat aplikasinya bekerja. Semuanya bisa dibuang
@@ -177,12 +220,7 @@ function bentukAwal(): Db {
     versi: VERSI,
     libur: LIBUR_BAWAAN.map((l, i) => ({ id: i + 1, tanggal: l.tanggal, nama: l.nama, jenis: l.jenis, perkiraan: l.perkiraan ? 1 : 0 })),
     revegetasi: [],
-    katalog: [
-      { id: 'kat-rtn-01', kelompok: 'Pengajuan Rutin', nama: 'Kunjungan Verifikasi PNBP PKH SK 966', satuan: 'Paket', harga: 7200000, urutan: 1, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
-      { id: 'kat-rtn-02', kelompok: 'Pengajuan Rutin', nama: 'Kunjungan Verifikasi PNBP PKH SK 892', satuan: 'Paket', harga: 7200000, urutan: 2, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
-      { id: 'kat-rtn-03', kelompok: 'Pengajuan Rutin', nama: 'Kunjungan Verifikasi PNBP PKH SK 78', satuan: 'Paket', harga: 7200000, urutan: 3, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
-      { id: 'kat-rtn-04', kelompok: 'Pengajuan Rutin', nama: 'Operasional Tahura', satuan: 'Paket', harga: 2000000, urutan: 4, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
-    ],
+    katalog: katalogDemo(),
     opsi: [
       { grup: 'memo_kategori', nilai: 'Operasional', label: 'Operasional', warna: 'emerald', urutan: 1 },
       { grup: 'memo_kategori', nilai: 'Lapangan', label: 'Lapangan', warna: 'cyan', urutan: 2 },
@@ -331,6 +369,85 @@ function daftarJadwal(d: Db, dari: string, sampai: string, sembunyikanId: boolea
   return { jadwal, tenggat, libur, hariIni };
 }
 
+// ---------- Memo: tiruan server/src/personal.ts ----------
+
+/** Nilai properti kustom memo → JSON aman (sama dengan server). */
+function bersihkanPropsDemo(v: unknown): string {
+  let isi: unknown = v;
+  if (typeof v === 'string') { try { isi = JSON.parse(v); } catch { isi = null; } }
+  if (!isi || typeof isi !== 'object' || Array.isArray(isi)) return '{}';
+  const hasil: Record<string, string | number | boolean | null> = {};
+  for (const [k, x] of Object.entries(isi as Record<string, unknown>).slice(0, 40)) {
+    if (!/^[a-z0-9_]{1,40}$/.test(k)) continue;
+    if (typeof x === 'string') hasil[k] = x.slice(0, 500);
+    else if (typeof x === 'number' && Number.isFinite(x)) hasil[k] = x;
+    else if (typeof x === 'boolean' || x === null) hasil[k] = x as boolean | null;
+  }
+  return JSON.stringify(hasil);
+}
+
+const picaSahDemo = (d: Db, id: unknown): string | null => {
+  const p = typeof id === 'string' && id ? d.pica.find((x) => x.id === id && !x.dihapus) : null;
+  return p ? p.id : null;
+};
+
+/** Ceklis bertenggat → baris jadwal (jenis 'tenggat', memo_id terisi). */
+function sinkronJadwalMemoDemo(d: Db, m: Baris): void {
+  const baru = susunJadwalMemo(String(m.isi ?? ''), {
+    judulMemo: String(m.judul ?? ''),
+    lingkup: m.lingkup === 'tim' ? 'tim' : 'pribadi',
+    penulisId: m.user_id,
+    idTim: new Set(d.tim.map((t) => String(t.id))),
+  });
+  const lama = d.jadwal.filter((j) => j.memo_id === m.id);
+  if (tandaJadwalMemo(lama as BarisJadwalMemo[]) === tandaJadwalMemo(baru)) return;
+  d.jadwal = d.jadwal.filter((j) => j.memo_id !== m.id);
+  for (const r of baru) {
+    d.jadwal.push({
+      id: idBaru('jdw'), judul: r.judul, keterangan: r.keterangan, tanggal: r.tanggal, tanggal_selesai: null,
+      jam_mulai: r.jam_mulai, jam_selesai: null, jenis: 'tenggat', pica_id: null, pemilik_id: r.pemilik_id, rrule: null,
+      ingatkan_menit: r.ingatkan_menit, gcal_id: null, selesai: r.selesai, memo_id: m.id, dibuat_pada: kini(),
+    });
+  }
+}
+
+/** Memo dihapus: jadwal buatannya dan lampirannya ikut dibuang. */
+function hapusIsiTerkaitMemoDemo(d: Db, memoId: string): void {
+  d.jadwal = d.jadwal.filter((j) => j.memo_id !== memoId);
+  d.lampiran = d.lampiran.filter((l) => !(l.entitas === 'memo' && l.entitas_id === memoId));
+}
+
+/** Centang/hapus di Kalender dicerminkan ke teks memo asalnya. */
+function cerminkanJadwalKeMemoDemo(d: Db, j: Baris, aksi: { selesai: boolean } | 'lepas'): void {
+  if (!j.memo_id) return;
+  const memo = d.memo.find((x) => x.id === j.memo_id);
+  if (!memo) return;
+  const baru = aksi === 'lepas' ? lepasTenggatTugas(memo.isi, j as never) : setCentangTugas(memo.isi, j as never, aksi.selesai);
+  if (baru === null) return;
+  memo.isi = baru;
+  memo.diubah_pada = kini();
+}
+
+/** Berkas lampiran memo yang tersimpan di mode demo (data URL di dalam database demo). */
+export function demoBerkas(kunci: string): Blob | null {
+  const l = db().lampiran.find((x) => x.kunci_r2 === kunci && typeof x.data === 'string');
+  if (!l) return null;
+  const [kepala, isi] = String(l.data).split(',');
+  const mime = /^data:([^;]+);base64$/.exec(kepala)?.[1] ?? 'application/octet-stream';
+  const bin = atob(isi ?? '');
+  const byte = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) byte[i] = bin.charCodeAt(i);
+  return new Blob([byte], { type: mime });
+}
+
+const bacaSebagaiDataUrl = (f: File): Promise<string> =>
+  new Promise((ok, gagalBaca) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result));
+    r.onerror = () => gagalBaca(new Error('Berkas gagal dibaca'));
+    r.readAsDataURL(f);
+  });
+
 // ---------- Notifikasi & rekap: tiruan server/src/sumber.ts ----------
 
 /** Tanggal WITA dari cap waktu ISO (UTC). */
@@ -430,7 +547,8 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     return {
       pengguna: { ...saya, foto: d.foto[saya.id] ?? null },
       opsi: d.opsi,
-      properti: d.properti.filter((p) => p.aktif),
+      properti: d.properti.filter((p) => p.aktif && (p.entitas ?? 'pica') === 'pica'),
+      propertiMemo: d.properti.filter((p) => p.aktif && p.entitas === 'memo'),
       tim: d.tim.map(({ id, nama, jabatan, bidang, peran }) => ({ id, nama, jabatan, bidang, peran, foto: d.foto[id] ?? null })),
       periode: d.periode, pengaturan: d.pengaturan, hariIni,
     };
@@ -641,7 +759,14 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     const lingkup = q.get('lingkup') === 'tim' ? 'tim' : 'pribadi';
     const daftar = d.memo
       .filter((x) => (x.lingkup ?? 'pribadi') === lingkup && (lingkup === 'tim' || x.user_id === saya.id))
-      .map((x): Baris => ({ lingkup: 'pribadi', kategori: null, tipe: null, status: null, ringkasan: null, tanggal: null, ...x, penulis: namaTim(d, x.user_id) }))
+      .map((x): Baris => {
+        const p = x.pica_id ? d.pica.find((y) => y.id === x.pica_id) : null;
+        return {
+          lingkup: 'pribadi', kategori: null, tipe: null, status: null, ringkasan: null, tanggal: null, pica_id: null, props: '{}',
+          ...x, penulis: namaTim(d, x.user_id),
+          pica_no: p?.no_urut ?? null, pica_judul: p?.judul ?? null, pica_status: p?.status ?? null,
+        };
+      })
       .sort((a, b) => (lingkup === 'tim'
         ? String(b.tanggal ?? b.dibuat_pada).localeCompare(String(a.tanggal ?? a.dibuat_pada))
         : (b.disematkan - a.disematkan) || String(b.diubah_pada ?? b.dibuat_pada).localeCompare(String(a.diubah_pada ?? a.dibuat_pada))));
@@ -651,12 +776,15 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     const lingkup = body.lingkup === 'tim' ? 'tim' : 'pribadi';
     if (lingkup === 'tim' && saya.peran === 'pemantau') gagal('Peran Pemantau hanya bisa membaca memo tim.', 403);
     const id = idBaru('memo');
-    d.memo.push({
+    const baru: Baris = {
       id, user_id: saya.id, lingkup, judul: body.judul ?? '', isi: body.isi ?? '', ringkasan: body.ringkasan ?? null,
       kategori: body.kategori ?? null, tipe: body.tipe ?? null, status: body.status ?? null,
       tanggal: body.tanggal ?? (lingkup === 'tim' ? hariIni : null), disematkan: 0, warna: body.warna ?? null,
+      pica_id: picaSahDemo(d, body.pica_id), props: bersihkanPropsDemo(body.props),
       dibuat_pada: kini(), diubah_pada: null,
-    });
+    };
+    d.memo.push(baru);
+    if (baru.isi) sinkronJadwalMemoDemo(d, baru);
     simpan(); return { id };
   }
   if ((m = path.match(/^\/api\/memo\/([\w-]+)$/))) {
@@ -664,11 +792,13 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     const tim = (x?.lingkup ?? 'pribadi') === 'tim';
     if (!x || (!tim && x.user_id !== saya.id)) gagal('Memo tidak ditemukan.', 404);
     if (x!.user_id !== saya.id && !(tim && bolehKelola(saya))) gagal('Hanya penulis, Supervisor, atau Admin yang boleh mengubah memo tim.', 403);
-    if (method === 'DELETE') { d.memo = d.memo.filter((y) => y.id !== m![1]); simpan(); return { ok: true }; }
-    for (const k of ['judul', 'isi', 'disematkan', 'warna', 'ringkasan', 'kategori', 'tipe', 'status', 'tanggal']) {
-      if (k in body) x![k] = k === 'disematkan' ? (body[k] ? 1 : 0) : body[k];
+    if (method === 'DELETE') { hapusIsiTerkaitMemoDemo(d, m![1]); d.memo = d.memo.filter((y) => y.id !== m![1]); simpan(); return { ok: true }; }
+    for (const k of ['judul', 'isi', 'disematkan', 'warna', 'ringkasan', 'kategori', 'tipe', 'status', 'tanggal', 'pica_id', 'props']) {
+      if (!(k in body)) continue;
+      x![k] = k === 'disematkan' ? (body[k] ? 1 : 0) : k === 'pica_id' ? picaSahDemo(d, body[k]) : k === 'props' ? bersihkanPropsDemo(body[k]) : body[k];
     }
     x!.diubah_pada = kini();
+    if ('isi' in body || 'judul' in body) sinkronJadwalMemoDemo(d, x!);
     simpan(); return { ok: true };
   }
 
@@ -757,7 +887,9 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   if (path === '/api/properti' && method === 'POST') {
     if (!bolehKelola(saya)) gagal('Hanya Admin/Supervisor yang boleh menambah kolom.', 403);
     if (d.properti.some((p) => p.id === body.id)) gagal(`Kolom "${body.id}" sudah ada.`, 409);
-    d.properti.push({ id: body.id, label: body.label, tipe: body.tipe, opsi_json: body.opsi ? JSON.stringify(body.opsi) : null, urutan: d.properti.length + 1, tampil_di_tabel: 1, aktif: 1 });
+    const entitas = body.entitas === 'memo' ? 'memo' : 'pica';
+    if (entitas === 'memo' && !String(body.id).startsWith('m_')) gagal('id kolom memo harus berawalan m_.');
+    d.properti.push({ id: body.id, label: body.label, tipe: body.tipe, opsi_json: body.opsi ? JSON.stringify(body.opsi) : null, urutan: d.properti.length + 1, tampil_di_tabel: 1, aktif: 1, entitas });
     simpan(); return { ok: true };
   }
   if (path === '/api/opsi' && method === 'POST') {
@@ -792,7 +924,12 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     simpan(); return { id };
   }
   if ((m = path.match(/^\/api\/jadwal\/([\w-]+)$/))) {
-    if (method === 'DELETE') { d.jadwal = d.jadwal.filter((j) => j.id !== m![1]); simpan(); return { ok: true }; }
+    if (method === 'DELETE') {
+      const lama = d.jadwal.find((j) => j.id === m![1]);
+      d.jadwal = d.jadwal.filter((j) => j.id !== m![1]);
+      if (lama?.memo_id) cerminkanJadwalKeMemoDemo(d, lama, 'lepas');
+      simpan(); return { ok: true };
+    }
     const j = d.jadwal.find((x) => x.id === m![1]);
     if (!j) gagal('Jadwal tidak ditemukan.', 404);
     const jd = j as Baris;
@@ -800,7 +937,11 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     if (!hanyaCentang && jd.pemilik_id !== saya.id && !bolehKelola(saya)) gagal('Hanya pemilik jadwal, Supervisor, atau Admin yang boleh mengubahnya.', 403);
     if ('untuk_semua' in body) { jd.pemilik_id = body.untuk_semua ? null : (jd.pemilik_id ?? saya.id); }
     for (const k of ['judul', 'keterangan', 'tanggal', 'tanggal_selesai', 'jam_mulai', 'jam_selesai', 'jenis', 'rrule', 'ingatkan_menit']) if (k in body) jd[k] = body[k] ?? null;
-    if ('selesai' in body) jd.selesai = body.selesai ? 1 : 0;
+    if ('selesai' in body) {
+      jd.selesai = body.selesai ? 1 : 0;
+      // Centang di Kalender dicerminkan ke teks memo asal (judul/tanggal/jam belum diubah di atas).
+      if (jd.memo_id) cerminkanJadwalKeMemoDemo(d, jd, { selesai: Boolean(body.selesai) });
+    }
     if (jd.tanggal_selesai && jd.tanggal_selesai < jd.tanggal) gagal('Tanggal selesai tidak boleh sebelum tanggal mulai.');
     if (jd.tanggal_selesai === jd.tanggal) jd.tanggal_selesai = null;
     simpan(); return { ok: true };
@@ -857,8 +998,12 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     const berkas = form?.get('berkas');
     const nama = berkas instanceof File ? berkas.name : 'berkas';
     const id = idBaru('lmp');
+    const entitas = String(form?.get('entitas') ?? 'pica');
     const kunci = `demo/${form?.get('entitas_id')}/${Date.now()}`;
-    d.lampiran.push({ id, entitas: String(form?.get('entitas') ?? 'pica'), entitas_id: String(form?.get('entitas_id') ?? ''), kunci_r2: kunci, nama, tipe_mime: berkas instanceof File ? berkas.type : null, ukuran: berkas instanceof File ? berkas.size : null, oleh: saya.id, pada: kini() });
+    if (berkas instanceof File && berkas.size > 8 * 1024 * 1024) gagal('Ukuran berkas maksimal 8 MB.');
+    // Lampiran memo disimpan utuh di database demo supaya gambarnya tetap tampil.
+    const data = entitas === 'memo' && berkas instanceof File ? await bacaSebagaiDataUrl(berkas) : undefined;
+    d.lampiran.push({ id, entitas, entitas_id: String(form?.get('entitas_id') ?? ''), kunci_r2: kunci, nama, tipe_mime: berkas instanceof File ? berkas.type : null, ukuran: berkas instanceof File ? berkas.size : null, oleh: saya.id, pada: kini(), ...(data ? { data } : {}) });
     simpan(); return { id, kunci, url: `/api/berkas/${encodeURIComponent(kunci)}` };
   }
 
@@ -938,13 +1083,12 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
 
   // ----- katalog RAB RNR -----
   if (path === '/api/katalog-rab' && method === 'GET') {
-    if (!Array.isArray(d.katalog) || !d.katalog.length) {
-      d.katalog = [
-        { id: 'kat-rtn-01', kelompok: 'Pengajuan Rutin', nama: 'Kunjungan Verifikasi PNBP PKH SK 966', satuan: 'Paket', harga: 7200000, urutan: 1, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
-        { id: 'kat-rtn-02', kelompok: 'Pengajuan Rutin', nama: 'Kunjungan Verifikasi PNBP PKH SK 892', satuan: 'Paket', harga: 7200000, urutan: 2, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
-        { id: 'kat-rtn-03', kelompok: 'Pengajuan Rutin', nama: 'Kunjungan Verifikasi PNBP PKH SK 78', satuan: 'Paket', harga: 7200000, urutan: 3, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
-        { id: 'kat-rtn-04', kelompok: 'Pengajuan Rutin', nama: 'Operasional Tahura', satuan: 'Paket', harga: 2000000, urutan: 4, wbs: 'AB3.11-06.02.22.04', aktif: 1 },
-      ];
+    if (!Array.isArray(d.katalog)) d.katalog = [];
+    // Lengkapi barang contoh yang belum ada (katalog demo lama tersimpan di perangkat);
+    // barang yang dihapus pemakai tetap tercatat (aktif 0) sehingga tidak muncul lagi.
+    const tambahan = katalogDemo().filter((k) => !d.katalog.some((x) => x.id === k.id));
+    if (tambahan.length) {
+      d.katalog.push(...tambahan);
       simpan();
     }
     return {
@@ -969,6 +1113,8 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
       urutan: Math.round(Number(body?.urutan) || 50),
       wbs: String(body?.wbs ?? '').trim().slice(0, 40) || 'AB3.11-06.02.22.04',
       aktif: 1,
+      // Kategori hanya diubah bila dikirim, sama seperti server.
+      ...(body && 'kategori' in body ? { kategori: String(body.kategori || 'rnr') } : {}),
     };
     if (idx >= 0) d.katalog[idx] = { ...d.katalog[idx], ...item };
     else d.katalog.push(item);

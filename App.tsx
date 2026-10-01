@@ -855,7 +855,7 @@ const App: React.FC = () => {
       {activeTab === 'jadwal' && <KalenderScreen pengguna={pengguna} tim={boot.tim} opsiRoster={boot.opsi.filter((o) => o.grup === 'roster')} onBukaPica={bukaPica} notify={notify} fokus={fokus} onFokus={() => setFokus((f) => !f)} onPerubahanJadwal={() => api<{ jadwal: JadwalItem[] }>('/api/jadwal').then((d) => setSemuaJadwal(d.jadwal ?? [])).catch(() => undefined)} />}
       {activeTab === 'pengumuman' && <PengumumanScreen pengguna={pengguna} jumlahTim={boot.tim.length} notify={notify} />}
       {activeTab === 'roster' && <RosterScreen boot={boot} pengguna={pengguna} notify={notify} />}
-      {activeTab === 'memo' && <MemoScreen boot={boot} pengguna={pengguna} notify={notify} onBukaRab={(id) => { setBukaRabId(id); setActiveTab('money'); }} />}
+      {activeTab === 'memo' && <MemoScreen boot={boot} pengguna={pengguna} notify={notify} onBukaPica={bukaPica} onBukaRab={(id) => { setBukaRabId(id); setActiveTab('money'); }} />}
       {activeTab === 'notif' && <NotifikasiScreen boot={boot} notify={notify} />}
       {activeTab === 'team' && <TeamScreen pengguna={pengguna} onBootUlang={bootUlang} notify={notify} />}
       {activeTab === 'market' && <MarketScreen state={gameState} onBuy={handleBuySkin} onEquip={handleEquipSkin} />}

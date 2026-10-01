@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Plus, Minus, Trash2, Settings2, Save, ShoppingCart, LayoutGrid, Loader2, PackagePlus, Undo2, Pencil, X } from 'lucide-react';
 import { muatKatalog, simpanBarangKatalog, hapusBarangKatalog, type BarangKatalog } from '../lib/katalog-rab';
 import {
-  kartuRab, isiKeranjang, tambahKeKeranjang, pindahKartu, susunRab, ubahKartu, hapusKartu,
-  DAFTAR_WBS, WBS_BAWAAN, type RabRnr, type KartuRab,
+  kartuRab, isiKeranjang, tambahKeKeranjang, pindahKartu, susunRab, ubahKartu, hapusKartu, aturKategori,
+  DAFTAR_WBS, DAFTAR_KATEGORI, WBS_BAWAAN, kategoriSah, namaKategori, type RabRnr, type KartuRab, type KategoriRab,
 } from '../lib/rab-rnr';
 import { formatRupiah } from '../lib/rab-hcga';
 
@@ -33,6 +33,15 @@ const PilihWbs: React.FC<{ nilai: string; ubah: (v: string) => void }> = ({ nila
   </select>
 );
 
+/** Kategori = lembar rincian di Excel; "Tanpa kategori" hanya tampil di rekap. */
+export const PilihKategori: React.FC<{ nilai?: KategoriRab; ubah: (v: KategoriRab | undefined) => void; className?: string }> = ({ nilai, ubah, className = '' }) => (
+  <select value={nilai ?? ''} onChange={(e) => ubah((e.target.value || undefined) as KategoriRab | undefined)}
+    className={`${kelas} !text-[11px] ${nilai ? '' : 'text-zinc-400'} ${className}`} aria-label="Kategori (lembar Excel)" title="Kategori = lembar rincian di Excel">
+    <option value="">Tanpa kategori</option>
+    {DAFTAR_KATEGORI.map((k) => <option key={k.id} value={k.id}>{k.nama}</option>)}
+  </select>
+);
+
 const Qty: React.FC<{ n: number; ubah: (n: number) => void }> = ({ n, ubah }) => (
   <div className="flex items-center border-2 border-white/40 bg-black/60 shrink-0">
     <button type="button" onClick={() => ubah(n - 1)} className="w-6 h-6 flex items-center justify-center hover:bg-white/10" aria-label="Kurangi"><Minus size={11} /></button>
@@ -50,7 +59,7 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
   const [kelola, setKelola] = useState(false);
   const [editSatuId, setEditSatuId] = useState<string | null>(null);
   const [suntingan, setSuntingan] = useState<Record<string, BarangKatalog>>({});
-  const [baru, setBaru] = useState({ uraian: '', satuan: 'Paket', harga: '', wbs: WBS_BAWAAN });
+  const [baru, setBaru] = useState<{ uraian: string; satuan: string; harga: string; wbs: string; kategori?: KategoriRab }>({ uraian: '', satuan: 'Paket', harga: '', wbs: WBS_BAWAAN });
   const [diseret, setDiseret] = useState<string | null>(null);
   const [sasaran, setSasaran] = useState<number | null>(null);
 
@@ -72,7 +81,7 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
   }, [katalog, cari, kelompok]);
   const diKeranjang = (b: BarangKatalog) => keranjang.filter((k) => k.uraian.trim().toLowerCase() === b.nama.trim().toLowerCase()).reduce((n, k) => n + k.qty, 0);
 
-  const add = (b: { uraian: string; wbs: string; satuan: string; harga: number }) => {
+  const add = (b: { uraian: string; wbs: string; satuan: string; harga: number; kategori?: KategoriRab }) => {
     ubah(tambahKeKeranjang(rab, b));
     notify(`+ ${b.uraian.toUpperCase()} MASUK KERANJANG`);
   };
@@ -83,7 +92,7 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
     const uraian = baru.uraian.trim();
     if (!uraian) { notify('ISI URAIAN DULU'); return; }
     try {
-      await simpanBarangKatalog({ nama: uraian, wbs: baru.wbs, satuan: baru.satuan.trim() || 'Paket', harga: Number(baru.harga) || 0, kelompok: 'Pengajuan Rutin', urutan: 50 });
+      await simpanBarangKatalog({ nama: uraian, wbs: baru.wbs, satuan: baru.satuan.trim() || 'Paket', harga: Number(baru.harga) || 0, kategori: baru.kategori ?? 'rnr', kelompok: 'Pengajuan Rutin', urutan: 50 });
       notify('URAIAN MASUK KATALOG');
       setBaru({ ...baru, uraian: '', harga: '' });
       muat();
@@ -91,7 +100,7 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
   };
   const simpanSuntingan = async (b: BarangKatalog) => {
     try {
-      await simpanBarangKatalog(b);
+      await simpanBarangKatalog({ ...b, kategori: kategoriSah(b.kategori) ?? 'rnr' });
       setSuntingan((s) => { const x = { ...s }; delete x[b.id]; return x; });
       if (editSatuId === b.id) setEditSatuId(null);
       muat();
@@ -128,6 +137,7 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
     >
       <div className="text-[12px] font-bold text-white leading-tight">{k.uraian || <i className="text-zinc-500 font-normal">(uraian belum diisi)</i>}</div>
       <div className="text-[10px] text-zinc-400">{formatRupiah(k.harga)} / {k.satuan}</div>
+      <PilihKategori nilai={k.kategori} ubah={(v) => ubah(aturKategori(rab, k.id, v))} className="!py-0.5" />
       <div className="flex items-center gap-1.5">
         <Qty n={k.qty} ubah={(n) => ubahQty(k, n)} />
         <span className="ml-auto font-mono text-[11px] text-emerald-300 font-bold">{formatRupiah(k.qty * k.harga)}</span>
@@ -213,6 +223,7 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
                   </div>
                   <input value={s.kelompok} onChange={(e) => ubahS({ kelompok: e.target.value })} className={kelas} aria-label="Kelompok" placeholder="Kelompok" />
                   <PilihWbs nilai={s.wbs} ubah={(v) => ubahS({ wbs: v })} />
+                  <PilihKategori nilai={kategoriSah(s.kategori)} ubah={(v) => ubahS({ kategori: v ?? 'rnr' })} />
                   <div className="flex gap-1 pt-0.5">
                     <button
                       type="button"
@@ -246,6 +257,7 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
               <div key={b.id} className={`border-2 p-2 flex flex-col gap-1 ${n ? 'border-yellow-400 bg-yellow-950/20' : 'border-white/20 bg-zinc-900'}`}>
                 <div className="text-[12px] font-bold text-white leading-tight flex-1">{b.nama}</div>
                 <div className="text-[11px] text-emerald-300 font-mono">{formatRupiah(b.harga)} <span className="text-zinc-400">/ {b.satuan}</span></div>
+                {kategoriSah(b.kategori) && <div className="text-[10px] text-sky-300" title="Lembar rincian di Excel">Lembar {namaKategori(b.kategori)}</div>}
                 <div className="flex items-center gap-1 mt-auto pt-1">
                   {n > 0 && <span className="chip-retro !text-[10px] border-yellow-400 text-yellow-200">{n} di keranjang</span>}
                   <div className="ml-auto flex items-center gap-1">
@@ -263,7 +275,7 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
                         <Pencil size={11} />
                       </button>
                     )}
-                    <button type="button" onClick={() => add({ uraian: b.nama, wbs: b.wbs, satuan: b.satuan, harga: b.harga })} className="btn-retro btn-retro-sm bg-amber-600">
+                    <button type="button" onClick={() => add({ uraian: b.nama, wbs: b.wbs, satuan: b.satuan, harga: b.harga, kategori: kategoriSah(b.kategori) })} className="btn-retro btn-retro-sm bg-amber-600">
                       <Plus size={12} /> ADD
                     </button>
                   </div>
@@ -280,7 +292,8 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
             <input value={baru.satuan} onChange={(e) => setBaru({ ...baru, satuan: e.target.value })} placeholder="Satuan" className={kelas} />
             <input type="number" value={baru.harga} onChange={(e) => setBaru({ ...baru, harga: e.target.value })} placeholder="Harga" className={`${kelas} font-mono`} />
             <button type="button" onClick={tambahKeKatalog} className="btn-retro btn-retro-sm bg-cyan-700"><Save size={12} /> Simpan</button>
-            <div className="col-span-2 sm:col-span-6"><PilihWbs nilai={baru.wbs} ubah={(v) => setBaru({ ...baru, wbs: v })} /></div>
+            <div className="col-span-2 sm:col-span-4"><PilihWbs nilai={baru.wbs} ubah={(v) => setBaru({ ...baru, wbs: v })} /></div>
+            <div className="col-span-2"><PilihKategori nilai={baru.kategori} ubah={(v) => setBaru({ ...baru, kategori: v })} /></div>
           </div>
         </div>
         )}

@@ -11,7 +11,7 @@
  */
 
 import { GalatApi } from './galat';
-import { demoAktif, demoApi } from './demo';
+import { demoAktif, demoApi, demoBerkas } from './demo';
 
 export { GalatApi } from './galat';
 export { demoAktif, aktifkanDemo, matikanDemo, adaDataDemo, resetDemoDb, hitungDataDemo } from './demo';
@@ -95,6 +95,8 @@ export async function api<T = any>(jalur: string, opsi: OpsiPermintaan = {}): Pr
 /** Berkas lampiran butuh header Authorization, jadi selalu diambil sebagai blob. */
 export async function ambilBerkas(kunci: string): Promise<Blob> {
   if (demoAktif()) {
+    const tersimpan = demoBerkas(kunci); // lampiran memo disimpan utuh di database demo
+    if (tersimpan) return tersimpan;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320"><rect width="100%" height="100%" fill="#225599"/><text x="50%" y="50%" fill="#fff" font-family="monospace" font-size="20" text-anchor="middle">DEMO · ${kunci.split('/').pop()}</text></svg>`;
     return new Blob([svg], { type: 'image/svg+xml' });
   }

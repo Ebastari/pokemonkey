@@ -3,13 +3,16 @@
  *
  * Satu baris = satu uraian (mis. "Kunjungan Verifikasi PNBP PKH SK 892") dengan
  * kode WBS, satuan, harga satuan, dan jumlah per minggu (I–IV). Uraian yang
- * sama di beberapa minggu tetap satu baris. Ekspor hanya lembar rekap
- * (public/template-rab-rnr.xlsx, disiapkan dari template RAB HCGA).
+ * sama di beberapa minggu tetap satu baris. Uraian boleh diberi kategori
+ * (ATK, BBM, …): ekspor Excel (public/template-rab-rnr.xlsx, disiapkan dari
+ * template RAB HCGA) berisi lembar rekap + satu lembar rincian W1–W4 per
+ * kategori yang terisi, dan nilai minggu di rekap merujuk lembar rincian itu.
+ * Uraian tanpa kategori tetap ditulis langsung di rekap tanpa lembar sendiri.
  *
  * Data disimpan di perangkat; nomor RAB dicatat di Data Surat (kategori RAB).
  */
 
-import { TemplatXlsx } from './xlsx-templat';
+import { TemplatXlsx, rujukLembar } from './xlsx-templat';
 import { DAFTAR_BULAN } from './rab-hcga';
 import { api, demoAktif } from './api';
 import { GalatApi } from './galat';
@@ -48,12 +51,31 @@ export const DAFTAR_WBS: { kode: string; deskripsi: string }[] = [
 export const WBS_BAWAAN = 'AB3.11-06.02.22.04';
 export const deskripsiWbs = (kode: string) => DAFTAR_WBS.find((w) => w.kode === kode.trim())?.deskripsi ?? '';
 
+/** Kategori = lembar rincian di Excel (urutan & nama lembar mengikuti template RAB HCGA). */
+export const DAFTAR_KATEGORI = [
+  { id: 'atk', nama: 'ATK' },
+  { id: 'bbm', nama: 'BBM' },
+  { id: 'catering', nama: 'Catering' },
+  { id: 'perdin', nama: 'Perdin & Cuti' },
+  { id: 'listrik', nama: 'Listrik PLN' },
+  { id: 'air', nama: 'Air PDAM' },
+  { id: 'telp', nama: 'Telp & Internet' },
+  { id: 'pantry', nama: 'Pantry' },
+  { id: 'khl', nama: 'KHL' },
+] as const;
+export type KategoriRab = (typeof DAFTAR_KATEGORI)[number]['id'];
+export const namaKategori = (id?: string) => DAFTAR_KATEGORI.find((k) => k.id === id)?.nama ?? '';
+/** Kategori katalog → kategori RAB; nilai lain ('rnr', kosong) = tanpa kategori. */
+export const kategoriSah = (id?: string): KategoriRab | undefined => DAFTAR_KATEGORI.find((k) => k.id === id)?.id;
+
 export interface UraianRab {
   id: string;
   uraian: string;
   wbs: string;
   satuan: string;
   harga: number;
+  /** Lembar rincian di Excel; kosong = tanpa kategori (hanya di rekap). */
+  kategori?: KategoriRab;
   /** Jumlah per minggu I–IV. */
   qty: [number, number, number, number];
 }
@@ -68,6 +90,7 @@ export interface KartuRab {
   wbs: string;
   satuan: string;
   harga: number;
+  kategori?: KategoriRab;
   minggu: 0 | 1 | 2 | 3 | 4;
   qty: number;
 }
@@ -156,9 +179,10 @@ export function barisRekap(r: RabRnr): UraianRab[] {
     // Baris kosong (uraian belum diisi) tidak digabung dengan baris lain.
     let b = k.uraian.trim() ? baris.find((x) => x.uraian.trim() && samaUraian(x, k)) : undefined;
     if (!b) {
-      b = { id: k.id, uraian: k.uraian, wbs: k.wbs || WBS_BAWAAN, satuan: k.satuan, harga: k.harga, qty: [0, 0, 0, 0] };
+      b = { id: k.id, uraian: k.uraian, wbs: k.wbs || WBS_BAWAAN, satuan: k.satuan, harga: k.harga, kategori: k.kategori, qty: [0, 0, 0, 0] };
       baris.push(b);
     }
+    b.kategori ??= k.kategori;
     b.qty[k.minggu - 1] += k.qty;
   }
   return baris;
@@ -175,12 +199,21 @@ export const perluDirektur = (r: RabRnr) => totalRab(r) > BATAS_PERSETUJUAN;
 export const idKartu = () => `k-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
 /** ADD dari katalog: masuk keranjang dengan qty 1; uraian yang sudah di keranjang qty-nya bertambah. */
-export function tambahKeKeranjang(r: RabRnr, x: { uraian: string; wbs: string; satuan: string; harga: number; qty?: number }): RabRnr {
+export function tambahKeKeranjang(r: RabRnr, x: { uraian: string; wbs: string; satuan: string; harga: number; kategori?: KategoriRab; qty?: number }): RabRnr {
   const kartu = kartuRab(r).map((k) => ({ ...k }));
   const ada = kartu.find((k) => !k.minggu && samaUraian(k, x));
+  // Kategori ikut uraian yang sama yang sudah ada di RAB ini.
+  const kategori = x.kategori ?? kartu.find((k) => k.kategori && samaUraian(k, x))?.kategori;
   if (ada) ada.qty += x.qty ?? 1;
-  else kartu.push({ id: idKartu(), uraian: x.uraian.trim(), wbs: x.wbs || WBS_BAWAAN, satuan: x.satuan || 'Paket', harga: x.harga, minggu: 0, qty: x.qty ?? 1 });
+  else kartu.push({ id: idKartu(), uraian: x.uraian.trim(), wbs: x.wbs || WBS_BAWAAN, satuan: x.satuan || 'Paket', harga: x.harga, kategori, minggu: 0, qty: x.qty ?? 1 });
   return { ...r, kartu };
+}
+
+/** Atur kategori satu kartu; kartu lain dengan uraian sama (keranjang maupun minggu) ikut. */
+export function aturKategori(r: RabRnr, id: string, kategori: KategoriRab | undefined): RabRnr {
+  const asal = kartuRab(r).find((k) => k.id === id);
+  if (!asal) return r;
+  return { ...r, kartu: kartuRab(r).map((k) => (k.id === id || (asal.uraian.trim() && samaUraian(k, asal)) ? { ...k, kategori } : k)) };
 }
 
 /** Pindahkan kartu ke minggu lain (0 = keranjang); kartu sama di minggu tujuan digabung. */
@@ -220,7 +253,7 @@ function anggotaBaris(r: RabRnr, idBaris: string): KartuRab[] {
 }
 
 /** Ubah uraian/WBS/satuan/harga satu baris tabel → semua kotaknya di papan ikut berubah. */
-export function ubahBaris(r: RabRnr, idBaris: string, patch: Partial<Pick<KartuRab, 'uraian' | 'wbs' | 'satuan' | 'harga'>>): RabRnr {
+export function ubahBaris(r: RabRnr, idBaris: string, patch: Partial<Pick<KartuRab, 'uraian' | 'wbs' | 'satuan' | 'harga' | 'kategori'>>): RabRnr {
   const ids = new Set(anggotaBaris(r, idBaris).map((k) => k.id));
   return { ...r, kartu: kartuRab(r).map((k) => (ids.has(k.id) ? { ...k, ...patch } : k)) };
 }
@@ -238,7 +271,7 @@ export function aturQtyBaris(r: RabRnr, idBaris: string, m: 1 | 2 | 3 | 4, qty: 
     kartu = qty > 0 || !sisa ? kartu.map((k) => (k.id === utama.id ? { ...k, qty: Math.max(0, qty) } : k)) : kartu.filter((k) => k.id !== utama.id);
   } else if (qty > 0) {
     const w = anggota[0];
-    kartu = [...kartu, { id: idKartu(), uraian: w.uraian, wbs: w.wbs, satuan: w.satuan, harga: w.harga, minggu: m, qty }];
+    kartu = [...kartu, { id: idKartu(), uraian: w.uraian, wbs: w.wbs, satuan: w.satuan, harga: w.harga, kategori: w.kategori, minggu: m, qty }];
   }
   return { ...r, kartu };
 }
@@ -255,7 +288,7 @@ export function hapusBaris(r: RabRnr, idBaris: string): RabRnr {
 
 /** Salin ke bulan depan: semua ajuan RAB lama masuk keranjang RAB baru untuk dipilah. */
 export const salinKeKeranjang = (dari: RabRnr, ke: RabRnr): RabRnr =>
-  ({ ...ke, kartu: barisRekap(dari).filter((u) => u.uraian.trim()).map((u) => ({ id: idKartu(), uraian: u.uraian.trim(), wbs: u.wbs, satuan: u.satuan, harga: u.harga, minggu: 0 as const, qty: 1 })) });
+  ({ ...ke, kartu: barisRekap(dari).filter((u) => u.uraian.trim()).map((u) => ({ id: idKartu(), uraian: u.uraian.trim(), wbs: u.wbs, satuan: u.satuan, harga: u.harga, kategori: u.kategori, minggu: 0 as const, qty: 1 })) });
 
 /** Lebar kolom C, D, E lembar RAB RNR (satuan lebar kolom Excel), dipakai juga oleh pratinjau. */
 export const LEBAR_KOLOM_TEKS = { kode: 19.27, desk: 33.9, uraian: 32.5 } as const;
@@ -301,7 +334,44 @@ export function tinggiBarisRab(u: UraianRab): number {
   return 20 + (n - 1) * 13;
 }
 
-/** Ekspor lembar rekap RAB RNR (satu lembar, baris uraian 19–32 menyesuaikan jumlah uraian). */
+/**
+ * Isi satu lembar rincian kategori: empat blok W1–W4 (judul, kepala kolom,
+ * 10 baris isian, Total) lalu Grand Total. Baris isian tiap blok menyesuaikan
+ * jumlah uraian minggu itu (minimal satu baris kosong). Alamat sel Total Harga
+ * tiap uraian per minggu dicatat di `rujukan` untuk rumus lembar rekap.
+ */
+function isiLembarKategori(l: TemplatXlsx, nama: string, r: RabRnr, milik: UraianRab[], rujukan: Map<UraianRab, (string | null)[]>) {
+  const perMinggu = [0, 1, 2, 3].map((m) => milik.filter((u) => u.qty[m] > 0));
+  // Model: blok minggu ke-w mulai baris 7 + 15·(w−1), isian di baris +3 s.d. +12.
+  // Disusun dari blok terbawah supaya posisi blok di atasnya tidak bergeser.
+  for (let m = 3; m >= 0; m--) l.aturJumlahBaris(7 + 15 * m + 3, 10, perMinggu[m].length);
+
+  l.isi('C2', 'PT ENERGI BATUBARA LESTARI\nRENCANA ANGGARAN BULANAN (RAB)\nDepartemen RNR');
+  for (const u of milik) rujukan.set(u, [null, null, null, null]);
+  const barisTotal: number[] = [];
+  let awal = 7;
+  perMinggu.forEach((daftar, m) => {
+    l.isi(`C${awal}`, `Keperluan ${nama} W${m + 1} ${r.bulan} ${r.tahun}`);
+    const a = awal + 3;
+    daftar.forEach((u, i) => {
+      const b = a + i;
+      l.isi(`C${b}`, i + 1).isi(`D${b}`, u.uraian.trim()).isi(`E${b}`, u.qty[m]).isi(`F${b}`, u.satuan).isi(`G${b}`, u.harga);
+      l.rumus(`H${b}`, `G${b}*E${b}`, nilaiMinggu(u, m));
+      rujukan.get(u)![m] = rujukLembar(nama, `H${b}`);
+    });
+    const tot = a + Math.max(1, daftar.length);
+    l.rumus(`H${tot}`, `SUM(H${a}:H${tot - 1})`, daftar.reduce((s, u) => s + nilaiMinggu(u, m), 0));
+    barisTotal.push(tot);
+    awal = tot + 2;
+  });
+  const grand = barisTotal[3] + 2;
+  l.rumus(`H${grand}`, barisTotal.map((b) => `H${b}`).join('+'), milik.reduce((s, u) => s + totalUraian(u), 0));
+}
+
+/**
+ * Ekspor RAB RNR: lembar rekap (baris uraian 19–32 menyesuaikan jumlah uraian)
+ * + lembar rincian untuk tiap kategori yang terisi.
+ */
 export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> {
   const t = await TemplatXlsx.buka('/template-rab-rnr.xlsx');
   const isi = barisRekap(r).filter((u) => u.uraian.trim() && totalUraian(u) > 0);
@@ -353,10 +423,25 @@ export async function eksporRabRnr(r: RabRnr): Promise<'dibagikan' | 'diunduh'> 
   t.hapusGabungan('O10:O11');
   // Template: uraian di baris 19–32 (14 baris), total di baris 33.
   t.aturJumlahBaris(19, 14, n);
+
+  // Lembar rincian per kategori, disalin dari lembar model "Kategori". Disusun lebih
+  // dulu supaya nomor barisnya sudah pasti saat dirujuk rumus rekap.
+  const model = await t.lembarLain('Kategori');
+  const rujukan = new Map<UraianRab, (string | null)[]>();
+  for (const kat of DAFTAR_KATEGORI) {
+    const milik = isi.filter((u) => u.kategori === kat.id);
+    if (milik.length) isiLembarKategori(await model.salin(kat.nama), kat.nama, r, milik, rujukan);
+  }
+  model.hapus();
+
   isi.forEach((u, i) => {
     const b = 19 + i;
     t.isi(`B${b}`, i + 1).isi(`C${b}`, u.wbs.trim()).isi(`D${b}`, deskripsiWbs(u.wbs)).isi(`E${b}`, u.uraian.trim());
-    ['F', 'G', 'H', 'I'].forEach((k, m) => t.isi(`${k}${b}`, nilaiMinggu(u, m) || ''));
+    ['F', 'G', 'H', 'I'].forEach((k, m) => {
+      const ref = rujukan.get(u)?.[m];
+      if (ref) t.rumus(`${k}${b}`, ref, nilaiMinggu(u, m));
+      else t.isi(`${k}${b}`, nilaiMinggu(u, m) || '');
+    });
     t.rumus(`J${b}`, `SUM(F${b}:I${b})`, totalUraian(u));
     t.tinggi(b, tinggiBarisRab(u));
   });

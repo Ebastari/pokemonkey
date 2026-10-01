@@ -8,7 +8,7 @@ import {
   DAFTAR_STATUS_RAB, DAFTAR_WBS, type RabRnr as TipeRab, type StatusRab,
 } from '../lib/rab-rnr';
 import { DAFTAR_BULAN, formatRupiah } from '../lib/rab-hcga';
-import { PapanRabRnr } from './PapanRabRnr';
+import { PapanRabRnr, PilihKategori } from './PapanRabRnr';
 import { muatKatalog, simpanBarangKatalog } from '../lib/katalog-rab';
 import { PratinjauRabRnr } from './PratinjauRabRnr';
 import { muatSurat, simpanSuratKeServer } from '../lib/dokumen';
@@ -404,11 +404,12 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
 
       {mode === 'manual' && <>
       <div className="border-2 border-white/30 bg-black/50 overflow-x-auto">
-        <table className="w-full min-w-[980px] text-[12px] border-collapse">
+        <table className="w-full min-w-[1120px] text-[12px] border-collapse">
           <thead className="bg-[#2f5d33] text-white text-[10px] uppercase">
             <tr>
               <th className="p-1.5 w-8">No</th>
               <th className="p-1.5 text-left">Uraian</th>
+              <th className="p-1.5 text-left w-40">Kategori</th>
               <th className="p-1.5 text-left w-56">Kode WBS</th>
               <th className="p-1.5 w-20">Satuan</th>
               <th className="p-1.5 w-28">Harga satuan</th>
@@ -419,12 +420,13 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
           </thead>
           <tbody>
             {!baris.length && (
-              <tr><td colSpan={11} className="p-6 text-center text-zinc-400">Belum ada uraian. Tekan <b className="text-white">Baris kosong</b>.</td></tr>
+              <tr><td colSpan={12} className="p-6 text-center text-zinc-400">Belum ada uraian. Tekan <b className="text-white">Baris kosong</b>.</td></tr>
             )}
             {baris.map((u, i) => (
               <tr key={u.id} className={`border-t border-white/10 align-top ${i % 2 ? 'bg-white/5' : ''}`}>
                 <td className="p-1.5 text-center text-zinc-400">{i + 1}</td>
                 <td className="p-1"><input value={u.uraian} onChange={(e) => ubah(ubahBaris(r, u.id, { uraian: e.target.value }))} className={kelas} placeholder="Uraian" /></td>
+                <td className="p-1"><PilihKategori nilai={u.kategori} ubah={(v) => ubah(ubahBaris(r, u.id, { kategori: v }))} /></td>
                 <td className="p-1">
                   <select value={u.wbs} onChange={(e) => ubah(ubahBaris(r, u.id, { wbs: e.target.value }))} className={`${kelas} !text-[11px]`} title={deskripsiWbs(u.wbs)}>
                     {!DAFTAR_WBS.some((w) => w.kode === u.wbs) && <option value={u.wbs}>{u.wbs}</option>}
@@ -445,7 +447,7 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
           </tbody>
           <tfoot className="bg-black/70 font-bold text-[12px]">
             <tr className="border-t-2 border-white/30">
-              <td colSpan={5} className="p-1.5 text-right text-zinc-300">Total per minggu</td>
+              <td colSpan={6} className="p-1.5 text-right text-zinc-300">Total per minggu</td>
               {[0, 1, 2, 3].map((m) => <td key={m} className="p-1.5 text-center font-mono text-[11px] text-white">{totalMinggu(r, m) ? formatRupiah(totalMinggu(r, m)).replace('Rp ', '') : '–'}</td>)}
               <td className="p-1.5 text-right font-mono text-emerald-300">{formatRupiah(total)}</td>
               <td />
@@ -456,7 +458,7 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
       <button type="button" onClick={() => ubah(tambahBarisKosong(r))} className="btn-retro btn-retro-sm bg-zinc-800">
         <Plus size={12} /> Baris kosong
       </button>
-      <p className="text-[11px] text-zinc-500">Nilai tiap minggu = qty × harga satuan. Excel hanya berisi lembar rekap: satu baris per uraian, kolom Minggu I–IV, total.</p>
+      <p className="text-[11px] text-zinc-500">Nilai tiap minggu = qty × harga satuan. Excel berisi lembar rekap (satu baris per uraian) + satu lembar rincian W1–W4 untuk tiap kategori yang terisi; uraian tanpa kategori hanya tampil di rekap.</p>
       {baris.some((u) => u.qty.some((q, m) => q && !nilaiMinggu(u, m))) && <p className="text-[11px] text-amber-300">Ada uraian dengan harga 0 — isi harga satuannya.</p>}
       </>}
 

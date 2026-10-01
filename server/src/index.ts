@@ -30,9 +30,10 @@ import {
   daftarGrupWa,
 } from './wa';
 import { ruteGame } from './game';
-import { rutePersonal } from './personal';
+import { rutePersonal, cerminkanJadwalKeMemo } from './personal';
 import { ruteCuaca } from './cuaca';
 import { halamanLihatPica, tautanLihatPica } from './lihat';
+import { berkasLihatMemo, halamanLihatMemo } from './lihat-memo';
 import { periksaTitikApi, ruteTitikApi } from './titik-api';
 import { ruteLaporanKarhutla } from './laporan-karhutla';
 import { ruteKatalogRab } from './katalog-rab';
@@ -102,6 +103,12 @@ export default {
 
       // Papan PICA hanya-baca dari tautan di rekap WhatsApp (kunci berganti tiap Senin).
       if (jalur === '/lihat/pica' && req.method === 'GET') return halamanLihatPica(url, env);
+
+      // Memo yang dibagikan lewat tautan (seperti "Share to web" Notion), beserta gambarnya.
+      const cocokLihatMemo = jalur.match(/^\/lihat\/memo\/([\w-]+)(\/berkas)?$/);
+      if (cocokLihatMemo && req.method === 'GET') {
+        return cocokLihatMemo[2] ? berkasLihatMemo(cocokLihatMemo[1], url, env) : halamanLihatMemo(cocokLihatMemo[1], env);
+      }
 
       // Versi APK terbaru dan berkasnya: dipakai layar login (tautan unduh) dan
       // peringatan pembaruan, jadi harus bisa dibuka tanpa login.
@@ -252,7 +259,11 @@ export default {
       const cocokJadwal = jalur.match(/^\/api\/jadwal\/([\w-]+)$/);
       if (cocokJadwal && req.method === 'PATCH') return ubahJadwal(cocokJadwal[1], req, env, pengguna);
       if (cocokJadwal && req.method === 'DELETE') {
+        // Jadwal buatan ceklis memo: tugasnya tetap ada di memo, hanya tenggatnya dilepas.
+        const lama = await env.DB.prepare('SELECT memo_id, judul, tanggal, jam_mulai FROM jadwal WHERE id = ?1')
+          .bind(cocokJadwal[1]).first<{ memo_id: string | null; judul: string; tanggal: string; jam_mulai: string | null }>();
         await env.DB.prepare('DELETE FROM jadwal WHERE id = ?1').bind(cocokJadwal[1]).run();
+        if (lama?.memo_id) await cerminkanJadwalKeMemo(env, lama, 'lepas');
         return json({ ok: true });
       }
 
@@ -461,7 +472,9 @@ async function bootstrap(env: Env, pengguna: Pengguna): Promise<Response> {
   return json({
     pengguna,
     opsi: opsi.results,
-    properti: properti.results,
+    // Kolom kustom PICA dan kolom kustom memo disimpan satu tabel, dipisah menurut entitas.
+    properti: (properti.results as { entitas?: string }[]).filter((p) => (p.entitas ?? 'pica') === 'pica'),
+    propertiMemo: (properti.results as { entitas?: string }[]).filter((p) => p.entitas === 'memo'),
     tim: tim.results,
     periode: periode.results,
     pengaturan: Object.fromEntries(
@@ -985,15 +998,21 @@ async function kunciPeriode(id: string, env: Env, pengguna: Pengguna): Promise<R
 
 async function tambahProperti(req: Request, env: Env, pengguna: Pengguna): Promise<Response> {
   if (!bolehUbahKunci(pengguna)) return galat('Hanya Admin/Supervisor yang boleh menambah kolom.', 403);
-  const b = (await req.json()) as { id?: string; label?: string; tipe?: string; opsi?: string[] };
+  const b = (await req.json()) as { id?: string; label?: string; tipe?: string; opsi?: string[]; entitas?: string };
   if (!b.id || !b.label || !b.tipe) return galat('id, label, dan tipe wajib diisi.');
   if (!/^[a-z0-9_]+$/.test(b.id)) return galat('id kolom hanya boleh huruf kecil, angka, dan garis bawah.');
+  const entitas = b.entitas === 'memo' ? 'memo' : 'pica';
+  if (entitas === 'memo' && !b.id.startsWith('m_')) return galat('id kolom memo harus berawalan m_.');
+  if (!['teks', 'angka', 'tanggal', 'select', 'checkbox', 'url', 'orang'].includes(b.tipe)) return galat('Jenis kolom tidak dikenal.');
+
+  const ada = await env.DB.prepare('SELECT id FROM properti WHERE id = ?1').bind(b.id).first();
+  if (ada) return galat(`Kolom "${b.id}" sudah ada.`, 409);
 
   await env.DB.prepare(
-    `INSERT INTO properti (id, label, tipe, opsi_json, urutan)
-     VALUES (?1, ?2, ?3, ?4, (SELECT COALESCE(MAX(urutan),0)+1 FROM properti))`,
+    `INSERT INTO properti (id, label, tipe, opsi_json, urutan, entitas)
+     VALUES (?1, ?2, ?3, ?4, (SELECT COALESCE(MAX(urutan),0)+1 FROM properti), ?5)`,
   )
-    .bind(b.id, b.label, b.tipe, b.opsi ? JSON.stringify(b.opsi) : null)
+    .bind(b.id, b.label, b.tipe, b.opsi ? JSON.stringify(b.opsi) : null, entitas)
     .run();
 
   return json({ ok: true }, 201);
@@ -1150,6 +1169,10 @@ async function ubahJadwal(id: string, req: Request, env: Env, pengguna: Pengguna
 
   const set = kolom.map((k, i) => `${k} = ?${i + 2}`).join(', ');
   await env.DB.prepare(`UPDATE jadwal SET ${set} WHERE id = ?1`).bind(id, ...kolom.map((k) => b[k] ?? null)).run();
+  // Centang di Kalender dicerminkan ke teks memo asalnya.
+  if (lama.memo_id && 'selesai' in b) {
+    await cerminkanJadwalKeMemo(env, { memo_id: lama.memo_id, judul: lama.judul, tanggal: lama.tanggal, jam_mulai: lama.jam_mulai }, { selesai: Boolean(b.selesai) });
+  }
   return json({ ok: true });
 }
 
@@ -1238,6 +1261,15 @@ async function unggahLampiran(req: Request, env: Env, pengguna: Pengguna): Promi
     if (!lap) return galat('Laporan tidak ditemukan.', 404);
     if (lap.user_id !== pengguna.id && pengguna.peran !== 'admin' && pengguna.peran !== 'supervisor') {
       return galat('Hanya pembuat laporan, Admin, atau Supervisor yang boleh menambah foto laporan ini.', 403);
+    }
+  }
+
+  // Gambar dan berkas memo: hanya yang berhak mengubah memo itu (aturan sama dengan /api/memo/:id).
+  if (entitas === 'memo') {
+    const memo = await env.DB.prepare('SELECT user_id, lingkup FROM memo WHERE id = ?1').bind(entitasId).first<{ user_id: string; lingkup: string }>();
+    if (!memo || (memo.lingkup !== 'tim' && memo.user_id !== pengguna.id)) return galat('Memo tidak ditemukan.', 404);
+    if (memo.user_id !== pengguna.id && !(memo.lingkup === 'tim' && bolehUbahKunci(pengguna))) {
+      return galat('Hanya penulis, Supervisor, atau Admin yang boleh menambah gambar ke memo ini.', 403);
     }
   }
 

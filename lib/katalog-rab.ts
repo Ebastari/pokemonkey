@@ -8,6 +8,8 @@ import { api } from './api';
 
 export interface BarangKatalog {
   id: string;
+  /** Lembar rincian Excel (atk, bbm, pantry, …); 'rnr' = tanpa kategori. */
+  kategori?: string;
   kelompok: string;
   /** Kode WBS bawaan uraian ini. */
   wbs: string;

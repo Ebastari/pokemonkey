@@ -2,17 +2,24 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   NotebookPen, Plus, ListFilter, ArrowUpDown, Search, X, Trash2, Pencil, Eye, Loader2, KanbanSquare,
   CircleDot, Tags, Table2, Lock, Pin, PinOff, ChevronLeft, ChevronDown, User, ImageDown, FileSpreadsheet,
-  FileText, ClipboardList, Download, Clock, MapPin, Hash, Sun, Moon, Send,
+  FileText, ClipboardList, Download, Clock, MapPin, Hash, Sun, Moon, Send, ListChecks, CalendarDays, Target,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { unduhGambar } from '../lib/gambar';
 import { unduhGambarMemo, bagikanGambarMemo, GAYA_GAMBAR_MEMO, type GayaGambarMemo } from '../lib/gambar-memo';
 import { bukuBaru, gayakanChip, lembarBaru, pasangSaringan, simpanBuku, tanggalExcel, FORMAT_TANGGAL } from '../lib/excel';
-import type { Bootstrap, Opsi, Pengguna } from '../lib/tipe-api';
+import type { AnggotaRingkas, Bootstrap, Opsi, Pengguna, Properti as DefProperti } from '../lib/tipe-api';
 import type { Memo } from '../types';
 import { warna } from '../lib/warna';
 import * as W from '../lib/waktu';
-import { IsiMemo, toggleBaris } from './MemoMarkup';
+import { toggleBaris } from './MemoMarkup';
+import { EditorMemo } from './EditorMemo';
+import { BagikanMemo } from './BagikanMemo';
+import { TugasMemo } from './TugasMemo';
+import { KalenderMemo } from './KalenderMemo';
+import { EditorProperti, PilihPicaMemo, TambahPropertiMemo, bacaProps, teksNilai } from './PropertiMemo';
+import { cuplikanMemo, hitungTugas } from '../server/src/memo-blok';
+import { patchMemo, pasangPengirimTertunda, type PatchMemo } from '../lib/memo-simpan';
 import { FormInternalMemo } from './FormInternalMemo';
 import { type DataMemoDinas, MEMO_DINAS_DEFAULT, eksporMemoDinasKeExcel } from '../lib/ekspor-memo-dinas';
 import { FormMOM } from './FormMOM';
@@ -33,7 +40,7 @@ import { bacaTema, pasangTema, type Tema } from '../lib/tema';
  * dan Manajemen Nomor Surat (Internal & Eksternal).
  */
 
-type Tab = 'ikhtisar' | 'status' | 'kategori' | 'tabel' | 'pribadi' | 'internal_memo' | 'mom' | 'nomor_surat';
+type Tab = 'ikhtisar' | 'status' | 'kategori' | 'tabel' | 'tugas' | 'kalender' | 'pribadi' | 'internal_memo' | 'mom' | 'nomor_surat';
 type Urut = 'tanggal' | 'judul' | 'diubah';
 
 const KUNCI_TAB = 'pokemonkey_memo_tab';
@@ -43,6 +50,8 @@ const TAB: { id: Tab; label: string; ikon: React.ReactElement }[] = [
   { id: 'status', label: 'Status', ikon: <CircleDot size={14} /> },
   { id: 'kategori', label: 'Kategori', ikon: <Tags size={14} /> },
   { id: 'tabel', label: 'Tabel', ikon: <Table2 size={14} /> },
+  { id: 'tugas', label: 'Tugas', ikon: <ListChecks size={14} /> },
+  { id: 'kalender', label: 'Kalender', ikon: <CalendarDays size={14} /> },
   { id: 'pribadi', label: 'Pribadi', ikon: <Lock size={14} /> },
   { id: 'internal_memo', label: 'Internal Memo', ikon: <FileText size={14} /> },
   { id: 'mom', label: 'Minutes of Meeting', ikon: <ClipboardList size={14} /> },
@@ -72,9 +81,14 @@ interface Props {
   notify: (m: string) => void;
   /** Dari Data Surat: buka RAB RNR yang nomornya tercatat (pindah ke Money Monkey). */
   onBukaRab?: (idRab: string) => void;
+  /** Buka PICA yang ditautkan memo (pindah ke tab PICA). */
+  onBukaPica?: (idPica: string) => void;
 }
 
-export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab }) => {
+/** Tab yang menampilkan papan Memo Internal tim (dengan bilah saring/cari/ekspor). */
+const TAB_PAPAN: readonly Tab[] = ['ikhtisar', 'status', 'kategori', 'tabel'];
+
+export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab, onBukaPica }) => {
   const [tab, setTabState] = useState<Tab>(() => {
     try { return (localStorage.getItem(KUNCI_TAB) as Tab) || 'ikhtisar'; } catch { return 'ikhtisar'; }
   });
@@ -284,6 +298,13 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab 
   const bolehBuat = pengguna.peran !== 'pemantau';
   const kelola = pengguna.peran === 'admin' || pengguna.peran === 'supervisor';
 
+  // Catatan pribadi dimuat di sini juga, supaya Tugas dan Kalender mencakup keduanya.
+  const [memoPribadi, setMemoPribadi] = useState<Memo[]>([]);
+  const [memuatPribadi, setMemuatPribadi] = useState(true);
+  const [pribadiAwalId, setPribadiAwalId] = useState<string | null>(null);
+  const [propertiMemo, setPropertiMemo] = useState<DefProperti[]>(boot.propertiMemo ?? []);
+  useEffect(() => { setPropertiMemo(boot.propertiMemo ?? []); }, [boot.propertiMemo]);
+
   const muat = useCallback(async () => {
     try {
       const d = await api<{ memo: Memo[] }>('/api/memo?lingkup=tim');
@@ -293,9 +314,58 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab 
     } finally {
       setMemuat(false);
     }
+    try {
+      const d = await api<{ memo: Memo[] }>('/api/memo?lingkup=pribadi');
+      setMemoPribadi(d.memo);
+    } catch (e) {
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMUAT CATATAN');
+    } finally {
+      setMemuatPribadi(false);
+    }
   }, [notify]);
 
   useEffect(() => { muat(); }, [muat]);
+
+  /** Perubahan satu memo (tim atau pribadi) di daftar yang tampil. */
+  const perbaruiDimana = useCallback((id: string, patch: Partial<Memo>) => {
+    const ganti = (d: Memo[]) => (d.some((x) => x.id === id) ? d.map((x) => (x.id === id ? { ...x, ...patch } : x)) : d);
+    setMemo(ganti);
+    setMemoPribadi(ganti);
+  }, []);
+
+  // Perubahan yang tertahan karena sinyal hilang dikirim ulang sendiri.
+  useEffect(() => pasangPengirimTertunda((id, patch) => {
+    perbaruiDimana(id, patch as Partial<Memo>);
+    notify('PERUBAHAN MEMO TERKIRIM');
+  }), [perbaruiDimana, notify]);
+
+  const muatPropertiMemo = async () => {
+    try { const b = await api<Bootstrap>('/api/bootstrap'); setPropertiMemo(b.propertiMemo ?? []); } catch { /* biarkan */ }
+  };
+
+  const bolehUbahMemo = useCallback(
+    (m: Memo) => (m.lingkup === 'pribadi' ? true : m.user_id === pengguna.id || pengguna.peran === 'admin' || pengguna.peran === 'supervisor'),
+    [pengguna],
+  );
+
+  /** Centang tugas dari tab Tugas/Kalender: baris ceklis di memo asalnya yang berubah. */
+  const centangTugas = async (m: Memo, indeks: number) => {
+    const baru = toggleBaris(m.isi, indeks);
+    if (baru === m.isi) return;
+    perbaruiDimana(m.id, { isi: baru });
+    try {
+      if ((await patchMemo(m.id, { isi: baru })) === 'tertunda') notify('TANPA SINYAL — DISIMPAN DI HP, DIKIRIM NANTI');
+    } catch (e) {
+      perbaruiDimana(m.id, { isi: m.isi });
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENYIMPAN');
+    }
+  };
+
+  const bukaMemoDari = (m: Memo) => {
+    if (m.lingkup === 'tim') { setTerpilihId(m.id); return; }
+    setPribadiAwalId(m.id);
+    setTab('pribadi');
+  };
 
   const tersaring = useMemo(() => {
     const q = cari.trim().toLowerCase();
@@ -330,7 +400,7 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab 
       };
       setMemo((m) => [baru, ...m]);
       setTerpilihId(d.id);
-      if (tab === 'pribadi') setTab('ikhtisar');
+      if (!TAB_PAPAN.includes(tab)) setTab('ikhtisar');
     } catch (e) {
       notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUAT MEMO');
     }
@@ -460,7 +530,7 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab 
         </div>
 
         {/* Baris 3: Toolbar Khusus Menu Memo Internal (Ikhtisar, Status, Kategori, Tabel) */}
-        {tab !== 'pribadi' && tab !== 'internal_memo' && tab !== 'mom' && tab !== 'nomor_surat' && (
+        {TAB_PAPAN.includes(tab) && (
           <div>
             <div className="flex items-center gap-2 mb-2">
               {bolehBuat && (
@@ -517,7 +587,7 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab 
 
       {/* ---------- Isi ---------- */}
       <div ref={areaIsi} data-gambar-lepas className="flex-1 min-h-0 overflow-hidden px-3 pb-3" onClick={() => setAlat(null)}>
-        {memuat && tab !== 'pribadi' && tab !== 'internal_memo' && tab !== 'mom' && tab !== 'nomor_surat' && <p className="text-[13px] text-zinc-400 flex items-center gap-2 py-8 justify-center"><Loader2 size={14} className="animate-spin" /> Memuat…</p>}
+        {(memuat && TAB_PAPAN.includes(tab) || (memuat || memuatPribadi) && (tab === 'tugas' || tab === 'kalender')) && <p className="text-[13px] text-zinc-400 flex items-center gap-2 py-8 justify-center"><Loader2 size={14} className="animate-spin" /> Memuat…</p>}
 
         {!memuat && tab === 'ikhtisar' && (
           <Papan daftar={tersaring} kolom={kategori} kunci="kategori" tipe={tipe} status={status} onBuka={setTerpilihId} onBaru={bolehBuat ? (nilai) => buat({ kategori: nilai || null }) : undefined} />
@@ -529,9 +599,26 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab 
           <DaftarKategori daftar={tersaring} kategori={kategori} tipe={tipe} status={status} onBuka={setTerpilihId} />
         )}
         {!memuat && tab === 'tabel' && (
-          <TabelMemo daftar={tersaring} kategori={kategori} tipe={tipe} status={status} onBuka={setTerpilihId} />
+          <TabelMemo daftar={tersaring} kategori={kategori} tipe={tipe} status={status} properti={propertiMemo} tim={boot.tim} onBuka={setTerpilihId} />
         )}
-        {tab === 'pribadi' && <CatatanPribadi notify={notify} />}
+        {!memuat && !memuatPribadi && tab === 'tugas' && (
+          <TugasMemo memos={[...memo, ...memoPribadi]} tim={boot.tim} idSaya={pengguna.id} bolehUbah={bolehUbahMemo} onCentang={centangTugas} onBukaMemo={bukaMemoDari} />
+        )}
+        {!memuat && !memuatPribadi && tab === 'kalender' && (
+          <KalenderMemo memos={[...memo, ...memoPribadi]} tim={boot.tim} idSaya={pengguna.id} bolehUbah={bolehUbahMemo} onCentang={centangTugas} onBukaMemo={bukaMemoDari} />
+        )}
+        {tab === 'pribadi' && (
+          <CatatanPribadi
+            daftar={memoPribadi}
+            setDaftar={setMemoPribadi}
+            memuat={memuatPribadi}
+            awalId={pribadiAwalId}
+            onAwalDipakai={() => setPribadiAwalId(null)}
+            tim={boot.tim}
+            onBukaPica={onBukaPica}
+            notify={notify}
+          />
+        )}
         {memuatDokumen && (tab === 'internal_memo' || tab === 'mom' || tab === 'nomor_surat') && (
           <p className="text-[13px] text-zinc-400 flex items-center gap-2 py-8 justify-center"><Loader2 size={14} className="animate-spin" /> Memuat dokumen dari server…</p>
         )}
@@ -573,11 +660,17 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab 
 
       {terpilih && (
         <LembarMemo
+          key={terpilih.id}
           memo={terpilih}
           boleh={terpilih.user_id === pengguna.id || kelola}
+          kelola={kelola}
           kategori={kategori}
           tipe={tipe}
           status={status}
+          tim={boot.tim}
+          properti={propertiMemo}
+          onPropertiBaru={muatPropertiMemo}
+          onBukaPica={onBukaPica ? (id) => { setTerpilihId(null); onBukaPica(id); } : undefined}
           onUbah={(patch) => perbarui(terpilih.id, patch)}
           onHapus={() => { setMemo((m) => m.filter((x) => x.id !== terpilih.id)); setTerpilihId(null); }}
           onTutup={() => setTerpilihId(null)}
@@ -727,14 +820,38 @@ const ChipOpsi: React.FC<{ nilai: string | null; opsi: Opsi[]; bulat?: boolean }
   return <span className="inline-block px-1.5 py-0.5 text-[12px] font-bold bg-white/10 border border-white/20 text-zinc-200 whitespace-nowrap">{o?.label ?? nilai}</span>;
 };
 
+/** Kemajuan ceklis memo, mis. "☑ 2/5"; hijau bila semua selesai. */
+const ChipTugas: React.FC<{ isi: string }> = ({ isi }) => {
+  const { selesai, total } = hitungTugas(isi);
+  if (!total) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 border text-[12px] font-bold whitespace-nowrap ${selesai === total ? 'border-lime-500/60 text-lime-300' : 'border-white/20 text-zinc-300'}`} title={`${selesai} dari ${total} tugas selesai`}>
+      <ListChecks size={11} />{selesai}/{total}
+    </span>
+  );
+};
+
+/** PICA tertaut memo. */
+const ChipPica: React.FC<{ memo: Memo }> = ({ memo: m }) => {
+  if (!m.pica_id) return null;
+  const label = m.pica_no ? `PICA-${String(m.pica_no).padStart(3, '0')}` : 'PICA';
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 border text-[12px] font-bold whitespace-nowrap ${m.pica_status === 'Closed' ? 'border-white/20 text-zinc-400' : 'border-amber-400/60 text-amber-200 bg-amber-950/30'}`} title={m.pica_judul ?? undefined}>
+      <Target size={11} />{label}
+    </span>
+  );
+};
+
 const KartuMemo: React.FC<{ memo: Memo; tipe: Opsi[]; status: Opsi[]; onBuka: (id: string) => void }> = ({ memo: m, tipe, status, onBuka }) => (
   <div className="relative">
   {/* Kartu sendiri sebuah tombol, jadi tombol unduh ditumpuk di pojoknya (bukan di dalamnya). */}
   <div className="absolute top-1.5 right-1.5 z-[1]"><TombolGambarMemo memo={m} kecil /></div>
   <button onClick={() => onBuka(m.id)} className="w-full text-left bg-zinc-950 border-[3px] border-white/25 p-3 shadow-[3px_3px_0_#000] hover:border-white/60 transition-colors flex flex-col gap-2">
     <p className={`text-[15px] font-bold leading-snug pr-8 ${m.judul ? 'text-white' : 'text-zinc-500 italic'}`}>{m.judul || 'Tanpa judul'}</p>
-    {m.ringkasan && <p className="text-[13px] text-zinc-300 leading-snug line-clamp-3">{m.ringkasan}</p>}
-    {m.tipe && <div><ChipOpsi nilai={m.tipe} opsi={tipe} /></div>}
+    {(m.ringkasan || cuplikanMemo(m.isi)) && <p className="text-[13px] text-zinc-300 leading-snug line-clamp-3">{m.ringkasan || cuplikanMemo(m.isi)}</p>}
+    {(m.tipe || m.pica_id || m.isi.includes('- [')) && (
+      <div className="flex flex-wrap gap-1"><ChipOpsi nilai={m.tipe} opsi={tipe} /><ChipPica memo={m} /><ChipTugas isi={m.isi} /></div>
+    )}
     <p className="text-[12px] text-zinc-400">{tglMemo(m.tanggal)}{m.penulis ? ` · ${m.penulis.split(' ')[0]}` : ''}</p>
     {m.status && <div><ChipOpsi nilai={m.status} opsi={status} bulat /></div>}
   </button>
@@ -805,13 +922,15 @@ const DaftarKategori: React.FC<{ daftar: Memo[]; kategori: Opsi[]; tipe: Opsi[];
   </div>
 );
 
-const TabelMemo: React.FC<{ daftar: Memo[]; kategori: Opsi[]; tipe: Opsi[]; status: Opsi[]; onBuka: (id: string) => void }> = ({ daftar, kategori, tipe, status, onBuka }) => (
+const TabelMemo: React.FC<{
+  daftar: Memo[]; kategori: Opsi[]; tipe: Opsi[]; status: Opsi[]; properti: DefProperti[]; tim: AnggotaRingkas[]; onBuka: (id: string) => void;
+}> = ({ daftar, kategori, tipe, status, properti, tim, onBuka }) => (
   <div data-gambar-lepas data-gambar-lebar className="h-full overflow-auto custom-scrollbar border-[3px] border-white/30">
     <table className="min-w-[860px] w-full text-[13px] border-collapse">
       <thead className="sticky top-0 z-10">
         <tr className="bg-zinc-900 text-zinc-300 text-[11px] uppercase">
-          {['Judul', 'Kategori', 'Tipe', 'Status', 'Tanggal', 'Penulis', 'Ringkasan'].map((h) => (
-            <th key={h} className="text-left px-2 py-2 border-b-2 border-white/25 font-bold whitespace-nowrap">{h}</th>
+          {['Judul', 'Kategori', 'Tipe', 'Status', 'Tanggal', 'Penulis', 'Tugas', 'PICA', ...properti.map((p) => p.label), 'Ringkasan'].map((h, i) => (
+            <th key={`${i}-${h}`} className="text-left px-2 py-2 border-b-2 border-white/25 font-bold whitespace-nowrap">{h}</th>
           ))}
         </tr>
       </thead>
@@ -824,7 +943,13 @@ const TabelMemo: React.FC<{ daftar: Memo[]; kategori: Opsi[]; tipe: Opsi[]; stat
             <td className="px-2 py-2 border-b border-white/10"><ChipOpsi nilai={m.status} opsi={status} bulat /></td>
             <td className="px-2 py-2 border-b border-white/10 whitespace-nowrap text-zinc-300">{tglMemo(m.tanggal)}</td>
             <td className="px-2 py-2 border-b border-white/10 whitespace-nowrap text-zinc-300">{m.penulis ?? '—'}</td>
-            <td className="px-2 py-2 border-b border-white/10 text-zinc-400 min-w-[260px]">{m.ringkasan}</td>
+            <td className="px-2 py-2 border-b border-white/10"><ChipTugas isi={m.isi} /></td>
+            <td className="px-2 py-2 border-b border-white/10"><ChipPica memo={m} /></td>
+            {properti.map((p) => {
+              const v = bacaProps(m)[p.id];
+              return <td key={p.id} className="px-2 py-2 border-b border-white/10 text-zinc-300 whitespace-nowrap max-w-[220px] truncate">{teksNilai(p, v, tim)}</td>;
+            })}
+            <td className="px-2 py-2 border-b border-white/10 text-zinc-400 min-w-[260px]">{m.ringkasan || cuplikanMemo(m.isi)}</td>
           </tr>
         ))}
       </tbody>
@@ -1231,15 +1356,15 @@ const Properti: React.FC<{ label: string; children: React.ReactNode }> = ({ labe
 );
 
 const LembarMemo: React.FC<{
-  memo: Memo; boleh: boolean; kategori: Opsi[]; tipe: Opsi[]; status: Opsi[];
+  memo: Memo; boleh: boolean; kelola: boolean; kategori: Opsi[]; tipe: Opsi[]; status: Opsi[];
+  tim: AnggotaRingkas[]; properti: DefProperti[]; onPropertiBaru: () => void; onBukaPica?: (id: string) => void;
   onUbah: (patch: Partial<Memo>) => void; onHapus: () => void; onTutup: () => void; notify: (m: string) => void;
-}> = ({ memo, boleh, kategori, tipe, status, onUbah, onHapus, onTutup, notify }) => {
+}> = ({ memo, boleh, kelola, kategori, tipe, status, tim, properti, onPropertiBaru, onBukaPica, onUbah, onHapus, onTutup, notify }) => {
   const [judul, setJudul] = useState(memo.judul);
   const [ringkasan, setRingkasan] = useState(memo.ringkasan ?? '');
   const [isi, setIsi] = useState(memo.isi);
-  const [mode, setMode] = useState<'baca' | 'tulis'>(boleh && !memo.isi ? 'tulis' : 'baca');
-  const [status_, setStatusSimpan] = useState<'tersimpan' | 'mengetik' | 'menyimpan'>('tersimpan');
-  const tertunda = useRef<Partial<Memo>>({});
+  const [status_, setStatusSimpan] = useState<StatusSimpan>('tersimpan');
+  const tertunda = useRef<PatchMemo>({});
   const pewaktu = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const kirim = useCallback(async () => {
@@ -1248,16 +1373,16 @@ const LembarMemo: React.FC<{
     if (Object.keys(patch).length === 0) return;
     setStatusSimpan('menyimpan');
     try {
-      await api(`/api/memo/${memo.id}`, { method: 'PATCH', body: patch });
-      onUbah({ ...patch, diubah_pada: new Date().toISOString() });
-      setStatusSimpan('tersimpan');
+      const hasil = await patchMemo(memo.id, patch);
+      onUbah({ ...patch, diubah_pada: new Date().toISOString() } as Partial<Memo>);
+      setStatusSimpan(hasil);
     } catch (e) {
       setStatusSimpan('mengetik');
       notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENYIMPAN MEMO');
     }
   }, [memo.id, onUbah, notify]);
 
-  const jadwalkan = (patch: Partial<Memo>, segera = false) => {
+  const jadwalkan = (patch: PatchMemo, segera = false) => {
     if (!boleh) return;
     tertunda.current = { ...tertunda.current, ...patch };
     setStatusSimpan('mengetik');
@@ -1287,12 +1412,21 @@ const LembarMemo: React.FC<{
     </select>
   ) : <ChipOpsi nilai={nilai} opsi={opsi} bulat={kunci !== 'tipe'} />);
 
+  const nilaiProps = bacaProps(memo);
+  const ubahProps = (p: DefProperti, v: string | number | boolean | null) => {
+    const teks = JSON.stringify({ ...bacaProps(memo), [p.id]: v });
+    onUbah({ props: teks });
+    // Ketikan teks/angka/tautan ditunda; pilihan, tanggal, dan centang langsung dikirim.
+    jadwalkan({ props: teks }, !['teks', 'angka', 'url'].includes(p.tipe));
+  };
+
   return (
     <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm flex items-end md:items-center justify-center md:p-4" onClick={tutup}>
-      <div className="retro-box !bg-zinc-900 border-lime-500 w-full md:max-w-2xl max-h-[92vh] flex flex-col !p-0" onClick={(e) => e.stopPropagation()}>
+      <div className="retro-box !bg-zinc-900 border-lime-500 w-full md:max-w-3xl max-h-[94vh] flex flex-col !p-0" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-4 py-2 border-b-2 border-white/15 shrink-0">
           <span className="text-[12px] text-zinc-400 flex-1 truncate">Memo Internal{boleh ? '' : ' · baca-saja'}</span>
-          {boleh && <span className="text-[11px] text-zinc-500">{status_ === 'tersimpan' ? 'tersimpan' : status_ === 'menyimpan' ? 'menyimpan…' : 'mengetik…'}</span>}
+          {boleh && <TandaSimpan status={status_} />}
+          <BagikanMemo memoId={memo.id} judul={judul} notify={notify} />
           <TombolGambarMemo memo={{ ...memo, judul, ringkasan, isi }} />
           {boleh && <button onClick={hapus} className="btn-ikon !w-8 !h-8 bg-red-900" title="Hapus"><Trash2 size={14} /></button>}
           <button onClick={tutup} className="text-zinc-400 hover:text-white" aria-label="Tutup"><X size={22} /></button>
@@ -1315,6 +1449,21 @@ const LembarMemo: React.FC<{
                 : <span className="text-[13px] text-zinc-200">{tglMemo(memo.tanggal) || '—'}</span>}
             </Properti>
             <Properti label="Penulis"><span className="text-[13px] text-zinc-200 flex items-center gap-1"><User size={12} /> {memo.penulis ?? '—'}</span></Properti>
+            <Properti label="PICA">
+              <PilihPicaMemo
+                memo={memo}
+                boleh={boleh}
+                onBukaPica={onBukaPica}
+                onUbah={(id, r) => { onUbah({ pica_id: id, pica_no: r.no, pica_judul: r.judul, pica_status: r.status }); jadwalkan({ pica_id: id }, true); }}
+              />
+            </Properti>
+            {isi.includes('- [') && <Properti label="Tugas"><ChipTugas isi={isi} /></Properti>}
+            {properti.map((p) => (
+              <Properti key={p.id} label={p.label}>
+                <EditorProperti p={p} nilai={nilaiProps[p.id]} tim={tim} boleh={boleh} onUbah={(v) => ubahProps(p, v)} />
+              </Properti>
+            ))}
+            {kelola && <TambahPropertiMemo ada={properti} notify={notify} onSelesai={onPropertiBaru} />}
           </div>
 
           <div>
@@ -1325,21 +1474,17 @@ const LembarMemo: React.FC<{
           </div>
 
           <div className="border-t-2 border-white/10 pt-3">
-            {boleh && (
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[11px] text-zinc-500 flex-1">Markup: # judul · - butir · - [ ] tugas · **tebal**</span>
-                <button onClick={() => setMode(mode === 'baca' ? 'tulis' : 'baca')} className="btn-retro btn-retro-sm bg-zinc-800">
-                  {mode === 'baca' ? <><Pencil size={12} /> Tulis</> : <><Eye size={12} /> Baca</>}
-                </button>
-              </div>
-            )}
-            {boleh && mode === 'tulis' ? (
-              <textarea value={isi} onChange={(e) => { setIsi(e.target.value); jadwalkan({ isi: e.target.value }); }} className="input-retro !border-white/15 min-h-[220px] resize-y leading-relaxed" placeholder="Tulis isi memo…" spellCheck={false} />
-            ) : (
-              <div className="text-[14px] leading-relaxed">
-                <IsiMemo isi={isi} kosong="Belum ada isi." onToggle={boleh ? (i) => { const baru = toggleBaris(isi, i); setIsi(baru); jadwalkan({ isi: baru }); } : undefined} />
-              </div>
-            )}
+            <EditorMemo
+              memoId={memo.id}
+              isi={isi}
+              onIsi={(baru) => { setIsi(baru); jadwalkan({ isi: baru }); }}
+              boleh={boleh}
+              tim={tim}
+              notify={notify}
+              bolehSebutOrang
+              onBukaPica={onBukaPica}
+              tinggi={240}
+            />
           </div>
         </div>
       </div>
@@ -1347,42 +1492,57 @@ const LembarMemo: React.FC<{
   );
 };
 
+type StatusSimpan = 'tersimpan' | 'mengetik' | 'menyimpan' | 'tertunda';
+
+/** Keterangan simpan otomatis; 'tertunda' = tanpa sinyal, menunggu dikirim dari HP. */
+const TandaSimpan: React.FC<{ status: StatusSimpan; className?: string }> = ({ status, className = '' }) => (
+  <span className={`text-[11px] whitespace-nowrap ${status === 'tertunda' ? 'text-amber-300' : 'text-zinc-500'} ${className}`} title={status === 'tertunda' ? 'Tanpa sinyal: perubahan tersimpan di HP dan dikirim otomatis' : undefined}>
+    {status === 'tersimpan' ? 'tersimpan' : status === 'menyimpan' ? 'menyimpan…' : status === 'tertunda' ? 'disimpan di HP' : 'mengetik…'}
+  </span>
+);
+
 // ============================================================
 // Catatan pribadi (hanya pemiliknya)
 // ============================================================
 
 const TEMPLATE: { nama: string; judul: string; isi: string }[] = [
   { nama: 'Kosong', judul: '', isi: '' },
-  { nama: 'Rencana harian', judul: `Rencana ${W.formatPanjang(W.hariIniWita())}`, isi: '# Prioritas\n- [ ] \n- [ ] \n- [ ] \n\n## Lapangan\n- [ ] \n\n## Catatan\n' },
-  { nama: 'Catatan rapat', judul: 'Catatan rapat', isi: '# Peserta\n- \n\n# Keputusan\n- \n\n# Tindak lanjut\n- [ ] Siapa · apa · kapan\n' },
+  { nama: 'Rencana harian', judul: `Rencana ${W.formatPanjang(W.hariIniWita())}`, isi: `# Prioritas\n- [ ]  @${W.hariIniWita()}\n- [ ] \n- [ ] \n\n## Lapangan\n- [ ] \n\n## Catatan\n` },
+  { nama: 'Catatan rapat', judul: 'Catatan rapat', isi: '# Peserta\n- \n\n# Keputusan\n- \n\n# Tindak lanjut\n- [ ] Apa · kapan\n' },
   { nama: 'Daftar tugas', judul: 'Daftar tugas', isi: '- [ ] \n- [ ] \n- [ ] \n' },
 ];
 
 const WARNA_PRIBADI: Record<string, string> = { amber: 'border-l-amber-400', cyan: 'border-l-cyan-400', emerald: 'border-l-emerald-400', pink: 'border-l-pink-400', purple: 'border-l-purple-400' };
 const TITIK_PRIBADI: Record<string, string> = { amber: 'bg-amber-400', cyan: 'bg-cyan-400', emerald: 'bg-emerald-400', pink: 'bg-pink-400', purple: 'bg-purple-400' };
 
-const CatatanPribadi: React.FC<{ notify: (m: string) => void }> = ({ notify }) => {
-  const [daftar, setDaftar] = useState<Memo[]>([]);
-  const [memuat, setMemuat] = useState(true);
+const CatatanPribadi: React.FC<{
+  daftar: Memo[];
+  setDaftar: React.Dispatch<React.SetStateAction<Memo[]>>;
+  memuat: boolean;
+  /** Dibuka dari tab Tugas/Kalender. */
+  awalId: string | null;
+  onAwalDipakai: () => void;
+  tim: AnggotaRingkas[];
+  onBukaPica?: (id: string) => void;
+  notify: (m: string) => void;
+}> = ({ daftar, setDaftar, memuat, awalId, onAwalDipakai, tim, onBukaPica, notify }) => {
   const [aktifId, setAktifId] = useState<string | null>(null);
   const [cari, setCari] = useState('');
-  const [mode, setMode] = useState<'tulis' | 'baca'>('tulis');
   const [templateBuka, setTemplateBuka] = useState(false);
   const [judul, setJudul] = useState('');
   const [isi, setIsi] = useState('');
-  const [status, setStatus] = useState<'tersimpan' | 'mengetik' | 'menyimpan'>('tersimpan');
+  const [status, setStatus] = useState<StatusSimpan>('tersimpan');
   const simpanRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  useEffect(() => {
-    api<{ memo: Memo[] }>('/api/memo?lingkup=pribadi')
-      .then((d) => setDaftar(d.memo))
-      .catch((e) => notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMUAT CATATAN'))
-      .finally(() => setMemuat(false));
-  }, [notify]);
 
   const aktif = daftar.find((m) => m.id === aktifId) ?? null;
 
-  const buka = (m: Memo) => { setAktifId(m.id); setJudul(m.judul); setIsi(m.isi); setMode(m.isi.includes('- [') ? 'baca' : 'tulis'); setStatus('tersimpan'); };
+  const buka = (m: Memo) => { setAktifId(m.id); setJudul(m.judul); setIsi(m.isi); setStatus('tersimpan'); };
+
+  useEffect(() => {
+    if (!awalId) return;
+    const m = daftar.find((x) => x.id === awalId);
+    if (m) { buka(m); onAwalDipakai(); }
+  }, [awalId, daftar]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const jadwalkan = (j: string, i: string) => {
     if (!aktifId) return;
@@ -1392,9 +1552,9 @@ const CatatanPribadi: React.FC<{ notify: (m: string) => void }> = ({ notify }) =
     simpanRef.current = setTimeout(async () => {
       setStatus('menyimpan');
       try {
-        await api(`/api/memo/${id}`, { method: 'PATCH', body: { judul: j, isi: i } });
+        const hasil = await patchMemo(id, { judul: j, isi: i });
         setDaftar((d) => d.map((m) => (m.id === id ? { ...m, judul: j, isi: i, diubah_pada: new Date().toISOString() } : m)));
-        setStatus('tersimpan');
+        setStatus(hasil);
       } catch { setStatus('mengetik'); notify('GAGAL MENYIMPAN CATATAN'); }
     }, 800);
   };
@@ -1406,7 +1566,6 @@ const CatatanPribadi: React.FC<{ notify: (m: string) => void }> = ({ notify }) =
       const baru: Memo = { id: d.id, lingkup: 'pribadi', judul: t.judul, isi: t.isi, ringkasan: null, kategori: null, tipe: null, status: null, tanggal: null, disematkan: 0, warna: null, dibuat_pada: new Date().toISOString(), diubah_pada: null };
       setDaftar((x) => [baru, ...x]);
       buka(baru);
-      setMode('tulis');
     } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUAT CATATAN'); }
   };
 
@@ -1445,16 +1604,14 @@ const CatatanPribadi: React.FC<{ notify: (m: string) => void }> = ({ notify }) =
           {memuat && <p className="text-[12px] text-zinc-400 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> memuat…</p>}
           {!memuat && tersaring.length === 0 && <p className="text-[12px] text-zinc-400 text-center py-8">Belum ada catatan. Tekan <b>Baru</b>.</p>}
           {tersaring.map((m) => {
-            const cuplikan = m.isi.split('\n').find((b) => b.trim() && !b.startsWith('#'))?.replace(/^- \[[ x]\] /, '☐ ').replace(/^- /, '• ') ?? '';
-            const selesai = (m.isi.match(/- \[x\]/g) ?? []).length;
-            const total = (m.isi.match(/- \[[ x]\]/g) ?? []).length;
+            const { selesai, total } = hitungTugas(m.isi);
             return (
               <button key={m.id} onClick={() => buka(m)} className={`w-full text-left panel-retro !p-2 border-l-4 ${m.warna ? WARNA_PRIBADI[m.warna] : 'border-l-zinc-500'} ${aktifId === m.id ? '!bg-lime-950/40 !border-white/50' : ''}`}>
                 <div className="flex items-center gap-1">
                   {m.disematkan ? <Pin size={11} className="text-lime-300 shrink-0" /> : null}
                   <p className="text-[14px] font-bold text-white truncate flex-1">{m.judul || 'Tanpa judul'}</p>
                 </div>
-                <p className="text-[12px] text-zinc-300 truncate">{cuplikan}</p>
+                <p className="text-[12px] text-zinc-300 truncate">{cuplikanMemo(m.isi)}</p>
                 <p className="text-[11px] text-zinc-500 mt-0.5">{W.formatWaktuIso(m.diubah_pada ?? m.dibuat_pada)}{total ? ` · ${selesai}/${total} selesai` : ''}</p>
               </button>
             );
@@ -1466,24 +1623,28 @@ const CatatanPribadi: React.FC<{ notify: (m: string) => void }> = ({ notify }) =
         {aktif ? (
           <>
             <div className="flex items-center gap-1.5 mb-2">
-              <button onClick={() => setAktifId(null)} className="md:hidden btn-ikon !w-8 !h-8 bg-zinc-800"><ChevronLeft size={16} /></button>
+              <button onClick={() => setAktifId(null)} className="md:hidden btn-ikon !w-8 !h-8 bg-zinc-800" aria-label="Kembali ke daftar"><ChevronLeft size={16} /></button>
               <input value={judul} onChange={(e) => { setJudul(e.target.value); jadwalkan(e.target.value, isi); }} placeholder="Judul catatan" className="flex-1 bg-transparent text-[18px] font-bold text-white outline-none border-b-2 border-transparent focus:border-lime-400 min-w-0" />
-              <span className="text-[11px] text-zinc-400 whitespace-nowrap hidden sm:inline">{status === 'tersimpan' ? 'tersimpan' : status === 'menyimpan' ? 'menyimpan…' : 'mengetik…'}</span>
-              <button onClick={() => setMode(mode === 'baca' ? 'tulis' : 'baca')} className={`btn-ikon !w-8 !h-8 ${mode === 'baca' ? 'bg-lime-600' : 'bg-zinc-800'}`} title={mode === 'baca' ? 'Tulis' : 'Baca'}>{mode === 'baca' ? <Pencil size={14} /> : <Eye size={14} />}</button>
+              <TandaSimpan status={status} className="hidden sm:inline" />
               <button onClick={() => ubah(aktif, { disematkan: aktif.disematkan ? 0 : 1 })} className={`btn-ikon !w-8 !h-8 ${aktif.disematkan ? 'bg-lime-600' : 'bg-zinc-800'}`} title="Sematkan">{aktif.disematkan ? <PinOff size={14} /> : <Pin size={14} />}</button>
+              <BagikanMemo memoId={aktif.id} judul={judul} pribadi kecil notify={notify} />
               <TombolGambarMemo memo={{ ...aktif, judul, isi }} kecil />
               <button onClick={() => hapus(aktif)} className="btn-ikon !w-8 !h-8 bg-red-900" title="Hapus"><Trash2 size={14} /></button>
             </div>
             <div className="flex items-center gap-1 mb-2">
               {Object.keys(WARNA_PRIBADI).map((w) => <button key={w} onClick={() => ubah(aktif, { warna: aktif.warna === w ? null : w })} className={`w-4 h-4 border-2 ${aktif.warna === w ? 'border-white' : 'border-transparent'} ${TITIK_PRIBADI[w]}`} aria-label={`Warna ${w}`} />)}
             </div>
-            {mode === 'tulis' ? (
-              <textarea value={isi} onChange={(e) => { setIsi(e.target.value); jadwalkan(judul, e.target.value); }} placeholder="Tulis di sini…" className="flex-1 input-retro !border-white/15 resize-none leading-relaxed text-[14px] min-h-0" spellCheck={false} />
-            ) : (
-              <div className="flex-1 overflow-auto custom-scrollbar panel-retro !border-white/15 text-[14px] leading-relaxed min-h-0">
-                <IsiMemo isi={isi} kosong="Kosong. Tekan ikon pensil untuk menulis." onToggle={(i) => { const baru = toggleBaris(isi, i); setIsi(baru); jadwalkan(judul, baru); }} />
-              </div>
-            )}
+            <EditorMemo
+              key={aktif.id}
+              memoId={aktif.id}
+              isi={isi}
+              onIsi={(baru) => { setIsi(baru); jadwalkan(judul, baru); }}
+              boleh
+              tim={tim}
+              notify={notify}
+              onBukaPica={onBukaPica}
+              tinggi="penuh"
+            />
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-[13px] text-zinc-500">Pilih catatan di kiri atau buat yang baru.</div>

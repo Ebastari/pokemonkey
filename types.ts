@@ -105,6 +105,13 @@ export interface Memo {
   warna: string | null;
   dibuat_pada: string;
   diubah_pada: string | null;
+  /** Tautan ke satu PICA (id PICA) dan ringkasannya dari join di server. */
+  pica_id?: string | null;
+  pica_no?: number | null;
+  pica_judul?: string | null;
+  pica_status?: string | null;
+  /** Nilai properti kustom memo (JSON, kunci = id properti). */
+  props?: string | null;
 }
 
 export interface GameState {

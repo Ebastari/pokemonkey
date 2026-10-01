@@ -13,13 +13,15 @@ function json(data: unknown, status = 200): Response {
 }
 const galat = (pesan: string, status = 400) => json({ galat: pesan }, status);
 const bolehKelola = (p: Pengguna) => p.peran === 'admin' || p.peran === 'supervisor';
+/** Kategori = lembar rincian Excel RAB; 'rnr' = tanpa kategori (hanya di rekap). */
+const KATEGORI = ['atk', 'bbm', 'catering', 'perdin', 'listrik', 'air', 'telp', 'pantry', 'khl'];
 
 export async function ruteKatalogRab(jalur: string, req: Request, env: Env, pengguna: Pengguna): Promise<Response | null> {
   if (!jalur.startsWith('/api/katalog-rab')) return null;
 
   if (jalur === '/api/katalog-rab' && req.method === 'GET') {
     const { results } = await env.DB.prepare(
-      'SELECT id, kelompok, nama, satuan, harga, urutan, wbs FROM katalog_rab WHERE aktif = 1 ORDER BY urutan, nama',
+      'SELECT id, kategori, kelompok, nama, satuan, harga, urutan, wbs FROM katalog_rab WHERE aktif = 1 ORDER BY urutan, nama',
     ).all();
     return json({ katalog: results });
   }
@@ -31,16 +33,19 @@ export async function ruteKatalogRab(jalur: string, req: Request, env: Env, peng
     const wbs = String(b?.wbs ?? '').trim().slice(0, 40) || 'AB3.11-06.02.22.04';
     if (!nama) return galat('Nama uraian wajib diisi.');
     const id = String(b?.id ?? '').replace(/[^\w-]/g, '').slice(0, 60) || `kat-${Date.now().toString(36)}`;
+    // Kategori hanya diubah bila dikirim (aplikasi versi lama tidak mengirimnya).
+    const kategori = b && 'kategori' in b ? (KATEGORI.includes(String(b.kategori)) ? String(b.kategori) : 'rnr') : null;
     await env.DB.prepare(
       `INSERT INTO katalog_rab (id, kategori, kelompok, nama, satuan, harga, urutan, diubah_oleh, diubah_pada, wbs)
-       VALUES (?1,'rnr',?2,?3,?4,?5,?6,?7, datetime('now'), ?8)
+       VALUES (?1, COALESCE(?9, 'rnr'),?2,?3,?4,?5,?6,?7, datetime('now'), ?8)
        ON CONFLICT(id) DO UPDATE SET wbs = excluded.wbs, kelompok = excluded.kelompok, nama = excluded.nama,
+         kategori = COALESCE(?9, katalog_rab.kategori),
          satuan = excluded.satuan, harga = excluded.harga, urutan = excluded.urutan, aktif = 1,
          diubah_oleh = excluded.diubah_oleh, diubah_pada = excluded.diubah_pada`,
     ).bind(
       id, String(b?.kelompok ?? '').trim().slice(0, 60) || 'Pengajuan Rutin', nama,
       String(b?.satuan ?? '').trim().slice(0, 20) || 'Paket', Math.max(0, Number(b?.harga) || 0),
-      Math.round(Number(b?.urutan) || 99), pengguna.id, wbs,
+      Math.round(Number(b?.urutan) || 99), pengguna.id, wbs, kategori,
     ).run();
     return json({ id }, 201);
   }

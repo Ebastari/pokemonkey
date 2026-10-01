@@ -24,10 +24,13 @@ export interface Opsi {
 export interface Properti {
   id: string;
   label: string;
-  tipe: 'teks' | 'angka' | 'tanggal' | 'select' | 'checkbox' | 'url';
+  /** 'orang' (id anggota tim) hanya dipakai kolom memo. */
+  tipe: 'teks' | 'angka' | 'tanggal' | 'select' | 'checkbox' | 'url' | 'orang';
   opsi_json: string | null;
   urutan: number;
   tampil_di_tabel: number;
+  /** 'pica' (bawaan) atau 'memo'. */
+  entitas?: string;
 }
 
 export interface Periode {
@@ -53,6 +56,8 @@ export interface Bootstrap {
   pengguna: Pengguna;
   opsi: Opsi[];
   properti: Properti[];
+  /** Kolom kustom memo; kosong/tidak ada di server lama. */
+  propertiMemo?: Properti[];
   tim: AnggotaRingkas[];
   periode: Periode[];
   pengaturan: Record<string, string>;
