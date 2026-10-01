@@ -430,10 +430,11 @@ export async function eksporRabRnr(r: RabRnr, opsi: { rincian?: boolean } = {}):
 
   // Lembar rincian per kategori, disalin dari lembar model "Kategori". Disusun lebih
   // dulu supaya nomor barisnya sudah pasti saat dirujuk rumus rekap. Lembar model
-  // selalu dibuang, jadi ekspor biasa tetap satu lembar.
+  // selalu dibuang, jadi ekspor tanpa rincian tetap satu lembar.
   const model = await t.lembarLain('Kategori');
   const rujukan = new Map<UraianRab, (string | null)[]>();
-  if (opsi.rincian) {
+  const sertakanRincian = opsi.rincian ?? true;
+  if (sertakanRincian) {
     for (const kat of DAFTAR_KATEGORI) {
       const milik = isi.filter((u) => u.kategori === kat.id);
       if (milik.length) isiLembarKategori(await model.salin(kat.nama), kat.nama, r, milik, rujukan);
@@ -455,7 +456,7 @@ export async function eksporRabRnr(r: RabRnr, opsi: { rincian?: boolean } = {}):
   const rt = 19 + n;
   ['F', 'G', 'H', 'I'].forEach((k, m) => t.rumus(`${k}${rt}`, `SUM(${k}19:${k}${rt - 1})`, totalMinggu(r, m)));
   t.rumus(`J${rt}`, `SUM(J19:J${rt - 1})`, totalRab(r));
-  return t.simpan(`RAB RNR ${r.bulan} ${r.tahun} ${r.nomorRab.replace(/\//g, '-')}${opsi.rincian ? ' + rincian' : ''}.xlsx`, r.judul);
+  return t.simpan(`RAB RNR ${r.bulan} ${r.tahun} ${r.nomorRab.replace(/\//g, '-')}${sertakanRincian ? '' : ' - rekap'}.xlsx`, r.judul);
 }
 
 // ------------------------------------------------------------------ simpanan perangkat
