@@ -161,9 +161,9 @@ function katalogDemo(): Baris[] {
   const perdin = 'AB3.11-06.02.22.02';
   // Barang lembar BBM–KHL mengikuti "Contoh RAB HCGA Site.xlsx"; harga perkiraan contoh.
   return [
-    ['kat-rtn-01', 'rnr', 'Pengajuan Rutin', 'Kunjungan Verifikasi PNBP PKH SK 966', 'Paket', 7200000],
-    ['kat-rtn-02', 'rnr', 'Pengajuan Rutin', 'Kunjungan Verifikasi PNBP PKH SK 892', 'Paket', 7200000],
-    ['kat-rtn-03', 'rnr', 'Pengajuan Rutin', 'Kunjungan Verifikasi PNBP PKH SK 78', 'Paket', 7200000],
+    ['kat-rtn-01', 'kunjungan', 'Kunjungan Eksternal', 'Kunjungan Verifikasi PNBP PKH SK 966', 'Paket', 7200000],
+    ['kat-rtn-02', 'kunjungan', 'Kunjungan Eksternal', 'Kunjungan Verifikasi PNBP PKH SK 892', 'Paket', 7200000],
+    ['kat-rtn-03', 'kunjungan', 'Kunjungan Eksternal', 'Kunjungan Verifikasi PNBP PKH SK 78', 'Paket', 7200000],
     ['kat-rtn-04', 'rnr', 'Pengajuan Rutin', 'Operasional Tahura', 'Paket', 2000000],
     ['kat-bbm-01', 'bbm', 'BBM Operasional Tahura', 'Pertalite kendaraan operasional Tahura', 'Liter', 10000],
     ['kat-bbm-02', 'bbm', 'BBM Operasional Tahura', 'Solar kendaraan / alat operasional Tahura', 'Liter', 6800],

@@ -76,10 +76,19 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
 
   const kartu = kartuRab(rab);
   const keranjang = isiKeranjang(rab);
-  const daftarKelompok = useMemo(() => [...new Set(katalog.map((b) => b.kelompok))], [katalog]);
+  const daftarKelompok = useMemo(() => {
+    const set = new Set(katalog.map((b) => b.kelompok).filter(Boolean));
+    set.add('Kunjungan Eksternal');
+    return [...set];
+  }, [katalog]);
   const tampil = useMemo(() => {
     const q = cari.trim().toLowerCase();
-    return katalog.filter((b) => (!kelompok || b.kelompok === kelompok) && (!q || `${b.nama} ${b.kelompok}`.toLowerCase().includes(q)));
+    return katalog.filter((b) => {
+      const cocokKelompok = !kelompok
+        || b.kelompok === kelompok
+        || (kelompok === 'Kunjungan Eksternal' && (b.kategori === 'kunjungan' || b.kelompok.toLowerCase().includes('kunjungan')));
+      return cocokKelompok && (!q || `${b.nama} ${b.kelompok}`.toLowerCase().includes(q));
+    });
   }, [katalog, cari, kelompok]);
   const diKeranjang = (b: BarangKatalog) => keranjang.filter((k) => k.uraian.trim().toLowerCase() === b.nama.trim().toLowerCase()).reduce((n, k) => n + k.qty, 0);
 
@@ -94,7 +103,8 @@ export const PapanRabRnr: React.FC<Props> = ({ rab, ubah, bolehKelola, notify })
     const uraian = baru.uraian.trim();
     if (!uraian) { notify('ISI URAIAN DULU'); return; }
     try {
-      await simpanBarangKatalog({ nama: uraian, wbs: baru.wbs, satuan: baru.satuan.trim() || 'Paket', harga: Number(baru.harga) || 0, kategori: baru.kategori ?? 'rnr', kelompok: 'Pengajuan Rutin', urutan: 50 });
+      const kelompokBaru = (baru.kategori && namaKategori(baru.kategori)) || (kelompok && kelompok !== 'Semua' ? kelompok : 'Pengajuan Rutin');
+      await simpanBarangKatalog({ nama: uraian, wbs: baru.wbs, satuan: baru.satuan.trim() || 'Paket', harga: Number(baru.harga) || 0, kategori: baru.kategori ?? 'rnr', kelompok: kelompokBaru, urutan: 50 });
       notify('URAIAN MASUK KATALOG');
       setBaru({ ...baru, uraian: '', harga: '' });
       muat();
