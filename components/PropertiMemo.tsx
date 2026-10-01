@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link as IkonTaut, Loader2, Plus, X } from 'lucide-react';
+import { ExternalLink, Link as IkonTaut, Loader2, MapPin, Plus, X } from 'lucide-react';
 import { api } from '../lib/api';
 import type { AnggotaRingkas, Properti } from '../lib/tipe-api';
 import type { PicaItem } from '../lib/tipe-api';
@@ -27,6 +27,14 @@ export function opsiProperti(p: Properti): string[] {
   } catch { return []; }
 }
 
+/** Menghasilkan tautan Google Maps dari teks alamat, koordinat, atau URL. */
+export function buatTautanGoogleMaps(lokasi: string): string {
+  const t = lokasi.trim();
+  if (!t) return '';
+  if (/^https?:\/\//i.test(t)) return t;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(t)}`;
+}
+
 /** Nilai properti sebagai teks (untuk tabel, ekspor, dan pencarian). */
 export function teksNilai(p: Properti, nilai: unknown, tim: AnggotaRingkas[]): string {
   if (nilai === undefined || nilai === null || nilai === '') return '';
@@ -44,6 +52,22 @@ export const EditorProperti: React.FC<{
   const teks = nilai === undefined || nilai === null ? '' : String(nilai);
   if (!boleh) {
     if (p.tipe === 'url' && teks) return <a href={teks} target="_blank" rel="noopener noreferrer" className="text-[13px] text-sky-300 underline break-all">{teks}</a>;
+    if (p.tipe === 'lokasi' && teks) {
+      const mapsUrl = buatTautanGoogleMaps(teks);
+      return (
+        <a
+          href={mapsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-[13px] text-emerald-400 hover:text-emerald-300 underline font-medium break-all"
+          title="Buka di Google Maps"
+        >
+          <MapPin size={13} className="text-red-400 shrink-0" />
+          <span>{teks}</span>
+          <ExternalLink size={12} className="opacity-70 shrink-0" />
+        </a>
+      );
+    }
     return <span className="text-[13px] text-zinc-200">{teksNilai(p, nilai, tim) || '—'}</span>;
   }
   switch (p.tipe) {
@@ -72,6 +96,61 @@ export const EditorProperti: React.FC<{
           {teks && <a href={teks} target="_blank" rel="noopener noreferrer" className="text-sky-300" aria-label="Buka tautan"><IkonTaut size={14} /></a>}
         </span>
       );
+    case 'lokasi': {
+      const mapsUrl = teks ? buatTautanGoogleMaps(teks) : '';
+      return (
+        <div className="flex items-center gap-1.5 w-full">
+          <div className="relative flex-1 min-w-0">
+            <input
+              type="text"
+              value={teks}
+              onChange={(e) => onUbah(e.target.value || null)}
+              placeholder="Nama tempat, koordinat, atau link Maps"
+              className="input-retro !py-1 !text-[13px] !pr-7 w-full"
+              aria-label={p.label}
+            />
+            <MapPin size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+          </div>
+          {teks && (
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-retro btn-retro-sm !bg-emerald-800 hover:!bg-emerald-700 !text-white flex items-center gap-1 shrink-0 px-2 py-1 text-[11px]"
+              title="Buka lokasi di Google Maps"
+            >
+              <MapPin size={12} className="text-red-300" />
+              <span className="hidden sm:inline">Buka Maps</span>
+              <ExternalLink size={10} />
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              if (!navigator.geolocation) {
+                alert('Fitur GPS tidak didukung di browser ini.');
+                return;
+              }
+              navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                  const lat = pos.coords.latitude.toFixed(6);
+                  const lng = pos.coords.longitude.toFixed(6);
+                  onUbah(`${lat}, ${lng}`);
+                },
+                (err) => {
+                  alert('Gagal mengambil titik GPS: ' + err.message);
+                },
+                { enableHighAccuracy: true, timeout: 8000 }
+              );
+            }}
+            className="btn-retro btn-retro-sm !bg-zinc-800 hover:!bg-zinc-700 !text-zinc-300 shrink-0 px-2 py-1 text-[11px]"
+            title="Isi koordinat GPS perangkat saat ini"
+          >
+            GPS
+          </button>
+        </div>
+      );
+    }
     default:
       return <input type="text" value={teks} onChange={(e) => onUbah(e.target.value || null)} className="input-retro !py-1 !text-[13px]" aria-label={p.label} />;
   }
@@ -113,9 +192,9 @@ export const TambahPropertiMemo: React.FC<{
   return (
     <div className="border-2 border-white/15 p-2 space-y-2 bg-white/[0.03]">
       <div className="flex gap-2">
-        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Nama properti (mis. Lokasi)" className="input-retro !py-1 !text-[13px] flex-1 min-w-0" aria-label="Nama properti" />
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Nama properti (mis. Lokasi, Titik Kumpul)" className="input-retro !py-1 !text-[13px] flex-1 min-w-0" aria-label="Nama properti" />
         <select value={tipe} onChange={(e) => setTipe(e.target.value as Properti['tipe'])} className="input-retro !py-1 !text-[13px] !w-auto" aria-label="Jenis properti">
-          {([['teks', 'Teks'], ['angka', 'Angka'], ['tanggal', 'Tanggal'], ['select', 'Pilihan'], ['orang', 'Orang'], ['checkbox', 'Kotak centang'], ['url', 'Tautan']] as const).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          {([['teks', 'Teks'], ['angka', 'Angka'], ['tanggal', 'Tanggal'], ['select', 'Pilihan'], ['orang', 'Orang'], ['checkbox', 'Kotak centang'], ['url', 'Tautan'], ['lokasi', '📍 Lokasi / Maps']] as const).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
       </div>
       {tipe === 'select' && <input value={opsi} onChange={(e) => setOpsi(e.target.value)} placeholder="Pilihan, pisahkan dengan koma" className="input-retro !py-1 !text-[13px]" aria-label="Pilihan" />}

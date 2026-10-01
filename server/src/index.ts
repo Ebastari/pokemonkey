@@ -238,6 +238,8 @@ export default {
 
       // --- Kolom & pilihan dinamis ---
       if (jalur === '/api/properti' && req.method === 'POST') return tambahProperti(req, env, pengguna);
+      const cocokPropertiId = jalur.match(/^\/api\/properti\/([\w-]+)$/);
+      if (cocokPropertiId && req.method === 'DELETE') return hapusProperti(cocokPropertiId[1], env, pengguna);
       if (jalur === '/api/opsi' && req.method === 'POST') return tambahOpsi(req, env, pengguna);
 
       // --- Pengumuman ---
@@ -997,13 +999,14 @@ async function kunciPeriode(id: string, env: Env, pengguna: Pengguna): Promise<R
 // ============================================================
 
 async function tambahProperti(req: Request, env: Env, pengguna: Pengguna): Promise<Response> {
-  if (!bolehUbahKunci(pengguna)) return galat('Hanya Admin/Supervisor yang boleh menambah kolom.', 403);
+  if (pengguna.peran === 'pemantau') return galat('Pemantau tidak diizinkan menambah kolom.', 403);
   const b = (await req.json()) as { id?: string; label?: string; tipe?: string; opsi?: string[]; entitas?: string };
   if (!b.id || !b.label || !b.tipe) return galat('id, label, dan tipe wajib diisi.');
   if (!/^[a-z0-9_]+$/.test(b.id)) return galat('id kolom hanya boleh huruf kecil, angka, dan garis bawah.');
   const entitas = b.entitas === 'memo' ? 'memo' : 'pica';
+  if (entitas !== 'memo' && !bolehUbahKunci(pengguna)) return galat('Hanya Admin/Supervisor yang boleh menambah kolom PICA.', 403);
   if (entitas === 'memo' && !b.id.startsWith('m_')) return galat('id kolom memo harus berawalan m_.');
-  if (!['teks', 'angka', 'tanggal', 'select', 'checkbox', 'url', 'orang'].includes(b.tipe)) return galat('Jenis kolom tidak dikenal.');
+  if (!['teks', 'angka', 'tanggal', 'select', 'checkbox', 'url', 'orang', 'lokasi'].includes(b.tipe)) return galat('Jenis kolom tidak dikenal.');
 
   const ada = await env.DB.prepare('SELECT id FROM properti WHERE id = ?1').bind(b.id).first();
   if (ada) return galat(`Kolom "${b.id}" sudah ada.`, 409);
@@ -1016,6 +1019,20 @@ async function tambahProperti(req: Request, env: Env, pengguna: Pengguna): Promi
     .run();
 
   return json({ ok: true }, 201);
+}
+
+async function hapusProperti(id: string, env: Env, pengguna: Pengguna): Promise<Response> {
+  if (pengguna.peran === 'pemantau') return galat('Pemantau tidak diizinkan menghapus kolom.', 403);
+  const baris = await env.DB.prepare('SELECT id, label, entitas FROM properti WHERE id = ?1')
+    .bind(id)
+    .first<{ id: string; label: string; entitas: string }>();
+  if (!baris) return galat(`Kolom "${id}" tidak ditemukan.`, 404);
+  if (baris.entitas !== 'memo' && !bolehUbahKunci(pengguna)) {
+    return galat('Hanya Admin/Supervisor yang boleh menghapus kolom PICA.', 403);
+  }
+
+  await env.DB.prepare('DELETE FROM properti WHERE id = ?1').bind(id).run();
+  return json({ ok: true, id, label: baris.label });
 }
 
 async function tambahOpsi(req: Request, env: Env, pengguna: Pengguna): Promise<Response> {

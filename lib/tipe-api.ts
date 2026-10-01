@@ -24,8 +24,8 @@ export interface Opsi {
 export interface Properti {
   id: string;
   label: string;
-  /** 'orang' (id anggota tim) hanya dipakai kolom memo. */
-  tipe: 'teks' | 'angka' | 'tanggal' | 'select' | 'checkbox' | 'url' | 'orang';
+  /** 'orang' (id anggota tim) dan 'lokasi' (Google Maps) hanya dipakai kolom memo. */
+  tipe: 'teks' | 'angka' | 'tanggal' | 'select' | 'checkbox' | 'url' | 'orang' | 'lokasi';
   opsi_json: string | null;
   urutan: number;
   tampil_di_tabel: number;

@@ -1416,8 +1416,26 @@ const LembarMemo: React.FC<{
   const ubahProps = (p: DefProperti, v: string | number | boolean | null) => {
     const teks = JSON.stringify({ ...bacaProps(memo), [p.id]: v });
     onUbah({ props: teks });
-    // Ketikan teks/angka/tautan ditunda; pilihan, tanggal, dan centang langsung dikirim.
-    jadwalkan({ props: teks }, !['teks', 'angka', 'url'].includes(p.tipe));
+    // Ketikan teks/angka/tautan/lokasi ditunda; pilihan, tanggal, dan centang langsung dikirim.
+    jadwalkan({ props: teks }, !['teks', 'angka', 'url', 'lokasi'].includes(p.tipe));
+  };
+
+  const hapusKolomProperti = async (p: DefProperti) => {
+    if (!confirm(`Hapus kolom properti "${p.label}"?\nKolom ini akan dihapus dari daftar properti memo.`)) return;
+    try {
+      await api(`/api/properti/${p.id}`, { method: 'DELETE' });
+      notify(`KOLOM "${p.label.toUpperCase()}" BERHASIL DIHAPUS`);
+      if (nilaiProps[p.id] !== undefined) {
+        const baru = { ...nilaiProps };
+        delete baru[p.id];
+        const teksBaru = JSON.stringify(baru);
+        onUbah({ props: teksBaru });
+        jadwalkan({ props: teksBaru }, true);
+      }
+      onPropertiBaru();
+    } catch (e) {
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENGHAPUS KOLOM');
+    }
   };
 
   return (
@@ -1459,9 +1477,24 @@ const LembarMemo: React.FC<{
             </Properti>
             {isi.includes('- [') && <Properti label="Tugas"><ChipTugas isi={isi} /></Properti>}
             {properti.map((p) => (
-              <Properti key={p.id} label={p.label}>
-                <EditorProperti p={p} nilai={nilaiProps[p.id]} tim={tim} boleh={boleh} onUbah={(v) => ubahProps(p, v)} />
-              </Properti>
+              <div key={p.id} className="flex items-center gap-2 group">
+                <div className="flex-1 min-w-0">
+                  <Properti label={p.label}>
+                    <EditorProperti p={p} nilai={nilaiProps[p.id]} tim={tim} boleh={boleh} onUbah={(v) => ubahProps(p, v)} />
+                  </Properti>
+                </div>
+                {(kelola || boleh) && (
+                  <button
+                    type="button"
+                    onClick={() => hapusKolomProperti(p)}
+                    className="btn-ikon !w-7 !h-7 !bg-zinc-800/80 hover:!bg-red-950 text-zinc-400 hover:text-red-400 border border-zinc-700 hover:border-red-600/80 shrink-0 transition-colors"
+                    title={`Hapus kolom properti "${p.label}" dari memo`}
+                    aria-label={`Hapus kolom ${p.label}`}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
             ))}
             {kelola && <TambahPropertiMemo ada={properti} notify={notify} onSelesai={onPropertiBaru} />}
           </div>
