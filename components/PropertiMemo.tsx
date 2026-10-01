@@ -1,6 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { ExternalLink, Link as IkonTaut, Loader2, MapPin, Plus, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Check, ExternalLink, Link as IkonTaut, Loader2, Map, MapPin, Navigation, Plus, Search, X } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { api } from '../lib/api';
+import { ambilNamaTempatDariKoordinat, cariDaftarTempat } from '../lib/geokoding';
 import type { AnggotaRingkas, Properti } from '../lib/tipe-api';
 import type { PicaItem } from '../lib/tipe-api';
 import type { Memo } from '../types';
@@ -96,64 +99,316 @@ export const EditorProperti: React.FC<{
           {teks && <a href={teks} target="_blank" rel="noopener noreferrer" className="text-sky-300" aria-label="Buka tautan"><IkonTaut size={14} /></a>}
         </span>
       );
-    case 'lokasi': {
-      const mapsUrl = teks ? buatTautanGoogleMaps(teks) : '';
-      return (
-        <div className="flex items-center gap-1.5 w-full">
-          <div className="relative flex-1 min-w-0">
-            <input
-              type="text"
-              value={teks}
-              onChange={(e) => onUbah(e.target.value || null)}
-              placeholder="Nama tempat, koordinat, atau link Maps"
-              className="input-retro !py-1 !text-[13px] !pr-7 w-full"
-              aria-label={p.label}
-            />
-            <MapPin size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
-          </div>
-          {teks && (
-            <a
-              href={mapsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-retro btn-retro-sm !bg-emerald-800 hover:!bg-emerald-700 !text-white flex items-center gap-1 shrink-0 px-2 py-1 text-[11px]"
-              title="Buka lokasi di Google Maps"
-            >
-              <MapPin size={12} className="text-red-300" />
-              <span className="hidden sm:inline">Buka Maps</span>
-              <ExternalLink size={10} />
-            </a>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              if (!navigator.geolocation) {
-                alert('Fitur GPS tidak didukung di browser ini.');
-                return;
-              }
-              navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                  const lat = pos.coords.latitude.toFixed(6);
-                  const lng = pos.coords.longitude.toFixed(6);
-                  onUbah(`${lat}, ${lng}`);
-                },
-                (err) => {
-                  alert('Gagal mengambil titik GPS: ' + err.message);
-                },
-                { enableHighAccuracy: true, timeout: 8000 }
-              );
-            }}
-            className="btn-retro btn-retro-sm !bg-zinc-800 hover:!bg-zinc-700 !text-zinc-300 shrink-0 px-2 py-1 text-[11px]"
-            title="Isi koordinat GPS perangkat saat ini"
-          >
-            GPS
-          </button>
-        </div>
-      );
-    }
+    case 'lokasi':
+      return <EditorPropertiLokasi p={p} teks={teks} onUbah={onUbah} />;
     default:
       return <input type="text" value={teks} onChange={(e) => onUbah(e.target.value || null)} className="input-retro !py-1 !text-[13px]" aria-label={p.label} />;
   }
+};
+
+const pinPetaRetro = L.divIcon({
+  className: 'pin-peta-memo',
+  html: '<div style="font-size:28px;line-height:1;margin-left:-14px;margin-top:-28px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6));">📍</div>',
+  iconSize: [28, 28],
+  iconAnchor: [14, 28],
+});
+
+/** Modal peta interaktif untuk memilih titik lokasi dan otomatis mendeteksi nama tempatnya */
+const ModalPilihPeta: React.FC<{
+  awal?: string;
+  onPilih: (namaTempat: string) => void;
+  onTutup: () => void;
+}> = ({ awal, onPilih, onTutup }) => {
+  const wadahPetaRef = useRef<HTMLDivElement>(null);
+  const petaRef = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
+  const [alamatTerpilih, setAlamatTerpilih] = useState<string>(awal || 'Mendeteksi lokasi...');
+  const [sedangCari, setSedangCari] = useState<boolean>(false);
+  const [kataKunci, setKataKunci] = useState<string>('');
+
+  useEffect(() => {
+    if (!wadahPetaRef.current || petaRef.current) return;
+
+    // Koordinat pusat default: Kalimantan Selatan (area operasional)
+    const pusatDefault: [number, number] = [-3.44, 114.83];
+    const map = L.map(wadahPetaRef.current).setView(pusatDefault, 13);
+    petaRef.current = map;
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19,
+    }).addTo(map);
+
+    const marker = L.marker(pusatDefault, { icon: pinPetaRetro, draggable: true }).addTo(map);
+    markerRef.current = marker;
+
+    const perbaruiTitik = async (lat: number, lng: number) => {
+      setSedangCari(true);
+      setAlamatTerpilih('Mencari nama tempat...');
+      const nama = await ambilNamaTempatDariKoordinat(lat, lng);
+      setAlamatTerpilih(nama);
+      setSedangCari(false);
+    };
+
+    map.on('click', (e) => {
+      marker.setLatLng(e.latlng);
+      void perbaruiTitik(e.latlng.lat, e.latlng.lng);
+    });
+
+    marker.on('dragend', () => {
+      const p = marker.getLatLng();
+      void perbaruiTitik(p.lat, p.lng);
+    });
+
+    // Coba ambil lokasi GPS perangkat saat ini untuk memposisikan peta
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          if (petaRef.current && markerRef.current) {
+            petaRef.current.setView([lat, lng], 15);
+            markerRef.current.setLatLng([lat, lng]);
+            void perbaruiTitik(lat, lng);
+          }
+        },
+        () => {
+          void perbaruiTitik(pusatDefault[0], pusatDefault[1]);
+        },
+        { enableHighAccuracy: true, timeout: 6000 }
+      );
+    } else {
+      void perbaruiTitik(pusatDefault[0], pusatDefault[1]);
+    }
+
+    setTimeout(() => map.invalidateSize(), 250);
+
+    return () => {
+      map.remove();
+      petaRef.current = null;
+    };
+  }, []);
+
+  const cariTempatAksi = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!kataKunci.trim() || !petaRef.current || !markerRef.current) return;
+    setSedangCari(true);
+    const hasil = await cariDaftarTempat(kataKunci);
+    setSedangCari(false);
+    if (hasil.length > 0) {
+      const t = hasil[0];
+      petaRef.current.setView([t.lat, t.lng], 16);
+      markerRef.current.setLatLng([t.lat, t.lng]);
+      setAlamatTerpilih(t.nama + (t.alamatLengkap ? `, ${t.alamatLengkap.split(',').slice(1, 3).join(', ')}` : ''));
+    } else {
+      alert(`Tempat "${kataKunci}" tidak ditemukan.`);
+    }
+  };
+
+  const pusatkanKeGps = () => {
+    if (!navigator.geolocation) return;
+    setSedangCari(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (petaRef.current && markerRef.current) {
+          petaRef.current.setView([lat, lng], 16);
+          markerRef.current.setLatLng([lat, lng]);
+        }
+        const nama = await ambilNamaTempatDariKoordinat(lat, lng);
+        setAlamatTerpilih(nama);
+        setSedangCari(false);
+      },
+      () => setSedangCari(false),
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-black/85 backdrop-blur-sm flex items-center justify-center p-3" onClick={onTutup}>
+      <div className="retro-box !bg-zinc-900 border-lime-500 w-full max-w-lg flex flex-col !p-0 overflow-hidden max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+        {/* Header Modal */}
+        <div className="flex items-center justify-between px-3 py-2 border-b-2 border-white/15 bg-zinc-950">
+          <div className="flex items-center gap-2 text-white font-bold text-[13px]">
+            <MapPin size={15} className="text-lime-400" />
+            <span>Pilih Lokasi Tempat di Peta</span>
+          </div>
+          <button type="button" onClick={onTutup} className="text-zinc-400 hover:text-white" aria-label="Tutup"><X size={18} /></button>
+        </div>
+
+        {/* Pencarian Tempat & Tombol GPS */}
+        <form onSubmit={cariTempatAksi} className="flex gap-2 p-2 border-b border-white/10 bg-zinc-900">
+          <input
+            type="text"
+            value={kataKunci}
+            onChange={(e) => setKataKunci(e.target.value)}
+            placeholder="Cari nama tempat / jalan / site..."
+            className="input-retro !py-1 !text-[12px] flex-1 min-w-0"
+          />
+          <button type="submit" disabled={sedangCari} className="btn-retro btn-retro-sm !bg-lime-700 !text-white flex items-center gap-1 text-[11px]">
+            {sedangCari ? <Loader2 size={11} className="animate-spin" /> : <Search size={11} />}
+            <span>Cari</span>
+          </button>
+          <button
+            type="button"
+            onClick={pusatkanKeGps}
+            disabled={sedangCari}
+            className="btn-retro btn-retro-sm !bg-zinc-800 hover:!bg-zinc-700 !text-lime-400 flex items-center gap-1 text-[11px]"
+            title="Pusatkan ke lokasi saya"
+          >
+            <Navigation size={11} />
+            <span className="hidden sm:inline">GPS Saya</span>
+          </button>
+        </form>
+
+        {/* Kontainer Peta Leaflet */}
+        <div ref={wadahPetaRef} className="h-64 w-full bg-zinc-800 relative z-0" />
+
+        {/* Hasil Deteksi Tempat */}
+        <div className="p-3 bg-zinc-950 border-t border-white/10 space-y-2">
+          <div className="text-[11px] text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+            <MapPin size={11} className="text-red-400" />
+            <span>Nama Tempat (klik/geser pin di peta):</span>
+          </div>
+          <div className="text-[13px] text-white font-medium bg-zinc-900 p-2 border border-white/10 rounded break-words min-h-[38px] flex items-center">
+            {sedangCari ? (
+              <span className="flex items-center gap-1.5 text-zinc-400 text-[12px]">
+                <Loader2 size={13} className="animate-spin text-lime-400" />
+                Mendeteksi nama tempat...
+              </span>
+            ) : (
+              alamatTerpilih
+            )}
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => onPilih(alamatTerpilih)}
+              disabled={sedangCari || !alamatTerpilih || alamatTerpilih === 'Mendeteksi lokasi...'}
+              className="btn-retro btn-retro-sm !bg-lime-600 hover:!bg-lime-500 !text-black font-bold flex-1 py-1.5 text-[12px] flex items-center justify-center gap-1.5"
+            >
+              <Check size={14} /> Gunakan Tempat Ini
+            </button>
+            <button
+              type="button"
+              onClick={onTutup}
+              className="btn-retro btn-retro-sm !bg-zinc-800 text-zinc-300 py-1.5 px-3 text-[12px]"
+            >
+              Batal
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/** Editor properti Lokasi: otomatis mendeteksi nama tempat (bukan koordinat mentah), pilih di peta, dan buka Google Maps */
+const EditorPropertiLokasi: React.FC<{
+  p: Properti;
+  teks: string;
+  onUbah: (v: string | null) => void;
+}> = ({ p, teks, onUbah }) => {
+  const [sedangGps, setSedangGps] = useState(false);
+  const [bukaPeta, setBukaPeta] = useState(false);
+
+  const ambilLokasiOtomatis = async () => {
+    if (!navigator.geolocation) {
+      alert('Perangkat/browser Anda tidak mendukung fitur lokasi GPS.');
+      return;
+    }
+    setSedangGps(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const namaTempat = await ambilNamaTempatDariKoordinat(lat, lng);
+          onUbah(namaTempat);
+        } catch {
+          alert('Gagal mendeteksi nama tempat.');
+        } finally {
+          setSedangGps(false);
+        }
+      },
+      (err) => {
+        setSedangGps(false);
+        alert('Gagal mengambil titik GPS: ' + err.message);
+      },
+      { enableHighAccuracy: true, timeout: 9000 }
+    );
+  };
+
+  const mapsUrl = teks ? buatTautanGoogleMaps(teks) : '';
+
+  return (
+    <>
+      <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 w-full">
+        <div className="relative flex-1 min-w-[170px]">
+          <input
+            type="text"
+            value={teks}
+            onChange={(e) => onUbah(e.target.value || null)}
+            placeholder="Nama tempat / alamat (mis. Site EBL, Asam-Asam)"
+            className="input-retro !py-1 !text-[13px] !pr-7 w-full"
+            aria-label={p.label}
+          />
+          <MapPin size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+        </div>
+
+        {/* Tombol Ambil Lokasi Otomatis (GPS -> Terjemah ke Nama Tempat Nyata) */}
+        <button
+          type="button"
+          onClick={ambilLokasiOtomatis}
+          disabled={sedangGps}
+          className="btn-retro btn-retro-sm !bg-lime-800 hover:!bg-lime-700 !text-lime-200 flex items-center gap-1 shrink-0 px-2 py-1 text-[11px]"
+          title="Ambil lokasi otomatis dari GPS dan ubah menjadi nama tempat nyata"
+        >
+          {sedangGps ? <Loader2 size={12} className="animate-spin text-lime-300" /> : <Navigation size={12} className="text-lime-300" />}
+          <span>{sedangGps ? 'Mendeteksi...' : 'Lokasi Otomatis'}</span>
+        </button>
+
+        {/* Tombol Buka Peta Interaktif */}
+        <button
+          type="button"
+          onClick={() => setBukaPeta(true)}
+          className="btn-retro btn-retro-sm !bg-zinc-800 hover:!bg-zinc-700 !text-zinc-200 flex items-center gap-1 shrink-0 px-2 py-1 text-[11px]"
+          title="Buka peta untuk mencari atau memilih titik tempat"
+        >
+          <Map size={12} className="text-amber-400" />
+          <span className="hidden sm:inline">Peta</span>
+        </button>
+
+        {/* Tombol Buka di Google Maps */}
+        {teks && (
+          <a
+            href={mapsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-retro btn-retro-sm !bg-blue-900 hover:!bg-blue-800 !text-white flex items-center gap-1 shrink-0 px-2 py-1 text-[11px]"
+            title="Buka tempat ini di Google Maps"
+          >
+            <MapPin size={11} className="text-red-400" />
+            <span className="hidden md:inline">Google Maps</span>
+            <ExternalLink size={10} />
+          </a>
+        )}
+      </div>
+
+      {/* Modal Peta Interaktif */}
+      {bukaPeta && (
+        <ModalPilihPeta
+          awal={teks}
+          onPilih={(tempat) => {
+            onUbah(tempat);
+            setBukaPeta(false);
+          }}
+          onTutup={() => setBukaPeta(false)}
+        />
+      )}
+    </>
+  );
 };
 
 const slug = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 28);
