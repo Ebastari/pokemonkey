@@ -739,8 +739,16 @@ const App: React.FC = () => {
     notify(baru === 'terang' ? 'MODE TERANG — UNTUK DI LAPANGAN' : 'MODE GELAP');
   };
 
+  const bolehKelola = sesi?.pengguna?.peran === 'admin' || sesi?.pengguna?.peran === 'supervisor';
+  const daftarTab = useMemo(() => {
+    return URUTAN_TAB.filter((t) => t !== 'money' || bolehKelola);
+  }, [bolehKelola]);
   const bukaPica = (id: string) => { setPicaTerpilih(id); setActiveTab('pica'); };
   const pilihTab = (t: AppTab) => {
+    if (t === 'money' && !bolehKelola) {
+      notify('AKSES DITOLAK: HANYA ADMIN & SUPERVISOR');
+      return;
+    }
     setActiveTab(t);
     setMenuBuka(false);
     if (t === 'pengumuman') setPengumumanBaru(0);
@@ -847,7 +855,7 @@ const App: React.FC = () => {
           sedangAlarm={Boolean(alarmAktif)}
           onBukaAlarm={() => setPanelAlarmBuka(true)}
           onBukaNotif={() => pilihTab('notif')}
-          onBukaMoney={() => pilihTab('money')}
+          onBukaMoney={bolehKelola ? () => pilihTab('money') : undefined}
           onBukaFire={() => pilihTab('fire')}
         />
       )}
@@ -855,21 +863,21 @@ const App: React.FC = () => {
       {activeTab === 'jadwal' && <KalenderScreen pengguna={pengguna} tim={boot.tim} opsiRoster={boot.opsi.filter((o) => o.grup === 'roster')} onBukaPica={bukaPica} notify={notify} fokus={fokus} onFokus={() => setFokus((f) => !f)} onPerubahanJadwal={() => api<{ jadwal: JadwalItem[] }>('/api/jadwal').then((d) => setSemuaJadwal(d.jadwal ?? [])).catch(() => undefined)} />}
       {activeTab === 'pengumuman' && <PengumumanScreen pengguna={pengguna} jumlahTim={boot.tim.length} notify={notify} />}
       {activeTab === 'roster' && <RosterScreen boot={boot} pengguna={pengguna} notify={notify} />}
-      {activeTab === 'memo' && <MemoScreen boot={boot} pengguna={pengguna} notify={notify} onBukaPica={bukaPica} onBukaRab={(id) => { setBukaRabId(id); setActiveTab('money'); }} />}
+      {activeTab === 'memo' && <MemoScreen boot={boot} pengguna={pengguna} notify={notify} onBukaPica={bukaPica} onBukaRab={(id) => { if (bolehKelola) { setBukaRabId(id); setActiveTab('money'); } }} />}
       {activeTab === 'notif' && <NotifikasiScreen boot={boot} notify={notify} />}
       {activeTab === 'team' && <TeamScreen pengguna={pengguna} onBootUlang={bootUlang} notify={notify} />}
       {activeTab === 'market' && <MarketScreen state={gameState} onBuy={handleBuySkin} onEquip={handleEquipSkin} />}
-      {activeTab === 'missions' && <MissionsScreen state={gameState} admin={pengguna.peran === 'admin'} onStart={handleMissionStart} onSimpan={handleMisiSimpan} onHapus={handleMisiHapus} />}
+      {activeTab === 'missions' && <MissionsScreen state={gameState} admin={bolehKelola} onStart={handleMissionStart} onSimpan={handleMisiSimpan} onHapus={handleMisiHapus} />}
       {activeTab === 'reports' && <ReportsScreen state={gameState} picaTerbuka={picaTerbuka} onSubmit={handleReportSubmit} />}
       {activeTab === 'calendar' && (
         <CalendarScreen
           state={gameState}
-          bolehSemua={pengguna.peran === 'admin' || pengguna.peran === 'supervisor'}
+          bolehSemua={bolehKelola}
           onTambahFoto={tambahFotoLaporan}
           onRead={(r) => { setMonkeyDialogue(`Uu-aa! ${r.activityType}: ${r.achievedUnit.toFixed(2)} unit. Semangat!`); setActiveTab('habitat'); }}
         />
       )}
-      {activeTab === 'money' && <MoneyMonkeyScreen pengguna={pengguna} notify={notify} bukaRabId={bukaRabId} onRabDibuka={() => setBukaRabId(null)} />}
+      {activeTab === 'money' && bolehKelola && <MoneyMonkeyScreen pengguna={pengguna} notify={notify} bukaRabId={bukaRabId} onRabDibuka={() => setBukaRabId(null)} />}
       {activeTab === 'fire' && <FireMonkeyScreen pengguna={pengguna} notify={notify} />}
     </>
   );
@@ -975,10 +983,12 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex gap-2 items-center px-2">
-            <button onClick={() => pilihTab('money')} className="btn-retro btn-retro-sm bg-gradient-to-r from-emerald-700 to-teal-700 hover:from-emerald-600 hover:to-teal-600 text-white font-bold flex items-center gap-1.5" title="Money Monkey - Anggaran, RAB & Keuangan HCGA">
-              <Coins size={15} />
-              <span className="hidden xl:inline">Money Monkey</span>
-            </button>
+            {bolehKelola && (
+              <button onClick={() => pilihTab('money')} className="btn-retro btn-retro-sm bg-gradient-to-r from-emerald-700 to-teal-700 hover:from-emerald-600 hover:to-teal-600 text-white font-bold flex items-center gap-1.5" title="Money Monkey - Anggaran, RAB & Keuangan HCGA">
+                <Coins size={15} />
+                <span className="hidden xl:inline">Money Monkey</span>
+              </button>
+            )}
             <button onClick={() => pilihTab('fire')} className="btn-retro btn-retro-sm bg-gradient-to-r from-red-700 to-orange-700 hover:from-red-600 hover:to-orange-600 text-white font-bold flex items-center gap-1.5" title="Fire Monkey - Pantau Titik Api & Karhutla NASA FIRMS">
               <Flame size={15} />
               <span className="hidden xl:inline">Fire Monkey</span>
@@ -1002,7 +1012,7 @@ const App: React.FC = () => {
       <main className={`flex-1 flex flex-col md:flex-row overflow-hidden relative ${fokus ? 'p-0' : 'p-1 md:p-4 gap-2 md:gap-4'}`}>
         {!fokus && (
           <aside className="hidden md:flex w-24 flex-col gap-2 overflow-auto custom-scrollbar pr-1">
-            {URUTAN_TAB.map((t) => (
+            {daftarTab.map((t) => (
               <SidebarItem key={t} active={activeTab === t} icon={INFO_TAB[t].ikon} label={INFO_TAB[t].label} onClick={() => pilihTab(t)} color={INFO_TAB[t].warna} badge={t === 'pengumuman' ? pengumumanBaru : 0} />
             ))}
           </aside>
@@ -1076,7 +1086,7 @@ const App: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-3 gap-2 mb-3">
-              {URUTAN_TAB.filter((t) => !TAB_UTAMA.includes(t)).map((t) => (
+              {daftarTab.filter((t) => !TAB_UTAMA.includes(t)).map((t) => (
                 <button key={t} onClick={() => pilihTab(t)} className={`retro-box !p-2 flex flex-col items-center gap-1 ${activeTab === t ? INFO_TAB[t].warna + ' teks-atas-warna border-white' : '!bg-zinc-800 border-zinc-600'}`}>
                   {React.cloneElement(INFO_TAB[t].ikon as React.ReactElement<{ size?: number }>, { size: 20 })}
                   <span className="text-[10px] font-bold">{INFO_TAB[t].label}</span>
@@ -1085,10 +1095,12 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <div className="grid grid-cols-2 gap-2 w-full">
-                <button onClick={() => { pilihTab('money'); setMenuBuka(false); }} className="btn-retro btn-retro-sm bg-gradient-to-r from-emerald-700 to-teal-700 text-white font-bold flex items-center justify-center gap-1.5" title="Buka Money Monkey">
-                  <Coins size={14} /> Money Monkey
-                </button>
+              <div className={`grid ${bolehKelola ? 'grid-cols-2' : 'grid-cols-1'} gap-2 w-full`}>
+                {bolehKelola && (
+                  <button onClick={() => { pilihTab('money'); setMenuBuka(false); }} className="btn-retro btn-retro-sm bg-gradient-to-r from-emerald-700 to-teal-700 text-white font-bold flex items-center justify-center gap-1.5" title="Buka Money Monkey">
+                    <Coins size={14} /> Money Monkey
+                  </button>
+                )}
                 <button onClick={() => { pilihTab('fire'); setMenuBuka(false); }} className="btn-retro btn-retro-sm bg-gradient-to-r from-red-700 to-orange-700 text-white font-bold flex items-center justify-center gap-1.5" title="Buka Fire Monkey">
                   <Flame size={14} /> Fire Monkey
                 </button>

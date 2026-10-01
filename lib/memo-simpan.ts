@@ -13,7 +13,7 @@ import type { Memo } from '../types';
 const KUNCI = 'pokemonkey_memo_tertunda';
 
 export type PatchMemo = Partial<Pick<Memo,
-  'judul' | 'isi' | 'ringkasan' | 'kategori' | 'tipe' | 'status' | 'tanggal' | 'warna' | 'disematkan' | 'pica_id' | 'props'>>;
+  'judul' | 'isi' | 'ringkasan' | 'kategori' | 'tipe' | 'status' | 'tanggal' | 'warna' | 'disematkan' | 'pica_id' | 'props' | 'akses'>>;
 
 interface Tertunda { patch: PatchMemo; pada: number }
 

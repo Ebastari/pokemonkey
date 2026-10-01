@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  X, Phone, MessageCircle, Loader2, ClipboardList, NotebookPen, Backpack, CalendarRange, Star,
+  X, Phone, MessageCircle, Loader2, ClipboardList, NotebookPen, Backpack, CalendarRange, Star, Pencil,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import type { Opsi, Pengguna } from '../lib/tipe-api';
@@ -61,6 +61,10 @@ export const PanelAnggota: React.FC<Props> = ({ userId, nama, pengguna, opsiRost
   const [memuat, setMemuat] = useState(true);
   const [pesan, setPesan] = useState('');
   const [suntingPesan, setSuntingPesan] = useState(false);
+  const [editBuka, setEditBuka] = useState(false);
+  const [formAkun, setFormAkun] = useState({ nama: '', jabatan: '', bidang: '', peran: 'anggota', wa: '' });
+  const [menyimpanAkun, setMenyimpanAkun] = useState(false);
+  const bolehKelola = pengguna.peran === 'admin' || pengguna.peran === 'supervisor';
 
   useEffect(() => {
     let hidup = true;
@@ -75,6 +79,18 @@ export const PanelAnggota: React.FC<Props> = ({ userId, nama, pengguna, opsiRost
       .finally(() => { if (hidup) setMemuat(false); });
     return () => { hidup = false; };
   }, [userId, pengguna.nama, notify]);
+
+  useEffect(() => {
+    if (data?.anggota) {
+      setFormAkun({
+        nama: data.anggota.nama || '',
+        jabatan: data.anggota.jabatan || '',
+        bidang: data.anggota.bidang || '',
+        peran: data.anggota.peran || 'anggota',
+        wa: data.anggota.wa || '',
+      });
+    }
+  }, [data]);
 
   const labelRoster = useMemo(() => {
     const dariOpsi = new Map((opsiRoster ?? []).map((o) => [o.nilai, o.label]));
@@ -101,13 +117,111 @@ export const PanelAnggota: React.FC<Props> = ({ userId, nama, pengguna, opsiRost
               : <span className="font-title text-[13px] text-black">{(a?.nama ?? nama ?? '?').slice(0, 1).toUpperCase()}</span>}
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="judul-layar truncate" title={a?.nama ?? nama ?? ''}>{namaTampil(a?.nama ?? nama) || 'Anggota'}</h2>
-            <p className="text-[12px] text-zinc-300 mt-1 truncate">
+            <h2 className="judul-layar truncate flex items-center gap-1.5" title={a?.nama ?? nama ?? ''}>
+              {namaTampil(a?.nama ?? nama) || 'Anggota'}
+              {a?.peran && (
+                <span className={`chip-retro !text-[9px] uppercase ${a.peran === 'admin' ? 'border-amber-400 text-amber-300 bg-amber-950/60' : a.peran === 'supervisor' ? 'border-blue-400 text-blue-300 bg-blue-950/60' : 'border-zinc-500 text-zinc-300'}`}>
+                  {a.peran === 'supervisor' ? 'SPV' : a.peran}
+                </span>
+              )}
+            </h2>
+            <p className="text-[12px] text-zinc-300 mt-0.5 truncate">
               {a?.jabatan ?? '—'}{a?.bidang ? ` · ${a.bidang}` : ''}
             </p>
           </div>
+          {bolehKelola && (
+            <button
+              onClick={() => setEditBuka((v) => !v)}
+              className="btn-retro btn-retro-sm bg-zinc-800 text-[11px] shrink-0"
+              title="Kelola jabatan & peran"
+            >
+              <Pencil size={12} /> {editBuka ? 'Tutup' : 'Jabatan'}
+            </button>
+          )}
           <button onClick={onTutup} className="btn-ikon !w-8 !h-8 bg-zinc-800 shrink-0" aria-label="Tutup"><X size={15} /></button>
         </div>
+
+        {editBuka && bolehKelola && (
+          <div className="panel-retro !p-3 border-emerald-500 bg-black/60 flex flex-col gap-2 mb-3">
+            <div className="flex justify-between items-center border-b border-white/20 pb-1.5">
+              <p className="text-[12px] font-bold text-emerald-300 uppercase flex items-center gap-1.5">
+                <Pencil size={12} /> Kelola Jabatan & Peran
+              </p>
+              <span className="text-[10px] text-zinc-400">Admin & SPV</span>
+            </div>
+            <div>
+              <label className="label-retro">Nama Lengkap</label>
+              <input
+                value={formAkun.nama}
+                onChange={(e) => setFormAkun({ ...formAkun, nama: e.target.value })}
+                className="input-retro !text-[12px] !py-1"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="label-retro">Jabatan</label>
+                <input
+                  value={formAkun.jabatan}
+                  onChange={(e) => setFormAkun({ ...formAkun, jabatan: e.target.value })}
+                  className="input-retro !text-[12px] !py-1"
+                  placeholder="mis. Forester, SPV"
+                />
+              </div>
+              <div>
+                <label className="label-retro">Peran Sistem</label>
+                <select
+                  value={formAkun.peran}
+                  onChange={(e) => setFormAkun({ ...formAkun, peran: e.target.value })}
+                  className="input-retro !text-[12px] !py-1"
+                >
+                  <option value="admin">Admin</option>
+                  <option value="supervisor">Supervisor (SPV)</option>
+                  <option value="anggota">Anggota</option>
+                  <option value="pemantau">Pemantau</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="label-retro">Bidang</label>
+                <input
+                  value={formAkun.bidang}
+                  onChange={(e) => setFormAkun({ ...formAkun, bidang: e.target.value })}
+                  className="input-retro !text-[12px] !py-1"
+                  placeholder="mis. Revegetasi, Nursery"
+                />
+              </div>
+              <div>
+                <label className="label-retro">Nomor WhatsApp</label>
+                <input
+                  value={formAkun.wa}
+                  onChange={(e) => setFormAkun({ ...formAkun, wa: e.target.value })}
+                  className="input-retro !text-[12px] !py-1"
+                  placeholder="0812..."
+                />
+              </div>
+            </div>
+            <button
+              disabled={menyimpanAkun}
+              onClick={async () => {
+                setMenyimpanAkun(true);
+                try {
+                  await api(`/api/tim/${userId}`, { method: 'PATCH', body: formAkun });
+                  setData((d) => d ? { ...d, anggota: { ...d.anggota, ...formAkun } } : null);
+                  notify('JABATAN & PERAN DISIMPAN');
+                  setEditBuka(false);
+                } catch (e) {
+                  notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENYIMPAN');
+                } finally {
+                  setMenyimpanAkun(false);
+                }
+              }}
+              className="btn-retro bg-emerald-600 text-[12px] w-full mt-1 font-bold"
+            >
+              {menyimpanAkun ? 'Menyimpan...' : 'Simpan Perubahan'}
+            </button>
+          </div>
+        )}
 
         {memuat && !data && (
           <p className="text-[13px] text-zinc-400 flex items-center gap-2 py-8 justify-center">

@@ -8,16 +8,16 @@
  * serta posisi kursor di dalam satu blok yang bisa disunting.
  */
 
-import { uraiInline } from '../server/src/memo-blok';
+import { bacaData, bacaTabel, uraiInline } from '../server/src/memo-blok';
 import type { AnggotaRingkas } from './tipe-api';
 import * as W from './waktu';
 
 export type JenisBlok =
-  | 'teks' | 'h1' | 'h2' | 'h3' | 'butir' | 'nomor' | 'ceklis' | 'kutipan' | 'penting'
-  | 'garis' | 'gambar' | 'berkas';
+  | 'teks' | 'h1' | 'h2' | 'h3' | 'h4' | 'butir' | 'nomor' | 'ceklis' | 'toggle' | 'kutipan' | 'penting'
+  | 'garis' | 'gambar' | 'video' | 'tabel' | 'berkas' | 'data';
 
 /** Blok yang isinya diketik langsung (bukan garis, gambar, berkas). */
-export const BLOK_TEKS: ReadonlySet<JenisBlok> = new Set(['teks', 'h1', 'h2', 'h3', 'butir', 'nomor', 'ceklis', 'kutipan', 'penting']);
+export const BLOK_TEKS: ReadonlySet<JenisBlok> = new Set(['teks', 'h1', 'h2', 'h3', 'h4', 'butir', 'nomor', 'ceklis', 'toggle', 'kutipan', 'penting']);
 
 /** Enter pada blok ini membuat blok baru berjenis sama (daftar berlanjut). */
 const BERLANJUT: ReadonlySet<JenisBlok> = new Set(['butir', 'nomor', 'ceklis']);
@@ -28,13 +28,17 @@ export interface InfoBaris { jenis: JenisBlok; isi: string; selesai: boolean }
 /** Urutan pemeriksaan sama dengan uraiBlok, agar penyunting dan penampil sepakat. */
 export function bacaBaris(raw: string): InfoBaris {
   let m: RegExpMatchArray | null;
-  if ((m = raw.match(/^(#{1,3}) (.*)$/))) return { jenis: (['h1', 'h2', 'h3'] as const)[m[1].length - 1], isi: m[2], selesai: false };
+  if ((m = raw.match(/^(#{1,4}) (.*)$/))) return { jenis: (['h1', 'h2', 'h3', 'h4'] as const)[m[1].length - 1], isi: m[2], selesai: false };
   if ((m = raw.match(/^- \[([ xX])\] ?(.*)$/))) return { jenis: 'ceklis', isi: m[2], selesai: m[1] !== ' ' };
   if (/^---+\s*$/.test(raw)) return { jenis: 'garis', isi: '', selesai: false };
+  if (/^!video\[[^\]]*\]\(https?:\/\/[^)\s]+\)\s*$/.test(raw)) return { jenis: 'video', isi: raw, selesai: false };
+  if (raw.startsWith('!tabel{') && bacaTabel(raw)) return { jenis: 'tabel', isi: raw, selesai: false };
+  if (raw.startsWith('!data{') && bacaData(raw)) return { jenis: 'data', isi: raw, selesai: false };
   if (/^!\[[^\]]*\]\([^)\s]+\)\s*$/.test(raw)) return { jenis: 'gambar', isi: raw, selesai: false };
   if (/^\[[^\]]+\]\((?:memo|demo)\/[^)\s]+\)\s*$/.test(raw)) return { jenis: 'berkas', isi: raw, selesai: false };
   if (raw.startsWith('- ')) return { jenis: 'butir', isi: raw.slice(2), selesai: false };
   if ((m = raw.match(/^\d{1,3}\. (.*)$/))) return { jenis: 'nomor', isi: m[1], selesai: false };
+  if (raw.startsWith('>> ')) return { jenis: 'toggle', isi: raw.slice(3), selesai: false };
   if (raw.startsWith('> ')) return { jenis: 'kutipan', isi: raw.slice(2), selesai: false };
   if (raw.startsWith('!! ')) return { jenis: 'penting', isi: raw.slice(3), selesai: false };
   return { jenis: 'teks', isi: raw, selesai: false };
@@ -45,30 +49,36 @@ export function rakitBaris(jenis: JenisBlok, isi: string, selesai = false): stri
     case 'h1': return `# ${isi}`;
     case 'h2': return `## ${isi}`;
     case 'h3': return `### ${isi}`;
+    case 'h4': return `#### ${isi}`;
     case 'butir': return `- ${isi}`;
     case 'nomor': return `1. ${isi}`;
     case 'ceklis': return `- [${selesai ? 'x' : ' '}] ${isi}`;
+    case 'toggle': return `>> ${isi}`;
     case 'kutipan': return `> ${isi}`;
     case 'penting': return `!! ${isi}`;
     case 'garis': return '---';
+    case 'data': return isi;
     default: return isi;
   }
 }
 
 /**
  * Pintasan ketik ala Notion di awal blok: "# " judul, "- " butir, "[] " ceklis,
- * "1. " bernomor, "\" " atau "> " kutipan, "!! " kotak penting, "---" garis.
+ * "1. " bernomor, "> " toggle, "\" " kutipan, "!! " callout, "---" divider.
+ * (Kutipan lama tetap disimpan sebagai "> " — lihat bacaBaris; hanya pintasan
+ * ketiknya yang mengikuti Notion.)
  */
 export function cekPintasan(md: string): { jenis: JenisBlok; sisa: string; selesai: boolean } | null {
   if (/^---$/.test(md)) return { jenis: 'garis', sisa: '', selesai: false };
-  const m = md.match(/^(#{1,3}|[-*+]|\[ ?\]|\[[xX]\]|\d{1,3}\.|["“>]|!!) ([\s\S]*)$/);
+  const m = md.match(/^(#{1,4}|[-*+]|\[ ?\]|\[[xX]\]|\d{1,3}\.|["“]|>|!!) ([\s\S]*)$/);
   if (!m) return null;
   const p = m[1];
-  const jenis: JenisBlok = p.startsWith('#') ? (['h1', 'h2', 'h3'] as const)[p.length - 1]
+  const jenis: JenisBlok = p.startsWith('#') ? (['h1', 'h2', 'h3', 'h4'] as const)[p.length - 1]
     : p.startsWith('[') ? 'ceklis'
       : /^\d/.test(p) ? 'nomor'
         : p === '!!' ? 'penting'
-          : /^["“>]$/.test(p) ? 'kutipan'
+          : p === '>' ? 'toggle'
+          : /^["“]$/.test(p) ? 'kutipan'
             : 'butir';
   return { jenis, sisa: m[2], selesai: /x/i.test(p) };
 }
@@ -93,7 +103,21 @@ function kelasTenggat(tanggal: string, selesai: boolean): string {
       : 'border-sky-400/60 text-sky-200 bg-sky-950/30';
 }
 
-export interface KonteksHtml { tim?: AnggotaRingkas[]; selesai?: boolean }
+/** Judul & ikon terkini halaman yang ditautkan (judul di teks hanya cadangan, seperti Notion). */
+export type PetaHalaman = ReadonlyMap<string, { judul: string; ikon?: string }>;
+
+export interface KonteksHtml {
+  tim?: AnggotaRingkas[]; selesai?: boolean;
+  /** Bila diberikan, tautan ke halaman yang tidak ada di peta ditandai "di Sampah / dihapus". */
+  halaman?: PetaHalaman;
+}
+
+/** Judul tampil chip halaman + penanda hilang (di Sampah atau sudah dihapus). */
+export function infoHalaman(id: string, judulSimpan: string, peta?: PetaHalaman): { judul: string; ikon: string; hilang: boolean } {
+  const h = peta?.get(id);
+  if (h) return { judul: h.judul.trim() || 'Tanpa judul', ikon: h.ikon || '📄', hilang: false };
+  return { judul: judulSimpan.trim() || 'Tanpa judul', ikon: '📄', hilang: Boolean(peta) };
+}
 
 export function keHtml(md: string, k: KonteksHtml = {}): string {
   return uraiInline(md).map((x) => {
@@ -115,6 +139,13 @@ export function keHtml(md: string, k: KonteksHtml = {}): string {
         const t = k.tim?.find((a) => a.id === x.id);
         if (!t) return esc(`@${x.id}`);
         return `<span contenteditable="false" data-raw="@${esc(x.id)}" class="${CHIP} border-lime-500/50 text-lime-200 bg-lime-950/30" title="Penanggung jawab: ${esc(t.nama)}">@${esc(t.nama.split(' ')[0])}</span>`;
+      }
+      case 'halaman': {
+        // Judul terkini ikut tersimpan lagi saat baris ini disunting.
+        const h = infoHalaman(x.id, x.v, k.halaman);
+        const raw = `[[memo:${x.id}|${h.hilang ? x.v : h.judul.replace(/[\]|\n]/g, ' ')}]]`;
+        const kelas = h.hilang ? 'border-white/15 text-zinc-500 line-through' : 'border-white/30 text-zinc-100 bg-white/5 underline decoration-white/30';
+        return `<span contenteditable="false" data-raw="${esc(raw)}" data-halaman="${esc(x.id)}" class="${CHIP} ${kelas}" title="${h.hilang ? 'Halaman ada di Sampah atau sudah dihapus' : 'Buka halaman'}">${esc(h.ikon)} ${esc(h.judul)}</span>`;
       }
       case 'pica':
         return `<span contenteditable="false" data-raw="#${esc(x.id)}" data-pica="${esc(x.id)}" class="${CHIP} border-amber-400/60 text-amber-200 bg-amber-950/30" title="Buka PICA">#${esc(x.id)}</span>`;

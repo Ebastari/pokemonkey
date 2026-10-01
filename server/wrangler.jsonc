@@ -22,6 +22,16 @@
       "database_name": "pokemonkey",
       "database_id": "8328c3d4-20c4-429c-b3c2-b4470ed6b7ca",
       "migrations_dir": "migrations"
+    },
+    {
+      "binding": "NURSERY_DB",
+      "database_name": "nursery-entries",
+      "database_id": "81852e54-2d2f-4f04-b7d9-159e67290e37"
+    },
+    {
+      "binding": "GEOTAG_DB",
+      "database_name": "montana-entries",
+      "database_id": "8494bd3a-1c81-45e2-9fc1-90bf4c156748"
     }
   ],
 
@@ -45,6 +55,9 @@
     "TZ_OFFSET_MENIT": "480",
     // Dipakai tautan papan PICA hanya-baca (/lihat/pica) di rekap WhatsApp.
     "ALAMAT_PUBLIK": "https://pokemonkey-api.montana-camera.workers.dev",
+    // Sumber API lapangan (cadangan bila binding D1 lokal belum tersinkron)
+    "NURSERY_API_URL": "https://smart-nursery-api.montana-camera.workers.dev",
+    "GEOTAG_URL": "https://montana-ecology-summary.montana-camera.workers.dev",
     // Web Push (iPhone PWA & browser). Buat sepasang kunci: npx web-push generate-vapid-keys
     // Kunci publik tidak rahasia; kunci privat WAJIB lewat `wrangler secret put VAPID_PRIVATE_KEY`.
     "VAPID_SUBJECT": "mailto:admin@pokemonkey.local",

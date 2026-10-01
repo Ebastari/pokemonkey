@@ -10,7 +10,7 @@
 
 import type { Env, Pengguna } from './tipe';
 import { sekarangUtcIso } from './waktu';
-import { adalahAdmin } from './auth';
+import { adalahAdmin, bolehUbahKunci } from './auth';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -151,7 +151,7 @@ export async function ruteGame(
   }
 
   if (jalur === '/api/misi' && req.method === 'POST') {
-    if (!adalahAdmin(pengguna)) return json({ galat: 'Hanya Admin yang boleh menambah misi.' }, 403);
+    if (!bolehUbahKunci(pengguna)) return json({ galat: 'Hanya Admin dan Supervisor yang boleh menambah misi.' }, 403);
     const b = (await req.json()) as Record<string, unknown>;
     if (!b.judul) return json({ galat: 'Judul misi wajib diisi.' }, 400);
     const id = `m_${Date.now().toString(36)}`;
@@ -167,7 +167,7 @@ export async function ruteGame(
 
   const cocokMisi = jalur.match(/^\/api\/misi\/([\w-]+)$/);
   if (cocokMisi && req.method === 'PATCH') {
-    if (!adalahAdmin(pengguna)) return json({ galat: 'Hanya Admin yang boleh mengubah misi.' }, 403);
+    if (!bolehUbahKunci(pengguna)) return json({ galat: 'Hanya Admin dan Supervisor yang boleh mengubah misi.' }, 403);
     const b = (await req.json()) as Record<string, unknown>;
     const kolom = ['judul', 'tipe', 'deskripsi', 'target', 'satuan', 'xp', 'kapasitas', 'urutan', 'status', 'current'].filter((k) => k in b);
     if (kolom.length === 0) return json({ ok: true });
@@ -178,7 +178,7 @@ export async function ruteGame(
     return json({ ok: true });
   }
   if (cocokMisi && req.method === 'DELETE') {
-    if (!adalahAdmin(pengguna)) return json({ galat: 'Hanya Admin yang boleh menghapus misi.' }, 403);
+    if (!bolehUbahKunci(pengguna)) return json({ galat: 'Hanya Admin dan Supervisor yang boleh menghapus misi.' }, 403);
     await env.DB.prepare('UPDATE misi_global SET aktif = 0, diubah_pada = ?2 WHERE id = ?1')
       .bind(cocokMisi[1], sekarangUtcIso()).run();
     return json({ ok: true });

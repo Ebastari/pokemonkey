@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Copy, ExternalLink, Globe, Loader2, Send, Share2, X } from 'lucide-react';
+import { Check, Copy, ExternalLink, Globe, Loader2, Send, Share2, Users, X } from 'lucide-react';
 import { api, demoAktif } from '../lib/api';
 import { bukaWaManual } from '../lib/wa-manual';
 
@@ -30,7 +30,12 @@ async function salin(teks: string): Promise<boolean> {
 
 export const BagikanMemo: React.FC<{
   memoId: string; judul: string; pribadi?: boolean; kecil?: boolean; notify: (m: string) => void;
-}> = ({ memoId, judul, pribadi = false, kecil = false, notify }) => {
+  /** Memo tim: akses anggota lain ('edit' / 'baca'), seperti "General access" di Notion. */
+  akses?: 'edit' | 'baca';
+  /** Pembuat memo, Admin, atau Supervisor. */
+  bolehAturAkses?: boolean;
+  onAkses?: (a: 'edit' | 'baca') => void;
+}> = ({ memoId, judul, pribadi = false, kecil = false, notify, akses, bolehAturAkses = false, onAkses }) => {
   const [buka, setBuka] = useState(false);
   const [status, setStatus] = useState<StatusBagi | null>(null);
   const [sibuk, setSibuk] = useState(false);
@@ -95,10 +100,37 @@ export const BagikanMemo: React.FC<{
             aria-label="Bagikan memo"
           >
             <span className="flex items-center gap-2">
-              <Globe size={15} className="text-sky-300 shrink-0" />
-              <span className="text-[14px] font-bold text-white flex-1">Bagikan ke web</span>
+              <Share2 size={15} className="text-sky-300 shrink-0" />
+              <span className="text-[14px] font-bold text-white flex-1">Bagikan</span>
               <button type="button" onClick={() => setBuka(false)} className="text-zinc-400 hover:text-white" aria-label="Tutup"><X size={16} /></button>
             </span>
+
+            {!pribadi && akses && (
+              <span className="flex flex-col gap-1.5 border-b-2 border-white/10 pb-2.5">
+                <span className="flex items-center gap-2 text-[13px] font-bold text-zinc-100"><Users size={14} className="text-lime-300" /> Anggota tim</span>
+                <span className="grid grid-cols-2 gap-1" role="radiogroup" aria-label="Akses anggota tim">
+                  {(['edit', 'baca'] as const).map((a) => (
+                    <button
+                      key={a}
+                      type="button"
+                      role="radio"
+                      aria-checked={akses === a}
+                      disabled={!bolehAturAkses}
+                      onClick={() => { if (a !== akses) { onAkses?.(a); notify(a === 'edit' ? 'ANGGOTA TIM BISA MENGEDIT MEMO INI' : 'MEMO INI JADI BACA SAJA BAGI ANGGOTA LAIN'); } }}
+                      className={`px-2 py-1.5 border-2 text-[12px] font-bold disabled:cursor-not-allowed ${akses === a ? 'border-lime-400 bg-lime-600/30 text-white' : 'border-white/15 text-zinc-400 hover:text-white enabled:hover:border-white/40'} ${!bolehAturAkses && akses !== a ? 'opacity-50' : ''}`}
+                    >
+                      {a === 'edit' ? 'Bisa mengedit' : 'Baca saja'}
+                    </button>
+                  ))}
+                </span>
+                <span className="text-[11px] text-zinc-500 leading-snug">
+                  {bolehAturAkses ? 'Pembuat memo, Admin, dan Supervisor selalu bisa mengedit.' : 'Hanya pembuat memo, Admin, atau Supervisor yang bisa mengubah akses.'}
+                  {akses === 'baca' ? ' Pembaca tetap bisa mencentang tugas yang menyebut dirinya.' : ''}
+                </span>
+              </span>
+            )}
+
+            <span className="flex items-center gap-2 text-[13px] font-bold text-zinc-100"><Globe size={14} className="text-sky-300" /> Bagikan ke web</span>
 
             {demo ? (
               <span className="text-[12px] text-zinc-300 leading-snug">Mode demo berjalan tanpa server, jadi tautan publik tidak bisa dibuat. Di aplikasi tim, tombol ini membuat tautan baca-saja untuk dikirim ke WhatsApp.</span>

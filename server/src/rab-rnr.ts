@@ -28,6 +28,7 @@ const teks = (v: unknown, maks: number) => String(v ?? '').slice(0, maks);
 
 export async function ruteRabRnr(jalur: string, req: Request, env: Env, pengguna: Pengguna): Promise<Response | null> {
   if (!jalur.startsWith('/api/rab-rnr')) return null;
+  if (!bolehKelola(pengguna)) return galat('Akses ditolak: Menu Money Monkey hanya untuk Admin dan Supervisor.', 403);
 
   if (jalur === '/api/rab-rnr' && req.method === 'GET') {
     const { results } = await env.DB.prepare('SELECT id, data, dihapus FROM rab_rnr ORDER BY dibuat_pada DESC')

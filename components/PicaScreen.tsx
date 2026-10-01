@@ -17,6 +17,8 @@ import { warna } from '../lib/warna';
 import * as W from '../lib/waktu';
 import { ModalMonkeyPoint } from './ModalMonkeyPoint';
 import { ModalImporPica } from './ModalImporPica';
+import { ModalResumePicaAi } from './ModalResumePicaAi';
+import { kembangkanPicaAi, type SaranPicaAi } from '../lib/gemini';
 import { useKursorTabel } from '../lib/kursor-tabel';
 
 /** Mengecek apakah suatu PICA sudah berstatus progress / sedang dikerjakan */
@@ -63,6 +65,7 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
   const [mengekspor, setMengekspor] = useState(false);
   const [monkeyPointBuka, setMonkeyPointBuka] = useState(false);
   const [imporBuka, setImporBuka] = useState(false);
+  const [resumeAiBuka, setResumeAiBuka] = useState(false);
 
   const opsi = (grup: string) => boot.opsi.filter((o) => o.grup === grup);
   const bolehKelola = pengguna.peran === 'admin' || pengguna.peran === 'supervisor';
@@ -228,10 +231,15 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
           <button onClick={() => setTampilan('tabel')} className={`px-2 py-1.5 flex items-center gap-1 text-[12px] font-bold uppercase ${tampilan === 'tabel' ? 'bg-amber-600' : 'bg-black/40 text-zinc-300'}`}><Table2 size={13} /><span className="hidden sm:inline">Tabel</span></button>
           <button onClick={() => setTampilan('papan')} className={`px-2 py-1.5 flex items-center gap-1 text-[12px] font-bold uppercase ${tampilan === 'papan' ? 'bg-amber-600' : 'bg-black/40 text-zinc-300'}`}><KanbanSquare size={13} /><span className="hidden sm:inline">Papan</span></button>
         </div>
-        <button onClick={() => setFormBaru(true)} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-amber-600" title="PICA baru"><Plus size={16} /><span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">PICA</span></button>
-        <button onClick={() => setImporBuka(true)} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-teal-700 hover:bg-teal-600" title="Impor CSV & Format AI (Mode Append)"><Upload size={15} /><span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">Impor CSV</span></button>
+        {bolehKelola && (
+          <>
+            <button onClick={() => setFormBaru(true)} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-amber-600" title="PICA baru"><Plus size={16} /><span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">PICA</span></button>
+            <button onClick={() => setImporBuka(true)} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-teal-700 hover:bg-teal-600" title="Impor CSV & Format AI (Mode Append)"><Upload size={15} /><span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">Impor CSV</span></button>
+          </>
+        )}
         <button onClick={eksporExcel} disabled={mengekspor} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-emerald-700" title="Ekspor ke Excel">{mengekspor ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}<span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">Excel</span></button>
         <button onClick={() => setMonkeyPointBuka(true)} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-bold" title="Monkey Point - Ekspor PowerPoint"><Presentation size={15} /><span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">Monkey Point</span></button>
+        <button onClick={() => setResumeAiBuka(true)} className="btn-ikon !w-8 !h-8 sm:!w-auto sm:px-3 bg-gradient-to-r from-purple-700 via-indigo-700 to-sky-700 hover:brightness-110 text-white font-bold" title="Resume Eksekutif AI (Gemini)"><Sparkles size={15} className="text-yellow-300 animate-pulse" /><span className="hidden sm:inline ml-1 text-[12px] font-bold uppercase">Resume AI</span></button>
         {bolehKelola && <button onClick={() => setAturBuka((v) => !v)} className={`btn-ikon !w-8 !h-8 ${aturBuka ? 'bg-zinc-600' : 'bg-zinc-800'}`} title="Atur"><Settings2 size={15} /></button>}
         {onFokus && <button onClick={onFokus} className="btn-ikon !w-8 !h-8 bg-zinc-800" title="Layar penuh">{fokus ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>}
       </div>
@@ -356,9 +364,17 @@ export const PicaScreen: React.FC<Props> = ({ boot, pengguna, picaAwal, onBootUl
       </div>
 
       {terpilih && <DetailPica id={terpilih} boot={boot} pengguna={pengguna} daftar={daftar} onTutup={tutupDetail} onUbah={muat} notify={notify} />}
-      {formBaru && <FormPica boot={boot} daftar={daftar} onTutup={() => setFormBaru(false)} onSimpan={(id) => { setFormBaru(false); muat(); notify(`${id} DIBUAT`); }} />}
+      {formBaru && bolehKelola && <FormPica boot={boot} daftar={daftar} bolehKelola={bolehKelola} onTutup={() => setFormBaru(false)} onSimpan={(id) => { setFormBaru(false); muat(); notify(`${id} DIBUAT`); }} />}
       {imporBuka && <ModalImporPica boot={boot} pengguna={pengguna} onTutup={() => setImporBuka(false)} onSelesai={() => { setImporBuka(false); muat(); }} notify={notify} />}
       {monkeyPointBuka && <ModalMonkeyPoint boot={boot} pengguna={pengguna} onTutup={() => setMonkeyPointBuka(false)} notify={notify} />}
+      {resumeAiBuka && (
+        <ModalResumePicaAi
+          daftarPica={tampil}
+          periodeNama={periodeAktif?.id}
+          onTutup={() => setResumeAiBuka(false)}
+          notify={notify}
+        />
+      )}
     </div>
   );
 };
@@ -647,7 +663,7 @@ const DetailPica: React.FC<{ id: string; boot: Bootstrap; pengguna: Pengguna; da
     catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL'); }
   };
 
-  if (ubah) return <FormPica boot={boot} daftar={daftar} awal={p} terkunci={terkunci} onTutup={() => setUbah(false)} onSimpan={() => { setUbah(false); muat(); onUbah(); notify('PICA DIPERBARUI'); }} />;
+  if (ubah) return <FormPica boot={boot} daftar={daftar} awal={p} terkunci={terkunci} bolehKelola={bolehKelola} onTutup={() => setUbah(false)} onSimpan={() => { setUbah(false); muat(); onUbah(); notify('PICA DIPERBARUI'); }} />;
 
   const persen = p.target && p.realisasi !== null ? Math.min(100, Math.round((p.realisasi / p.target) * 100)) : null;
 
@@ -756,7 +772,7 @@ const DetailPica: React.FC<{ id: string; boot: Bootstrap; pengguna: Pengguna; da
   );
 };
 
-const FormPica: React.FC<{ boot: Bootstrap; daftar: PicaItem[]; awal?: PicaItem; terkunci?: boolean; onTutup: () => void; onSimpan: (id: string) => void }> = ({ boot, daftar, awal, terkunci = false, onTutup, onSimpan }) => {
+const FormPica: React.FC<{ boot: Bootstrap; daftar: PicaItem[]; awal?: PicaItem; terkunci?: boolean; bolehKelola?: boolean; onTutup: () => void; onSimpan: (id: string) => void }> = ({ boot, daftar, awal, terkunci = false, bolehKelola = true, onTutup, onSimpan }) => {
   const opsi = (g: string) => boot.opsi.filter((o) => o.grup === g);
   const [f, setF] = useState({
     bidang: awal?.bidang ?? opsi('bidang')[0]?.nilai ?? '', prioritas: awal?.prioritas ?? 'Sedang', judul: awal?.judul ?? '', judul_singkat: awal?.judul_singkat ?? '', akar: awal?.akar ?? '', tindakan: awal?.tindakan ?? '',
@@ -764,8 +780,47 @@ const FormPica: React.FC<{ boot: Bootstrap; daftar: PicaItem[]; awal?: PicaItem;
     props: { ...(awal?.props ?? {}) } as Record<string, unknown>, alasan: '',
   });
   const [menyimpan, setMenyimpan] = useState(false);
+  const [sedangAi, setSedangAi] = useState(false);
+  const [saranAi, setSaranAi] = useState<SaranPicaAi | null>(null);
   const [galat, setGalat] = useState<string | null>(null);
   const butuhAlasan = terkunci && awal && (f.pic_id !== (awal.pic_id ?? '') || f.due_date !== (awal.due_date ?? ''));
+
+  const kembangkanDenganAi = async () => {
+    if (!f.judul.trim()) {
+      setGalat('Tulis uraian masalah terlebih dahulu agar dapat dikembangkan oleh AI.');
+      return;
+    }
+    setSedangAi(true);
+    setGalat(null);
+    try {
+      const saran = await kembangkanPicaAi({
+        judul: f.judul,
+        akar: f.akar,
+        tindakan: f.tindakan,
+        bidang: f.bidang,
+        satuan: f.satuan,
+        target: f.target ? Number(f.target) : null,
+        realisasi: f.realisasi ? Number(f.realisasi) : null,
+      });
+      setSaranAi(saran);
+    } catch (e) {
+      setGalat(e instanceof Error ? e.message : 'Gagal menghubungi Gemini AI.');
+    } finally {
+      setSedangAi(false);
+    }
+  };
+
+  const terapkanSaranAi = () => {
+    if (!saranAi) return;
+    setF((prev) => ({
+      ...prev,
+      judul: saranAi.judul || prev.judul,
+      judul_singkat: saranAi.judul_singkat || prev.judul_singkat,
+      akar: saranAi.akar || prev.akar,
+      tindakan: saranAi.tindakan || prev.tindakan,
+    }));
+    setSaranAi(null);
+  };
 
   const simpan = async () => {
     if (!f.judul.trim()) { setGalat('Uraian masalah wajib diisi.'); return; }
@@ -787,7 +842,68 @@ const FormPica: React.FC<{ boot: Bootstrap; daftar: PicaItem[]; awal?: PicaItem;
         <div><label className="label-retro">Bidang</label><select value={f.bidang} onChange={(e) => setF({ ...f, bidang: e.target.value })} className="input-retro">{opsi('bidang').map((o) => <option key={o.nilai} value={o.nilai}>{o.label}</option>)}</select></div>
         <div><label className="label-retro">Prioritas</label><select value={f.prioritas} onChange={(e) => setF({ ...f, prioritas: e.target.value })} className="input-retro">{opsi('prioritas').map((o) => <option key={o.nilai} value={o.nilai}>{o.label}</option>)}</select></div>
       </div>
-      <div><label className="label-retro">Masalah (fakta di laporan)</label><textarea autoFocus value={f.judul} onChange={(e) => setF({ ...f, judul: e.target.value })} className="input-retro h-20 resize-none" placeholder="Tulis fakta beserta angkanya…" /></div>
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="label-retro !mb-0">Masalah (fakta di laporan)</label>
+          <button
+            type="button"
+            onClick={kembangkanDenganAi}
+            disabled={sedangAi || !f.judul.trim()}
+            className="btn-retro btn-retro-sm !py-0.5 !px-2 bg-gradient-to-r from-purple-700 via-indigo-700 to-sky-700 text-white font-bold flex items-center gap-1 hover:brightness-110 disabled:opacity-50"
+            title="Kembangkan masalah, akar masalah & tindakan dengan Gemini AI"
+          >
+            {sedangAi ? <Loader2 size={11} className="animate-spin text-yellow-300" /> : <Sparkles size={11} className="text-yellow-300" />}
+            <span className="text-[10px]">{sedangAi ? 'Menganalisis…' : '✨ Kembangkan AI'}</span>
+          </button>
+        </div>
+        <textarea autoFocus value={f.judul} onChange={(e) => setF({ ...f, judul: e.target.value })} className="input-retro h-20 resize-none" placeholder="Tulis fakta beserta angkanya…" />
+      </div>
+
+      {/* Kotak Rekomendasi AI */}
+      {saranAi && (
+        <div className="p-3 bg-purple-950/40 border-2 border-purple-500 rounded-sm space-y-2 text-[12px]">
+          <div className="flex justify-between items-center border-b border-purple-500/40 pb-1">
+            <span className="font-bold text-yellow-300 flex items-center gap-1">
+              <Sparkles size={13} /> Saran Pengembangan Gemini AI
+            </span>
+            <button type="button" onClick={() => setSaranAi(null)} className="text-zinc-400 hover:text-white text-[11px]">✕ Batal</button>
+          </div>
+          {saranAi.catatan_ai && <p className="text-[11px] text-purple-200 italic">💡 {saranAi.catatan_ai}</p>}
+          <div className="space-y-1.5 bg-black/40 p-2 border border-white/10 rounded">
+            <div>
+              <span className="text-[10px] text-zinc-400 uppercase font-bold block">Masalah Disarankan:</span>
+              <p className="text-white">{saranAi.judul}</p>
+            </div>
+            {saranAi.akar && (
+              <div>
+                <span className="text-[10px] text-amber-400 uppercase font-bold block">Akar Masalah (Root Cause):</span>
+                <p className="text-zinc-200">{saranAi.akar}</p>
+              </div>
+            )}
+            {saranAi.tindakan && (
+              <div>
+                <span className="text-[10px] text-emerald-400 uppercase font-bold block">Tindakan Korektif & Preventif:</span>
+                <p className="text-zinc-200">{saranAi.tindakan}</p>
+              </div>
+            )}
+            {saranAi.judul_singkat && (
+              <div>
+                <span className="text-[10px] text-cyan-400 uppercase font-bold block">Judul Singkat WhatsApp:</span>
+                <p className="text-zinc-300 font-mono text-[11px]">{saranAi.judul_singkat}</p>
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={terapkanSaranAi}
+              className="btn-retro btn-retro-sm bg-gradient-to-r from-emerald-700 to-teal-700 text-white font-bold flex items-center gap-1"
+            >
+              ✓ Terapkan Saran Ini
+            </button>
+          </div>
+        </div>
+      )}
       <div><label className="label-retro" htmlFor="pica-judul-singkat">Judul singkat untuk rekap WhatsApp</label><input id="pica-judul-singkat" value={f.judul_singkat} onChange={(e) => setF({ ...f, judul_singkat: e.target.value })} maxLength={80} className="input-retro !py-1.5" placeholder="mis. sengon potting — capaian ditambahkan otomatis" /></div>
       <div className="grid md:grid-cols-2 gap-3">
         <div><label className="label-retro">Akar masalah</label><textarea value={f.akar} onChange={(e) => setF({ ...f, akar: e.target.value })} className="input-retro h-16 resize-none" placeholder="Kosongkan bila belum dikonfirmasi" /></div>
@@ -795,7 +911,7 @@ const FormPica: React.FC<{ boot: Bootstrap; daftar: PicaItem[]; awal?: PicaItem;
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div><label className="label-retro">PIC {terkunci && <Lock size={10} className="inline text-red-400" />}</label><select value={f.pic_id} onChange={(e) => setF({ ...f, pic_id: e.target.value })} className="input-retro"><option value="">— belum ditetapkan —</option>{boot.tim.map((t) => <option key={t.id} value={t.id}>{t.nama}</option>)}</select></div>
-        <div><label className="label-retro">Due date {terkunci && <Lock size={10} className="inline text-red-400" />}</label><input type="date" value={f.due_date} onChange={(e) => setF({ ...f, due_date: e.target.value })} className="input-retro" /></div>
+        <div><label className="label-retro">Due date {(!bolehKelola || terkunci) && <Lock size={10} className="inline text-red-400" />}</label><input type="date" value={f.due_date} onChange={(e) => setF({ ...f, due_date: e.target.value })} disabled={!bolehKelola} className="input-retro disabled:opacity-60 disabled:cursor-not-allowed" /></div>
       </div>
       {butuhAlasan && <div><label className="label-retro !text-red-300">Alasan perubahan (wajib, tercatat di riwayat)</label><input value={f.alasan} onChange={(e) => setF({ ...f, alasan: e.target.value })} className="input-retro !border-red-500" placeholder="Disepakati di rapat 19 Sep…" /></div>}
       <div className="grid grid-cols-3 gap-3">

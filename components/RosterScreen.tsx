@@ -124,7 +124,7 @@ export const RosterScreen: React.FC<Props> = ({ boot, pengguna, notify }) => {
   const akhiranSaring = saringKelompok === 'semua' ? '' : ` · ${labelSaring.label}`;
 
   const ringkasHariIni = timUrut.map((t) => ({ t, k: peta.get(`${t.id}|${hariIni}`)?.kode }));
-  const bolehUbah = (userId: string) => bolehKelola || userId === pengguna.id;
+  const bolehUbah = (_userId: string) => bolehKelola;
   const judulBulan = `${W.NAMA_BULAN[bln - 1]} ${tahun}`;
   const judulBulanSaring = judulBulan + akhiranSaring;
 

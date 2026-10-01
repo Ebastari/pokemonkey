@@ -19,6 +19,8 @@ export interface TugasLintas {
   jam: string | null;
   /** Penanggung jawab: orang yang disebut (memo tim) atau penulis memo. */
   penanggung: string | null;
+  /** Orang yang disebut (@id) di baris tugas memo tim, bila ada. Pembaca memo boleh mencentang tugasnya sendiri. */
+  disebut: string | null;
 }
 
 export function kumpulkanTugas(memos: readonly Memo[], idTim: ReadonlySet<string>): TugasLintas[] {
@@ -37,6 +39,7 @@ export function kumpulkanTugas(memos: readonly Memo[], idTim: ReadonlySet<string
         tanggal: t.tanggal,
         jam: t.jam,
         penanggung: disebut ?? m.user_id ?? null,
+        disebut,
       });
     }
   }

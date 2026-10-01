@@ -19,6 +19,11 @@ function dindingWita(d: Date = new Date()): Date {
 
 export const hariIniWita = (): string => dindingWita().toISOString().slice(0, 10);
 
+export function jamWita(d: Date = new Date()): string {
+  const w = dindingWita(d);
+  return `${String(w.getUTCHours()).padStart(2, '0')}:${String(w.getUTCMinutes()).padStart(2, '0')}`;
+}
+
 export function menitSekarangWita(): number {
   const w = dindingWita();
   return w.getUTCHours() * 60 + w.getUTCMinutes();

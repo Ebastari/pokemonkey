@@ -23,3 +23,10 @@ CREATE INDEX idx_jadwal_memo ON jadwal(memo_id) WHERE memo_id IS NOT NULL;
 -- ber-cakupan 'memo' menunjuk memonya lewat objek_id. Halaman: /lihat/memo/<token>.
 ALTER TABLE tautan_bagi ADD COLUMN objek_id TEXT;
 CREATE INDEX idx_bagi_objek ON tautan_bagi(objek_id) WHERE objek_id IS NOT NULL;
+
+-- Akses anggota lain di memo tim, diatur pembuat (seperti Share di Notion):
+-- 'edit' = bisa mengedit (bawaan memo baru) · 'baca' = baca saja (tetap boleh mencentang tugasnya sendiri).
+-- Pembuat, Admin, dan Supervisor selalu punya akses penuh. Lihat hakMemo() di server/src/memo-blok.ts.
+ALTER TABLE memo ADD COLUMN akses TEXT NOT NULL DEFAULT 'edit';
+-- Memo tim yang sudah ada tetap seperti sebelumnya: hanya penulis (dan Admin/SPV) yang menyunting.
+UPDATE memo SET akses = 'baca' WHERE lingkup = 'tim';

@@ -17,7 +17,7 @@ export interface PropsTugas {
   tim: AnggotaRingkas[];
   idSaya: string;
   /** Boleh mengubah memo ini (penulis, atau Supervisor/Admin untuk memo tim). */
-  bolehUbah: (m: Memo) => boolean;
+  bolehUbah: (m: Memo, t?: TugasLintas) => boolean;
   onCentang: (memo: Memo, indeksBaris: number) => void;
   onBukaMemo: (memo: Memo) => void;
 }
@@ -36,7 +36,7 @@ export const BarisTugas: React.FC<{
         disabled={!bolehUbah}
         className="mt-1 accent-lime-500 w-4 h-4 shrink-0"
         aria-label={`Selesaikan: ${t.judul}`}
-        title={bolehUbah ? undefined : 'Hanya penulis, Supervisor, atau Admin yang boleh mengubah memo ini'}
+        title={bolehUbah ? undefined : 'Memo ini diatur "Baca saja"; hanya tugas yang menyebut Anda yang bisa dicentang'}
       />
       <div className="flex-1 min-w-0">
         <p className={`text-[14px] leading-snug ${t.selesai ? 'line-through text-zinc-500' : 'text-zinc-100'}`}>{t.judul}</p>
@@ -113,7 +113,7 @@ export const TugasMemo: React.FC<PropsTugas> = ({ memos, tim, idSaya, bolehUbah,
                   t={t}
                   memo={m}
                   tim={tim}
-                  bolehUbah={m ? bolehUbah(m) : false}
+                  bolehUbah={m ? bolehUbah(m, t) : false}
                   onCentang={() => m && onCentang(m, t.indeks)}
                   onBuka={() => m && onBukaMemo(m)}
                 />

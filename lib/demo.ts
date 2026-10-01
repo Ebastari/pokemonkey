@@ -9,7 +9,7 @@
  */
 
 import { GalatApi } from './galat';
-import { hariIniWita, geserHari, selisihHari } from './waktu';
+import { hariIniWita, geserHari, selisihHari, jamWita } from './waktu';
 import { LIBUR_BAWAAN } from './libur';
 import { dataContohDemo, barisContoh, AWALAN_CONTOH } from './demo-contoh';
 import { susunJawabanCuaca, type SlotCuaca } from '../server/src/cuaca-bmkg';
@@ -19,7 +19,8 @@ import {
   type BarisJadwal, type NotifSiap, type Slot,
 } from '../server/src/ringkasan';
 import {
-  susunJadwalMemo, tandaJadwalMemo, setCentangTugas, lepasTenggatTugas, type BarisJadwalMemo,
+  susunJadwalMemo, tandaJadwalMemo, setCentangTugas, lepasTenggatTugas, hakMemo, hanyaCentangTugasSendiri, type BarisJadwalMemo,
+  kepalaSampah, pohonMemo, memoKosong, gantiLabelHalaman, HARI_SAMPAH,
 } from '../server/src/memo-blok';
 
 const KUNCI_DEMO = 'pokemonkey_demo';
@@ -758,7 +759,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   if (path === '/api/memo' && method === 'GET') {
     const lingkup = q.get('lingkup') === 'tim' ? 'tim' : 'pribadi';
     const daftar = d.memo
-      .filter((x) => (x.lingkup ?? 'pribadi') === lingkup && (lingkup === 'tim' || x.user_id === saya.id))
+      .filter((x) => !x.dihapus_pada && (x.lingkup ?? 'pribadi') === lingkup && (lingkup === 'tim' || x.user_id === saya.id))
       .map((x): Baris => {
         const p = x.pica_id ? d.pica.find((y) => y.id === x.pica_id) : null;
         return {
@@ -773,7 +774,19 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     return { memo: daftar, lingkup };
   }
   if (path === '/api/memo' && method === 'POST') {
-    const lingkup = body.lingkup === 'tim' ? 'tim' : 'pribadi';
+    let lingkup = body.lingkup === 'tim' ? 'tim' : 'pribadi';
+    let akses = body.akses === 'baca' ? 'baca' : 'edit';
+    // Sub-halaman: ikut lingkup & akses induknya; butuh hak edit di induk (sama dengan server).
+    let indukId: string | null = null;
+    if (typeof body.induk_id === 'string' && body.induk_id) {
+      const induk = d.memo.find((y) => y.id === body.induk_id && !y.dihapus_pada) as Baris | undefined;
+      const hakInduk = induk ? hakMemo({ user_id: induk.user_id, lingkup: induk.lingkup ?? 'pribadi', akses: induk.akses }, saya) : null;
+      if (!induk || !hakInduk) gagal('Halaman induk tidak ditemukan.', 404);
+      if (hakInduk === 'baca') gagal('Halaman induk diatur "Baca saja": sub-halaman tidak bisa ditambahkan.', 403);
+      indukId = induk!.id;
+      lingkup = induk!.lingkup === 'tim' ? 'tim' : 'pribadi';
+      if (!('akses' in body)) akses = induk!.akses === 'baca' ? 'baca' : 'edit';
+    }
     if (lingkup === 'tim' && saya.peran === 'pemantau') gagal('Peran Pemantau hanya bisa membaca memo tim.', 403);
     const id = idBaru('memo');
     const baru: Baris = {
@@ -781,24 +794,85 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
       kategori: body.kategori ?? null, tipe: body.tipe ?? null, status: body.status ?? null,
       tanggal: body.tanggal ?? (lingkup === 'tim' ? hariIni : null), disematkan: 0, warna: body.warna ?? null,
       pica_id: picaSahDemo(d, body.pica_id), props: bersihkanPropsDemo(body.props),
+      akses, induk_id: indukId, dihapus_pada: null, dihapus_oleh: null,
       dibuat_pada: kini(), diubah_pada: null,
     };
     d.memo.push(baru);
     if (baru.isi) sinkronJadwalMemoDemo(d, baru);
-    simpan(); return { id };
+    simpan(); return { id, lingkup, akses, induk_id: indukId };
+  }
+  // ----- Sampah memo (sama dengan server/src/personal.ts) -----
+  if (path === '/api/memo/sampah' && method === 'GET') {
+    const batas = new Date(Date.now() - HARI_SAMPAH * 86_400_000).toISOString();
+    const lama = d.memo.filter((y) => y.dihapus_pada && String(y.dihapus_pada) < batas);
+    if (lama.length) {
+      for (const y of lama) hapusIsiTerkaitMemoDemo(d, y.id);
+      d.memo = d.memo.filter((y) => !lama.includes(y));
+      simpan();
+    }
+    const terbuang = d.memo.filter((y) => y.dihapus_pada && ((y.lingkup ?? 'pribadi') === 'tim' || y.user_id === saya.id)) as (Baris & { id: string })[];
+    const daftar = kepalaSampah(terbuang)
+      .filter((y) => hakMemo({ user_id: y.user_id, lingkup: y.lingkup ?? 'pribadi', akses: y.akses }, saya) === 'penuh')
+      .map((y): Baris => {
+        const induk = y.induk_id ? d.memo.find((z) => z.id === y.induk_id && !z.dihapus_pada) : null;
+        return { ...y, penulis: namaTim(d, y.user_id), penghapus: y.dihapus_oleh ? namaTim(d, y.dihapus_oleh) : null, induk_judul: induk?.judul ?? null };
+      })
+      .sort((a, b) => String(b.dihapus_pada).localeCompare(String(a.dihapus_pada)));
+    return { memo: daftar, hari: HARI_SAMPAH };
+  }
+  if ((m = path.match(/^\/api\/memo\/([\w-]+)\/(pulihkan|permanen)$/))) {
+    const x = d.memo.find((y) => y.id === m![1] && y.dihapus_pada) as Baris | undefined;
+    const hak = x ? hakMemo({ user_id: x.user_id, lingkup: x.lingkup ?? 'pribadi', akses: x.akses }, saya) : null;
+    if (!x || !hak) gagal('Memo tidak ada di Sampah.', 404);
+    if (hak !== 'penuh') gagal('Hanya pembuat memo, Supervisor, atau Admin yang boleh mengatur memo ini di Sampah.', 403);
+    if (m[2] === 'pulihkan' && method === 'POST') {
+      const kelompok = pohonMemo(d.memo as (Baris & { id: string })[], x!.id, (c) => c.dihapus_pada === x!.dihapus_pada);
+      const indukAda = x!.induk_id ? d.memo.some((z) => z.id === x!.induk_id && !z.dihapus_pada) : false;
+      for (const y of kelompok) { y.dihapus_pada = null; y.dihapus_oleh = null; }
+      if (x!.induk_id && !indukAda) x!.induk_id = null;
+      for (const y of kelompok) if (y.isi) sinkronJadwalMemoDemo(d, y);
+      simpan(); return { ok: true, jumlah: kelompok.length, induk_id: x!.induk_id ?? null };
+    }
+    if (m[2] === 'permanen' && method === 'DELETE') {
+      const hapus = pohonMemo(d.memo as (Baris & { id: string })[], x!.id).filter((y) => y.dihapus_pada);
+      for (const y of hapus) hapusIsiTerkaitMemoDemo(d, y.id);
+      const ids = new Set(hapus.map((y) => y.id));
+      d.memo = d.memo.filter((y) => !ids.has(y.id));
+      for (const y of d.memo) if (y.induk_id && ids.has(y.induk_id)) y.induk_id = null;
+      simpan(); return { ok: true, jumlah: ids.size };
+    }
   }
   if ((m = path.match(/^\/api\/memo\/([\w-]+)$/))) {
-    const x = d.memo.find((y) => y.id === m![1]) as Baris | undefined;
-    const tim = (x?.lingkup ?? 'pribadi') === 'tim';
-    if (!x || (!tim && x.user_id !== saya.id)) gagal('Memo tidak ditemukan.', 404);
-    if (x!.user_id !== saya.id && !(tim && bolehKelola(saya))) gagal('Hanya penulis, Supervisor, atau Admin yang boleh mengubah memo tim.', 403);
-    if (method === 'DELETE') { hapusIsiTerkaitMemoDemo(d, m![1]); d.memo = d.memo.filter((y) => y.id !== m![1]); simpan(); return { ok: true }; }
-    for (const k of ['judul', 'isi', 'disematkan', 'warna', 'ringkasan', 'kategori', 'tipe', 'status', 'tanggal', 'pica_id', 'props']) {
+    const x = d.memo.find((y) => y.id === m![1] && !y.dihapus_pada) as Baris | undefined;
+    const hak = x ? hakMemo({ user_id: x.user_id, lingkup: x.lingkup ?? 'pribadi', akses: x.akses }, saya) : null;
+    if (!x || !hak) gagal('Memo tidak ditemukan.', 404);
+    if (method === 'DELETE') {
+      if (hak !== 'penuh') gagal('Hanya pembuat memo, Supervisor, atau Admin yang boleh menghapus memo ini.', 403);
+      // Halaman baru yang kosong dibuang langsung; selain itu pindah ke Sampah beserta sub-halamannya.
+      if (q.get('kosong') === '1') {
+        if (!memoKosong(x!) || d.memo.some((y) => y.induk_id === x!.id)) return { ok: true, dihapus: false };
+        hapusIsiTerkaitMemoDemo(d, m![1]); d.memo = d.memo.filter((y) => y.id !== m![1]); simpan(); return { ok: true, dihapus: true };
+      }
+      const pohon = pohonMemo(d.memo as (Baris & { id: string })[], x!.id, (c) => !c.dihapus_pada);
+      const waktu = kini();
+      for (const y of pohon) {
+        y.dihapus_pada = waktu; y.dihapus_oleh = saya.id;
+        d.jadwal = d.jadwal.filter((j) => j.memo_id !== y.id);
+      }
+      simpan(); return { ok: true, sampah: true, jumlah: pohon.length };
+    }
+    if (hak === 'baca' && (!Object.keys(body ?? {}).every((k) => k === 'isi') || typeof body.isi !== 'string' || !hanyaCentangTugasSendiri(String(x!.isi ?? ''), body.isi, saya.id))) {
+      gagal('Memo ini diatur "Baca saja" oleh pembuatnya. Anda hanya bisa mencentang tugas Anda sendiri.', 403);
+    }
+    if ('akses' in body && hak !== 'penuh') gagal('Hanya pembuat memo, Supervisor, atau Admin yang boleh mengatur akses.', 403);
+    for (const k of ['judul', 'isi', 'disematkan', 'warna', 'ringkasan', 'kategori', 'tipe', 'status', 'tanggal', 'pica_id', 'props', 'akses']) {
       if (!(k in body)) continue;
-      x![k] = k === 'disematkan' ? (body[k] ? 1 : 0) : k === 'pica_id' ? picaSahDemo(d, body[k]) : k === 'props' ? bersihkanPropsDemo(body[k]) : body[k];
+      x![k] = k === 'disematkan' ? (body[k] ? 1 : 0) : k === 'pica_id' ? picaSahDemo(d, body[k]) : k === 'props' ? bersihkanPropsDemo(body[k])
+        : k === 'akses' ? (body[k] === 'baca' ? 'baca' : 'edit') : body[k];
     }
     x!.diubah_pada = kini();
     if ('isi' in body || 'judul' in body) sinkronJadwalMemoDemo(d, x!);
+    if (typeof body.judul === 'string') for (const y of d.memo) y.isi = gantiLabelHalaman(String(y.isi ?? ''), x!.id, body.judul);
     simpan(); return { ok: true };
   }
 
@@ -1177,6 +1251,105 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     if ('wa' in body) { let wa = String(body.wa ?? '').replace(/[^0-9]/g, ''); if (wa.startsWith('0')) wa = '62' + wa.slice(1); (t as Baris).wa = wa || null; }
     for (const k of ['jabatan', 'bidang', 'peran', 'nama']) if (k in body && saya.peran === 'admin') (t as Baris)[k] = body[k];
     simpan(); return { ok: true };
+  }
+
+  // ----- lapangan: nursery & geotag -----
+  if (path === '/api/lapangan/nursery' && method === 'GET') {
+    return {
+      ok: true,
+      ringkasan: {
+        stok: 45200,
+        stok_sahih: true,
+        saringan: [],
+        masuk: 62000,
+        keluar: 15500,
+        mati: 1300,
+        mortalitas: 2.1,
+        jml_jenis: 4,
+        jml_baris: 128,
+        masuk_hari_ini: 500,
+        keluar_hari_ini: 0,
+        mati_hari_ini: 5,
+        hari_aktif: 45,
+        dari: '2026-08-01',
+        sampai: '2026-09-28',
+      },
+      jenis: [
+        { nama: 'SENGON POTTING', masuk: 35000, keluar: 8000, mati: 600, stok: 26400, mortalitas: 1.71, status: 'Sehat', terakhir: '2026-09-28' },
+        { nama: 'INDIGOFERA', masuk: 18000, keluar: 4500, mati: 400, stok: 13100, mortalitas: 2.22, status: 'Sehat', terakhir: '2026-09-28' },
+        { nama: 'BUNGA SEPATU', masuk: 6000, keluar: 2000, mati: 200, stok: 3800, mortalitas: 3.33, status: 'Sehat', terakhir: '2026-09-28' },
+        { nama: 'MALAPARI', masuk: 3000, keluar: 1000, mati: 100, stok: 1900, mortalitas: 3.33, status: 'Sehat', terakhir: '2026-09-25' },
+      ],
+      tujuan: [
+        { tujuan: 'Blok 1 Pit Barat', total: 6500, persen: 41.9 },
+        { tujuan: 'Blok 2 Lereng Utara', total: 4800, persen: 31.0 },
+        { tujuan: 'Rehab DAS Riam Kanan', total: 4200, persen: 27.1 },
+      ],
+      tren: [
+        { tanggal: '2026-09-24', masuk: 1200, keluar: 0, mati: 10, stok: 43500 },
+        { tanggal: '2026-09-25', masuk: 0, keluar: 1000, mati: 20, stok: 42480 },
+        { tanggal: '2026-09-26', masuk: 2000, keluar: 500, mati: 15, stok: 43965 },
+        { tanggal: '2026-09-27', masuk: 800, keluar: 0, mati: 10, stok: 44755 },
+        { tanggal: '2026-09-28', masuk: 500, keluar: 0, mati: 5, stok: 45200 },
+      ],
+      proyeksi: {
+        ada: true,
+        stok: 45200,
+        laju_harian: 350.0,
+        hari_tersisa: 129,
+        perkiraan_habis: '2027-02-05',
+      },
+      diambil: `${jamWita()} WITA`,
+      sumber: 'demo',
+    };
+  }
+
+  if (path === '/api/lapangan/geotag' && method === 'GET') {
+    return {
+      ok: true,
+      ringkasan: {
+        total: 12450,
+        sehat: 11200,
+        merana: 530,
+        mati: 720,
+        persen_hidup: 94.2,
+        persen_sehat: 89.9,
+        berkoordinat: 12450,
+        berfoto: 12100,
+        tinggi_avg: 74.5,
+        tinggi_min: 25.0,
+        tinggi_max: 320.0,
+      },
+      karbon: {
+        agb_kg: 17870,
+        agb_ton: 17.87,
+        karbon_kg: 8400,
+        karbon_ton: 8.4,
+        co2e_kg: 30800,
+        co2e_ton: 30.8,
+        batas: [
+          'Diameter TIDAK diukur di lapangan; diduga dari tinggi pohon (allometrik).',
+          'Kerapatan kayu dipukul rata 0,60 g/cm³ untuk semua jenis.',
+          'Hanya biomassa ATAS TANAH (AGB). Akar, serasah, dan tanah tidak terhitung.',
+          'Luas cakupan survei, bukan luas tutupan tanam riil.',
+        ],
+      },
+      per_lokasi: [
+        { lokasi: 'Blok 1 Reklamasi Pit Barat', total: 4200, sehat: 3950, merana: 150, mati: 100, persen_hidup: 97.6 },
+        { lokasi: 'Blok 2 Lereng Utara', total: 3850, sehat: 3400, merana: 250, mati: 200, persen_hidup: 94.8 },
+        { lokasi: 'Area Revegetasi DAS Riam Kanan', total: 2900, sehat: 2500, merana: 100, mati: 300, persen_hidup: 89.6 },
+        { lokasi: 'Buffer Zone Selatan', total: 1500, sehat: 1350, merana: 30, mati: 120, persen_hidup: 92.0 },
+      ],
+      per_tanaman: [
+        { tanaman: 'Sengon', total: 5800, persen: 46.6 },
+        { tanaman: 'Johar', total: 2600, persen: 20.9 },
+        { tanaman: 'Trembesi', total: 2100, persen: 16.9 },
+        { tanaman: 'Malapari', total: 1200, persen: 9.6 },
+        { tanaman: 'Lainnya', total: 750, persen: 6.0 },
+      ],
+      diambil: `${jamWita()} WITA`,
+      sumber: 'demo',
+    };
   }
 
   gagal(`Rute demo belum tersedia: ${method} ${path}`, 404);

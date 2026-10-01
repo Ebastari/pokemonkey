@@ -30,16 +30,19 @@ import {
   daftarGrupWa,
 } from './wa';
 import { ruteGame } from './game';
-import { rutePersonal, cerminkanJadwalKeMemo } from './personal';
+import { rutePersonal, cerminkanJadwalKeMemo, bersihkanSampahMemo } from './personal';
 import { ruteCuaca } from './cuaca';
 import { halamanLihatPica, tautanLihatPica } from './lihat';
 import { berkasLihatMemo, halamanLihatMemo } from './lihat-memo';
+import { hakMemo } from './memo-blok';
 import { periksaTitikApi, ruteTitikApi } from './titik-api';
 import { ruteLaporanKarhutla } from './laporan-karhutla';
 import { ruteKatalogRab } from './katalog-rab';
 import { ruteRabRnr } from './rab-rnr';
 import { ruteHati } from './hati';
 import { ruteDokumen } from './dokumen';
+import { ruteAi } from './ai';
+import { ruteNursery, ruteGeotag, ruteGeotagFoto } from './lapangan';
 import { siapkanNotif, siapkanRekapPica, liburPada, acaraPengingat } from './sumber';
 import { rutePush, kirimPushTerjadwal, kirimPushAcara } from './push';
 import {
@@ -107,7 +110,7 @@ export default {
       // Memo yang dibagikan lewat tautan (seperti "Share to web" Notion), beserta gambarnya.
       const cocokLihatMemo = jalur.match(/^\/lihat\/memo\/([\w-]+)(\/berkas)?$/);
       if (cocokLihatMemo && req.method === 'GET') {
-        return cocokLihatMemo[2] ? berkasLihatMemo(cocokLihatMemo[1], url, env) : halamanLihatMemo(cocokLihatMemo[1], env);
+        return cocokLihatMemo[2] ? berkasLihatMemo(cocokLihatMemo[1], url, env) : halamanLihatMemo(cocokLihatMemo[1], env, url);
       }
 
       // Versi APK terbaru dan berkasnya: dipakai layar login (tautan unduh) dan
@@ -165,6 +168,22 @@ export default {
       // Dokumen administrasi (nomor surat, Internal Memo dinas, MoM) dan foto profil.
       const hasilDokumen = await ruteDokumen(jalur, req, env, pengguna);
       if (hasilDokumen) return hasilDokumen;
+
+      // Google Gemini AI: asisten pengembangan kalimat PICA & resume eksekutif.
+      const hasilAi = await ruteAi(jalur, req, env, pengguna);
+      if (hasilAi) return hasilAi;
+
+      // Data Lapangan: Smart Nursery & Geotagging Pohon
+      if (jalur === '/api/lapangan/nursery' && req.method === 'GET') {
+        return ruteNursery(req, env, pengguna);
+      }
+      if (jalur === '/api/lapangan/geotag' && req.method === 'GET') {
+        return ruteGeotag(req, env, pengguna);
+      }
+      if (jalur.startsWith('/api/lapangan/geotag/foto/') && req.method === 'GET') {
+        const idFoto = jalur.slice('/api/lapangan/geotag/foto/'.length);
+        return ruteGeotagFoto(idFoto, env);
+      }
 
       // Isi notifikasi terjadwal untuk pemakai ini: pagi (PICA Open), siang (Info), sore (XP).
       // Dipakai Background Runner Android dan pratinjau di layar Notifikasi.
@@ -598,7 +617,7 @@ async function detailPica(id: string, env: Env): Promise<Response> {
 }
 
 async function buatPica(req: Request, env: Env, pengguna: Pengguna): Promise<Response> {
-  if (pengguna.peran === 'pemantau') return galat('Peran Anda hanya bisa memantau.', 403);
+  if (!bolehUbahKunci(pengguna)) return galat('Hanya Admin dan Supervisor yang boleh menambah PICA.', 403);
 
   const b = (await req.json()) as Record<string, any>;
   if (!b.judul || !b.bidang) return galat('Bidang dan uraian masalah wajib diisi.');
@@ -760,6 +779,10 @@ async function ubahPica(id: string, req: Request, env: Env, pengguna: Pengguna):
     if (!(kolom in b)) continue;
     const nilaiBaru = kolom === 'props' ? JSON.stringify(b.props) : b[kolom];
     if (String(nilaiBaru ?? '') === String(lama[kolom] ?? '')) continue;
+
+    if (kolom === 'due_date' && !bolehUbahKunci(pengguna)) {
+      return galat('Tenggat waktu (due date) hanya dapat ditentukan oleh Supervisor atau Admin.', 403);
+    }
 
     if (terkunci && KOLOM_TERKUNCI.includes(kolom)) {
       if (!bolehUbahKunci(pengguna)) {
@@ -1283,11 +1306,10 @@ async function unggahLampiran(req: Request, env: Env, pengguna: Pengguna): Promi
 
   // Gambar dan berkas memo: hanya yang berhak mengubah memo itu (aturan sama dengan /api/memo/:id).
   if (entitas === 'memo') {
-    const memo = await env.DB.prepare('SELECT user_id, lingkup FROM memo WHERE id = ?1').bind(entitasId).first<{ user_id: string; lingkup: string }>();
-    if (!memo || (memo.lingkup !== 'tim' && memo.user_id !== pengguna.id)) return galat('Memo tidak ditemukan.', 404);
-    if (memo.user_id !== pengguna.id && !(memo.lingkup === 'tim' && bolehUbahKunci(pengguna))) {
-      return galat('Hanya penulis, Supervisor, atau Admin yang boleh menambah gambar ke memo ini.', 403);
-    }
+    const memo = await env.DB.prepare('SELECT user_id, lingkup, akses FROM memo WHERE id = ?1 AND dihapus_pada IS NULL').bind(entitasId).first<{ user_id: string; lingkup: string; akses: string | null }>();
+    const hak = memo ? hakMemo(memo, pengguna) : null;
+    if (!memo || !hak) return galat('Memo tidak ditemukan.', 404);
+    if (hak === 'baca') return galat('Memo ini diatur "Baca saja" oleh pembuatnya.', 403);
   }
 
   const ekstensi = (berkas.name.split('.').pop() ?? 'bin').toLowerCase().slice(0, 5);
@@ -1453,7 +1475,8 @@ async function daftarTim(env: Env): Promise<Response> {
 async function ubahTim(id: string, req: Request, env: Env, pengguna: Pengguna): Promise<Response> {
   const b = (await req.json()) as Record<string, any>;
   const sendiri = pengguna.id === id;
-  if (!adalahAdmin(pengguna) && !sendiri) return galat('Tidak berhak mengubah data anggota lain.', 403);
+  const bolehKelola = bolehUbahKunci(pengguna);
+  if (!bolehKelola && !sendiri) return galat('Tidak berhak mengubah data anggota lain.', 403);
 
   // Nomor WA dinormalkan ke format 62xxxxxxxx.
   if ('wa' in b && b.wa) {
@@ -1464,8 +1487,8 @@ async function ubahTim(id: string, req: Request, env: Env, pengguna: Pengguna): 
   }
 
   const bolehSendiri = ['wa', 'jabatan'];
-  const bolehAdmin = ['wa', 'jabatan', 'bidang', 'peran', 'nama', 'aktif'];
-  const daftar = adalahAdmin(pengguna) ? bolehAdmin : bolehSendiri;
+  const bolehPengelola = ['wa', 'jabatan', 'bidang', 'peran', 'nama', 'aktif'];
+  const daftar = bolehKelola ? bolehPengelola : bolehSendiri;
 
   const kolom = daftar.filter((k) => k in b);
   if (kolom.length === 0) return galat('Tidak ada yang diubah.');
@@ -1718,6 +1741,15 @@ async function jalankanTerjadwal(env: Env): Promise<void> {
     }
   }
 
+  // --- Sampah memo: lewat 30 hari dihapus permanen (sekali tiap jam) ---
+  if (Number(jam.split(':')[1]) < 15) {
+    try {
+      await bersihkanSampahMemo(env);
+    } catch (e) {
+      console.error('Pembersihan Sampah memo gagal:', e);
+    }
+  }
+
   // Selalu proses antrean, apa pun jamnya.
   await prosesAntrean(env, 20);
 }
@@ -1752,7 +1784,8 @@ async function profilAnggota(id: string, env: Env): Promise<Response> {
     ).bind(id, hariIni, geserHari(hariIni, 6)).all(),
     env.DB.prepare(
       `SELECT id, judul, ringkasan, kategori, status, tanggal FROM memo
-        WHERE user_id = ?1 AND lingkup = 'tim' ORDER BY COALESCE(tanggal, dibuat_pada) DESC LIMIT 3`,
+        WHERE user_id = ?1 AND lingkup = 'tim' AND dihapus_pada IS NULL AND induk_id IS NULL
+        ORDER BY COALESCE(tanggal, dibuat_pada) DESC LIMIT 3`,
     ).bind(id).all(),
     env.DB.prepare(
       `SELECT id, jenis, capaian, satuan, pica_id, catatan, dibuat_pada FROM laporan

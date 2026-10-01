@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { CalendarClock, FileText, ImageOff, Info, Loader2 } from 'lucide-react';
+import { CalendarClock, ChevronRight, ExternalLink, FileText, ImageOff, Info, Loader2, Play, Video } from 'lucide-react';
 import { uraiBlok, uraiInline, toggleBaris, type Blok } from '../server/src/memo-blok';
 import type { AnggotaRingkas } from '../lib/tipe-api';
 import { useFotoProfil } from '../lib/foto';
 import { unduhBerkasMemo } from '../lib/memo-gambar';
 import * as W from '../lib/waktu';
+import { infoHalaman, type PetaHalaman } from '../lib/memo-dom';
+import { KartuDataLapangan } from './KartuDataLapangan';
 
 /**
  * Penampil memo. Teks memo tetap teks biasa (lihat server/src/memo-blok.ts untuk
- * daftar markup): judul 1–3, butir, daftar bernomor, ceklis dengan tenggat dan
- * orang, kutipan, kotak penting, garis, gambar, berkas, serta tebal/miring/
+ * daftar markup): judul 1–4, butir, daftar bernomor, ceklis dengan tenggat dan
+ * orang, kutipan, callout, divider, gambar, video, berkas, tautan halaman, serta tebal/miring/
  * coret/kode/tautan di dalam baris. Kotak centang bisa diklik bila `onToggle`
  * diberikan; nilainya nomor baris di teks asli, sehingga pemanggil cukup
  * mengganti baris itu (toggleBaris).
@@ -20,7 +22,44 @@ export { toggleBaris };
 interface Konteks {
   tim?: AnggotaRingkas[];
   onBukaPica?: (idPica: string) => void;
+  /** Membuka memo lain dari chip "Tautan ke halaman". */
+  onBukaHalaman?: (idMemo: string) => void;
+  /** Judul & ikon terkini halaman yang ditautkan / sub-halaman. */
+  halaman?: PetaHalaman;
 }
+
+/** Id video YouTube dari alamat watch/youtu.be/shorts/embed, atau null. */
+export function idYoutube(url: string): string | null {
+  const m = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/);
+  return m ? m[1] : null;
+}
+
+const namaSitus = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } };
+
+/** Blok video: pratinjau YouTube (atau kartu tautan); ketuk untuk memutar di aplikasi/peramban video. */
+export const KartuVideo: React.FC<{ url: string; judul: string }> = ({ url, judul }) => {
+  const yt = idYoutube(url);
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" className="block my-1.5 max-w-[560px] border-2 border-white/25 bg-black/40 hover:border-lime-400 group/video" title="Buka video">
+      {yt ? (
+        <span className="relative block aspect-video bg-black">
+          <img src={`https://i.ytimg.com/vi/${yt}/hqdefault.jpg`} alt="" className="w-full h-full object-cover" loading="lazy" draggable={false} />
+          <span className="absolute inset-0 flex items-center justify-center">
+            <span className="w-14 h-10 bg-red-600 border-2 border-black shadow-[3px_3px_0_#000] flex items-center justify-center group-hover/video:scale-110 transition-transform"><Play size={20} className="text-white fill-white" /></span>
+          </span>
+        </span>
+      ) : (
+        <span className="flex items-center justify-center aspect-[16/6] bg-zinc-900"><Video size={28} className="text-zinc-400" /></span>
+      )}
+      <span className="flex items-center gap-2 px-2 py-1.5 text-[13px]">
+        <Video size={13} className="text-zinc-400 shrink-0" />
+        <span className="font-bold text-zinc-100 truncate flex-1">{judul || 'Video'}</span>
+        <span className="text-[11px] text-zinc-500 shrink-0">{namaSitus(url)}</span>
+        <ExternalLink size={12} className="text-zinc-500 shrink-0" />
+      </span>
+    </a>
+  );
+};
 
 const namaDepan = (id: string, tim?: AnggotaRingkas[]) => tim?.find((t) => t.id === id)?.nama.split(' ')[0] ?? null;
 
@@ -81,7 +120,7 @@ const BerkasMemo: React.FC<{ kunci: string; nama: string; blok?: boolean }> = ({
 };
 
 /** Isi satu baris: tanda format, tautan, tenggat, orang, PICA. */
-export const TeksInline: React.FC<{ teks: string; selesai?: boolean } & Konteks> = ({ teks, selesai, tim, onBukaPica }) => (
+export const TeksInline: React.FC<{ teks: string; selesai?: boolean } & Konteks> = ({ teks, selesai, tim, onBukaPica, onBukaHalaman, halaman }) => (
   <>
     {uraiInline(teks).map((x, i) => {
       switch (x.t) {
@@ -99,6 +138,14 @@ export const TeksInline: React.FC<{ teks: string; selesai?: boolean } & Konteks>
             ? <span key={i} className="inline-block px-1.5 border border-lime-500/50 text-lime-200 bg-lime-950/30 text-[12px] font-bold whitespace-nowrap" title={`Penanggung jawab: ${nama}`}>@{nama}</span>
             : <React.Fragment key={i}>@{x.id}</React.Fragment>;
         }
+        case 'halaman': {
+          const h = infoHalaman(x.id, x.v, halaman);
+          return (
+            <button key={i} type="button" disabled={!onBukaHalaman} onClick={() => onBukaHalaman?.(x.id)} className={`inline-flex items-center gap-1 px-1.5 border text-[0.9em] font-bold whitespace-nowrap align-baseline ${h.hilang ? 'border-white/15 text-zinc-500 line-through' : 'border-white/30 bg-white/5 text-zinc-100 underline decoration-white/30 hover:border-lime-400'}`} title={h.hilang ? 'Halaman ada di Sampah atau sudah dihapus' : 'Buka halaman'}>
+              {h.ikon} {h.judul}
+            </button>
+          );
+        }
         case 'pica':
           return onBukaPica
             ? <button key={i} type="button" onClick={() => onBukaPica(x.id)} className="inline-block px-1.5 border border-amber-400/60 text-amber-200 bg-amber-950/30 text-[12px] font-bold whitespace-nowrap hover:border-amber-300">{x.id}</button>
@@ -108,13 +155,41 @@ export const TeksInline: React.FC<{ teks: string; selesai?: boolean } & Konteks>
   </>
 );
 
-const BlokMemo: React.FC<{ b: Blok; onToggle?: () => void } & Konteks> = ({ b, onToggle, tim, onBukaPica }) => {
-  const ctx = { tim, onBukaPica };
+/** Tabel baca-saja; baris pertama jadi judul kolom bila `kepala`. */
+export const TabelBaca: React.FC<{ baris: string[][]; kepala: boolean } & Konteks> = ({ baris, kepala, ...ctx }) => (
+  <div className="my-1.5 overflow-x-auto custom-scrollbar">
+    <table className="border-collapse text-[0.9375em]">
+      <tbody>
+        {baris.map((r, i) => (
+          <tr key={i} className={kepala && i === 0 ? 'bg-white/[0.07]' : ''}>
+            {r.map((c, j) => (kepala && i === 0
+              ? <th key={j} className="border-2 border-white/25 px-2 py-1 text-left align-top min-w-[90px] font-bold text-white"><TeksInline teks={c} {...ctx} /></th>
+              : <td key={j} className="border-2 border-white/20 px-2 py-1 align-top min-w-[90px] text-zinc-100"><TeksInline teks={c} {...ctx} /></td>))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+const BlokMemo: React.FC<{ b: Blok; onToggle?: () => void; terbuka?: boolean; onLipat?: () => void } & Konteks> = ({ b, onToggle, terbuka, onLipat, tim, onBukaPica, onBukaHalaman, halaman }) => {
+  const ctx = { tim, onBukaPica, onBukaHalaman, halaman };
   switch (b.jenis) {
+    case 'toggle':
+      return (
+        <div className="flex items-start gap-1.5 py-[3px] text-zinc-100">
+          <button type="button" onClick={onLipat} className="w-5 h-6 shrink-0 flex items-center justify-center hover:bg-white/10" aria-label={terbuka ? 'Lipat' : 'Buka'} aria-expanded={terbuka}>
+            <ChevronRight size={15} className={`transition-transform ${terbuka ? 'rotate-90' : ''}`} />
+          </button>
+          <span className="min-w-0 cursor-pointer" onClick={onLipat}><TeksInline teks={b.teks} {...ctx} /></span>
+        </div>
+      );
     case 'judul':
-      if (b.tingkat === 1) return <h3 className="text-[17px] font-bold text-lime-300 mt-3 mb-1 first:mt-0"><TeksInline teks={b.teks} {...ctx} /></h3>;
-      if (b.tingkat === 2) return <h4 className="text-[15px] font-bold text-white mt-2 mb-0.5"><TeksInline teks={b.teks} {...ctx} /></h4>;
-      return <h5 className="text-[14px] font-bold text-zinc-100 mt-1.5"><TeksInline teks={b.teks} {...ctx} /></h5>;
+      // Ukuran sama dengan penyunting (Notion: 30/24/20 px pada teks 16 px).
+      if (b.tingkat === 1) return <h3 className="text-[1.875em] leading-[1.3] font-bold text-lime-300 mt-6 mb-0.5 py-[3px] first:mt-0"><TeksInline teks={b.teks} {...ctx} /></h3>;
+      if (b.tingkat === 2) return <h4 className="text-[1.5em] leading-[1.3] font-bold text-white mt-5 py-[3px] first:mt-0"><TeksInline teks={b.teks} {...ctx} /></h4>;
+      if (b.tingkat === 3) return <h5 className="text-[1.25em] leading-[1.3] font-bold text-zinc-100 mt-3 py-[3px] first:mt-0"><TeksInline teks={b.teks} {...ctx} /></h5>;
+      return <h6 className="text-[1.0625em] leading-[1.35] font-bold text-zinc-200 mt-2 py-[3px] first:mt-0"><TeksInline teks={b.teks} {...ctx} /></h6>;
     case 'ceklis':
       return (
         <label className={`flex items-start gap-2 py-0.5 ${onToggle ? 'cursor-pointer' : ''}`}>
@@ -140,18 +215,50 @@ const BlokMemo: React.FC<{ b: Blok; onToggle?: () => void } & Konteks> = ({ b, o
       );
     case 'garis': return <hr className="my-2 border-t-2 border-dashed border-white/20" />;
     case 'gambar': return <GambarMemo kunci={b.kunci} nama={b.nama} />;
+    case 'video': return <KartuVideo url={b.url} judul={b.judul} />;
+    case 'tabel': return <TabelBaca baris={b.baris} kepala={b.kepala} {...ctx} />;
+    case 'data': return <KartuDataLapangan blok={b} />;
     case 'berkas': return <BerkasMemo kunci={b.kunci} nama={b.nama} blok />;
     case 'kosong': return <div className="h-2" />;
-    default: return <p className="text-zinc-100"><TeksInline teks={b.teks} {...ctx} /></p>;
+    default: return <p className="text-zinc-100 py-[3px]"><TeksInline teks={b.teks} {...ctx} /></p>;
   }
 };
 
 /** Seluruh isi memo. */
 export const IsiMemo: React.FC<{
   isi: string; onToggle?: (indeksBaris: number) => void; kosong?: string;
-} & Konteks> = ({ isi, onToggle, kosong = 'Kosong.', tim, onBukaPica }) => (
-  <>
-    {uraiBlok(isi).map((b, i) => <BlokMemo key={i} b={b} tim={tim} onBukaPica={onBukaPica} onToggle={onToggle ? () => onToggle(i) : undefined} />)}
-    {!isi.trim() && <p className="text-zinc-500">{kosong}</p>}
-  </>
-);
+  /** Batasi centang ke baris tertentu (mis. tugas milik pembaca memo "Baca saja"). */
+  bolehToggle?: (indeksBaris: number) => boolean;
+} & Konteks> = ({ isi, onToggle, kosong = 'Kosong.', tim, onBukaPica, onBukaHalaman, halaman, bolehToggle }) => {
+  // Saat dibaca, toggle terlipat seperti di Notion; nomor baris = indeks blok (untuk centang).
+  const [terbuka, setTerbuka] = useState<ReadonlySet<number>>(() => new Set());
+  const daftar = uraiBlok(isi);
+  const hasil: React.ReactNode[] = [];
+  let batas: number | null = null;
+  daftar.forEach((b, i) => {
+    if (batas !== null && b.kedalaman > batas) return;
+    batas = null;
+    const buka = terbuka.has(i);
+    if (b.jenis === 'toggle' && !buka) batas = b.kedalaman;
+    hasil.push(
+      <div key={i} style={b.kedalaman ? { paddingLeft: `${b.kedalaman * 1.5}em` } : undefined}>
+        <BlokMemo
+          b={b}
+          tim={tim}
+          onBukaPica={onBukaPica}
+          onBukaHalaman={onBukaHalaman}
+          halaman={halaman}
+          onToggle={onToggle && (!bolehToggle || bolehToggle(i)) ? () => onToggle(i) : undefined}
+          terbuka={buka}
+          onLipat={() => setTerbuka((t) => { const n = new Set(t); if (n.has(i)) n.delete(i); else n.add(i); return n; })}
+        />
+      </div>,
+    );
+  });
+  return (
+    <>
+      {hasil}
+      {!isi.trim() && <p className="text-zinc-500">{kosong}</p>}
+    </>
+  );
+};

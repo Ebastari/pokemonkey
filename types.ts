@@ -112,6 +112,22 @@ export interface Memo {
   pica_status?: string | null;
   /** Nilai properti kustom memo (JSON, kunci = id properti). */
   props?: string | null;
+  /** Akses anggota lain di memo tim, diatur pembuat: 'edit' (bisa mengedit) atau 'baca' (baca saja). */
+  akses?: 'edit' | 'baca' | null;
+  /** Sub-halaman: id memo induknya (lingkup selalu sama). null = halaman teratas. */
+  induk_id?: string | null;
+}
+
+/** Memo di Sampah (GET /api/memo/sampah): hanya kelompok teratas yang dibuang, dengan jumlah sub-halaman yang ikut. */
+export interface MemoSampah extends Memo {
+  dihapus_pada: string;
+  dihapus_oleh: string | null;
+  /** Nama yang membuang. */
+  penghapus: string | null;
+  /** Judul induk (bila masih ada) — tempat halaman ini akan kembali. */
+  induk_judul: string | null;
+  /** Sub-halaman yang ikut terbuang dan ikut dipulihkan. */
+  jumlah_anak: number;
 }
 
 export interface GameState {

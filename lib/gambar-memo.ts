@@ -1,16 +1,23 @@
 /**
- * Satu memo sebagai gambar poster (PNG) berisi seluruh isinya: judul, chip
- * kategori/tipe/status, tanggal, penulis, ringkasan, dan isi lengkap — untuk
- * diunduh atau langsung dibagikan (WhatsApp).
+ * Satu memo sebagai gambar poster (PNG) berisi SELURUH isinya, sama dengan
+ * halaman memo di aplikasi: sampul (utuh, tidak dipotong), ikon, judul, semua
+ * properti, dan semua blok — judul 1–4, butir, bernomor, tugas, toggle (tampil
+ * terbuka), kutipan, callout, divider, gambar, video, tabel, berkas, beserta
+ * chip tenggat/orang/PICA/halaman — untuk diunduh atau langsung dibagikan (WhatsApp).
  *
  * Poster disusun sendiri (bukan tangkapan layar) dengan warna dan huruf yang
  * ditulis langsung di tiap elemen, sehingga hasilnya sama di tema aplikasi
  * terang maupun gelap. Tiga gaya:
- *   - 'retro-gelap'  : khas POKEMONKEY (huruf piksel, kotak berbingkai tebal), latar gelap;
+ *   - 'retro-gelap'  : khas POKEMONKEY (huruf piksel, kotak berbingkai tebal), latar gelap seperti aplikasi;
  *   - 'retro-terang' : gaya yang sama di atas kertas terang — tetap santai, lebih hemat baterai/tinta;
  *   - 'resmi'        : kertas resmi (logo Hasnur, huruf biasa, aksen hijau) untuk diteruskan/dicetak.
+ * Tidak ada yang dipotong: teks panjang dan tabel lebar dibungkus ke baris berikutnya.
  */
 
+import { hitungTugas, uraiBlok, uraiInline, type Blok } from '../server/src/memo-blok';
+import { CSS_SAMPUL_WARNA, warnaTenggat } from '../server/src/tampil-memo';
+import { bacaSampul } from './sampul';
+import { urlFoto } from './foto';
 import { simpanBerkas, bagikanBerkas } from './unduh';
 import * as W from './waktu';
 import logoHasnur from '../aset/logo-hasnur-memo.png';
@@ -38,6 +45,13 @@ export interface DataGambarMemo {
   /** "Memo Internal" atau "Catatan Pribadi". */
   jenis?: string;
   pengunduh?: string;
+  /** Ikon halaman (emoji) dan nilai sampulnya (props.sampul): galeri, warna, atau kunci unggahan. */
+  ikon?: string;
+  sampul?: string;
+  /** Baris properti lain seperti di halaman: PICA dan properti kustom yang terisi. */
+  properti?: { label: string; nilai: string }[];
+  /** Nama anggota untuk chip @orang. */
+  tim?: { id: string; nama: string }[];
 }
 
 // Nama warna opsi (tabel `opsi`) → warna nyata; sama dengan palet di lib/warna.ts.
@@ -55,8 +69,10 @@ const BIASA = "'Segoe UI', Roboto, Arial, sans-serif";
 interface Tema {
   /** Retro = huruf piksel, sudut siku, bingkai tebal berbayang. */
   retro: boolean;
+  /** Latar gelap: chip memakai warna aplikasi (mode gelap). */
+  gelap: boolean;
   luar: string; kertas: string; teks: string; redup: string; judul: string; aksen: string;
-  garis: string; hurufIsi: string; latarRingkas: string; teksTebal: string;
+  garis: string; hurufIsi: string; latarRingkas: string; teksTebal: string; tautan: string; latarKode: string;
   /** Bingkai & bayangan kertas (retro) dan latar pita kaki. */
   bingkai: string; bayangan: string; latarKaki: string;
   /** Kepekatan latar chip (akhiran alfa heksa). */
@@ -64,18 +80,18 @@ interface Tema {
 }
 const TEMA: Record<GayaGambarMemo, Tema> = {
   'retro-gelap': {
-    retro: true, luar: '#0b0d10', kertas: '#18181b', teks: '#e4e4e7', redup: '#a1a1aa', judul: '#ffffff', aksen: '#bef264',
-    garis: '#3f3f46', hurufIsi: PIKSEL, latarRingkas: '#1a2e05', teksTebal: '#ffffff',
+    retro: true, gelap: true, luar: '#0b0d10', kertas: '#09090b', teks: '#f4f4f5', redup: '#a1a1aa', judul: '#ffffff', aksen: '#bef264',
+    garis: '#3f3f46', hurufIsi: PIKSEL, latarRingkas: '#1a2e05', teksTebal: '#ffffff', tautan: '#7dd3fc', latarKode: 'rgba(0,0,0,.4)',
     bingkai: '#ffffff', bayangan: '#000000', latarKaki: '#0b0d10', alfaChip: '33',
   },
   'retro-terang': {
-    retro: true, luar: '#e6eae3', kertas: '#ffffff', teks: '#27272a', redup: '#6b7280', judul: '#15181c', aksen: '#3f6212',
-    garis: '#a1a1aa', hurufIsi: PIKSEL, latarRingkas: '#ecfccb', teksTebal: '#0b0d10',
+    retro: true, gelap: false, luar: '#e6eae3', kertas: '#ffffff', teks: '#27272a', redup: '#6b7280', judul: '#15181c', aksen: '#3f6212',
+    garis: '#a1a1aa', hurufIsi: PIKSEL, latarRingkas: '#ecfccb', teksTebal: '#0b0d10', tautan: '#0369a1', latarKode: '#f4f4f5',
     bingkai: '#15181c', bayangan: '#15181c', latarKaki: '#f4f4f5', alfaChip: '2e',
   },
   resmi: {
-    retro: false, luar: '#eef1ea', kertas: '#ffffff', teks: '#1f2937', redup: '#6b7280', judul: '#15181c', aksen: '#2f5d33',
-    garis: '#d1d5db', hurufIsi: BIASA, latarRingkas: '#eef6ea', teksTebal: '#111827',
+    retro: false, gelap: false, luar: '#eef1ea', kertas: '#ffffff', teks: '#1f2937', redup: '#6b7280', judul: '#15181c', aksen: '#2f5d33',
+    garis: '#d1d5db', hurufIsi: BIASA, latarRingkas: '#eef6ea', teksTebal: '#111827', tautan: '#1d4ed8', latarKode: '#f3f4f6',
     bingkai: '#d1d5db', bayangan: 'rgba(0,0,0,0.10)', latarKaki: '#f6f8f4', alfaChip: '1f',
   },
 };
@@ -89,48 +105,181 @@ function el(tag: string, gaya: Gaya, isi?: (Node | string)[] | string): HTMLElem
   return n;
 }
 
-/** "**tebal**" → <b>; sisanya teks biasa (tanpa HTML mentah). */
-function denganTebal(teks: string, t: Tema): Node[] {
-  return teks.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((b) =>
-    b.startsWith('**') && b.endsWith('**') && b.length > 4
-      ? el('b', { color: t.teksTebal, fontWeight: '700' }, b.slice(2, -2))
-      : document.createTextNode(b),
-  );
+/** Konteks penyusunan: tema, gambar yang sudah dimuat (kunci → URL), dan nama anggota. */
+interface Ktx { t: Tema; gambar: Map<string, string>; nama: Map<string, string>; hariIni: string }
+
+function chipSebaris(teks: string, warna: { garis: string; teks: string; latar: string }): HTMLElement {
+  return el('span', {
+    display: 'inline-block', padding: '0 6px', margin: '0 1px', border: `1px solid ${warna.garis}`, color: warna.teks, background: warna.latar,
+    fontSize: '12px', fontWeight: '700', whiteSpace: 'nowrap', lineHeight: '1.5',
+  }, teks);
 }
 
-/** Isi memo: # judul · ## subjudul · - butir · - [ ] tugas · - [x] selesai · **tebal**. */
-function susunIsi(isi: string, t: Tema): HTMLElement {
-  const wadah = el('div', { fontFamily: t.hurufIsi, fontSize: '15px', lineHeight: '1.6', color: t.teks });
-  for (const b of isi.split('\n')) {
-    if (b.startsWith('# ')) {
-      wadah.append(el('div', {
-        fontSize: '18px', fontWeight: '700', color: t.aksen, margin: '14px 0 6px', paddingBottom: '4px',
-        borderBottom: t.retro ? `2px dashed ${t.garis}` : `1px solid ${t.garis}`,
-      }, denganTebal(b.slice(2), t)));
-    } else if (b.startsWith('## ')) {
-      wadah.append(el('div', { fontSize: '16px', fontWeight: '700', color: t.judul, margin: '10px 0 3px' }, denganTebal(b.slice(3), t)));
-    } else if (/^- \[[ x]\] /.test(b)) {
-      const selesai = b.startsWith('- [x]');
+/** Isi satu baris (sama dengan TeksInline di aplikasi). */
+function sebaris(teks: string, k: Ktx, selesai = false): Node[] {
+  const { t } = k;
+  return uraiInline(teks).map((x): Node => {
+    switch (x.t) {
+      case 'teks': return document.createTextNode(x.v);
+      case 'tebal': return el('b', { color: t.teksTebal, fontWeight: '700' }, x.v);
+      case 'miring': return el('i', {}, x.v);
+      case 'coret': return el('s', { color: t.redup }, x.v);
+      case 'kode': return el('code', { fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '0.92em', padding: '0 4px', background: t.latarKode, border: `1px solid ${t.garis}`, color: t.gelap ? '#d9f99d' : t.teks }, x.v);
+      case 'tautan': return el('span', { color: t.tautan, textDecoration: 'underline' }, x.v);
+      case 'berkas': return chipSebaris(`📎 ${x.v}`, { garis: t.garis, teks: t.teks, latar: 'transparent' });
+      case 'tenggat': {
+        const sisa = W.selisihHari(x.tanggal, k.hariIni);
+        const w = t.gelap ? warnaTenggat(sisa, selesai)
+          : selesai ? { garis: t.garis, teks: t.redup, latar: 'transparent' }
+            : sisa < 0 ? { garis: '#dc2626', teks: '#b91c1c', latar: '#fef2f2' }
+              : sisa === 0 ? { garis: '#d97706', teks: '#92400e', latar: '#fffbeb' }
+                : { garis: '#0284c7', teks: '#075985', latar: '#f0f9ff' };
+        return chipSebaris(`📅 ${W.formatPendek(x.tanggal)}${x.jam ? ` ${x.jam}` : ''}`, w);
+      }
+      case 'orang': {
+        const nama = k.nama.get(x.id);
+        if (!nama) return document.createTextNode(`@${x.id}`);
+        return chipSebaris(`@${nama.split(' ')[0]}`, t.gelap
+          ? { garis: 'rgba(132,204,22,.5)', teks: '#d9f99d', latar: 'rgba(26,46,5,.3)' }
+          : { garis: '#65a30d', teks: '#3f6212', latar: '#f7fee7' });
+      }
+      case 'pica': return chipSebaris(x.id, t.gelap
+        ? { garis: 'rgba(251,191,36,.6)', teks: '#fde68a', latar: 'rgba(69,26,3,.3)' }
+        : { garis: '#d97706', teks: '#92400e', latar: '#fffbeb' });
+      case 'halaman': return chipSebaris(`📄 ${x.v.trim() || 'Tanpa judul'}`, { garis: t.garis, teks: t.teks, latar: 'transparent' });
+    }
+    return document.createTextNode('');
+  });
+}
+
+/** Satu blok (seperti IsiMemo di aplikasi); toggle tampil terbuka supaya isinya ikut tercetak. */
+function satuBlok(b: Blok, k: Ktx): HTMLElement {
+  const { t } = k;
+  switch (b.jenis) {
+    case 'judul': {
+      const ukuran = ['28px', '22px', '18.5px', '16px'][b.tingkat - 1];
+      return el('div', {
+        fontSize: ukuran, fontWeight: '700', lineHeight: '1.3', color: b.tingkat === 1 ? t.aksen : t.judul,
+        margin: b.tingkat === 1 ? '18px 0 2px' : b.tingkat === 2 ? '14px 0 0' : '8px 0 0', padding: '3px 0',
+      }, sebaris(b.teks, k));
+    }
+    case 'toggle':
+      return el('div', { display: 'flex', gap: '6px', padding: '3px 0' }, [el('span', { color: t.redup, flex: '0 0 auto' }, '▾'), el('span', {}, sebaris(b.teks, k))]);
+    case 'ceklis': {
       const kotak = el('span', {
         flex: '0 0 auto', width: '14px', height: '14px', marginTop: '5px', boxSizing: 'border-box',
-        border: `2px solid ${selesai ? t.aksen : t.redup}`, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }, selesai ? [el('span', { width: '6px', height: '6px', background: t.aksen })] : []);
-      wadah.append(el('div', { display: 'flex', gap: '8px', padding: '1px 0' }, [
+        border: `2px solid ${b.selesai ? t.aksen : t.redup}`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }, b.selesai ? [el('span', { width: '6px', height: '6px', background: t.aksen })] : []);
+      return el('div', { display: 'flex', gap: '8px', padding: '2px 0' }, [
         kotak,
-        el('span', { color: selesai ? t.redup : t.teks, textDecoration: selesai ? 'line-through' : 'none' }, denganTebal(b.slice(6), t)),
-      ]));
-    } else if (b.startsWith('- ')) {
-      wadah.append(el('div', { display: 'flex', gap: '8px', paddingLeft: '4px' }, [
-        el('span', { flex: '0 0 auto', width: '6px', height: '6px', marginTop: '9px', background: t.aksen }),
-        el('span', {}, denganTebal(b.slice(2), t)),
-      ]));
-    } else if (!b.trim()) {
-      wadah.append(el('div', { height: '8px' }));
-    } else {
-      wadah.append(el('div', {}, denganTebal(b, t)));
+        el('span', { color: b.selesai ? t.redup : t.teks, textDecoration: b.selesai ? 'line-through' : 'none' }, sebaris(b.teks, k, b.selesai)),
+      ]);
     }
+    case 'butir':
+      return el('div', { display: 'flex', gap: '8px' }, [
+        el('span', { flex: '0 0 auto', width: '6px', height: '6px', marginTop: '9px', marginLeft: '4px', background: t.retro ? t.aksen : t.teks }),
+        el('span', {}, sebaris(b.teks, k)),
+      ]);
+    case 'nomor':
+      return el('div', { paddingLeft: '10px' }, [el('span', { color: t.redup, marginRight: '4px' }, `${b.no}.`), ...sebaris(b.teks, k)]);
+    case 'kutipan':
+      return el('div', { borderLeft: `4px solid ${t.aksen}`, paddingLeft: '12px', margin: '2px 0', fontStyle: 'italic', color: t.redup }, sebaris(b.teks, k));
+    case 'penting':
+      return el('div', {
+        display: 'flex', gap: '8px', margin: '4px 0', padding: '8px 12px',
+        border: `2px solid ${t.gelap ? 'rgba(251,191,36,.7)' : '#f59e0b'}`, background: t.gelap ? 'rgba(69,26,3,.3)' : '#fffbeb',
+      }, [el('span', { color: t.gelap ? '#fcd34d' : '#b45309', fontWeight: '700', flex: '0 0 auto' }, 'ⓘ'), el('span', {}, sebaris(b.teks, k))]);
+    case 'garis':
+      return el('div', { borderTop: `2px dashed ${t.garis}`, margin: '8px 0' });
+    case 'gambar': {
+      const src = k.gambar.get(b.kunci);
+      const isi: HTMLElement[] = [];
+      if (src) {
+        const g = document.createElement('img');
+        g.src = src;
+        g.alt = b.nama;
+        Object.assign(g.style, { display: 'block', maxWidth: '100%', height: 'auto', border: `2px solid ${t.garis}` });
+        isi.push(g);
+      } else {
+        isi.push(el('div', { padding: '16px', border: `2px dashed ${t.garis}`, color: t.redup, fontSize: '12px', textAlign: 'center' }, `Gambar tidak dapat dimuat: ${b.nama}`));
+      }
+      if (b.nama && b.nama !== 'foto') isi.push(el('div', { fontSize: '11px', color: t.redup, marginTop: '2px' }, b.nama));
+      return el('div', { margin: '6px 0' }, isi);
+    }
+    case 'video': {
+      let situs = b.url;
+      try { situs = new URL(b.url).hostname.replace(/^www\./, ''); } catch { /* biarkan alamat utuh */ }
+      return el('div', { margin: '6px 0', border: `2px solid ${t.garis}`, padding: '8px 10px', display: 'flex', gap: '8px', alignItems: 'center' }, [
+        el('span', { flex: '0 0 auto', width: '30px', height: '22px', background: '#dc2626', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }, '▶'),
+        el('span', { flex: '1 1 auto', minWidth: '0' }, [
+          el('div', { fontWeight: '700', color: t.judul }, b.judul || 'Video'),
+          el('div', { fontSize: '11px', color: t.redup, wordBreak: 'break-all' }, `${situs} · ${b.url}`),
+        ]),
+      ]);
+    }
+    case 'tabel': {
+      // Tabel asli dengan lebar penuh: kolom menyesuaikan dan teks panjang dibungkus, tidak terpotong.
+      const tabel = el('table', { width: '100%', borderCollapse: 'collapse', fontSize: '13px', tableLayout: 'auto' });
+      b.baris.forEach((r, i) => {
+        const tr = document.createElement('tr');
+        r.forEach((c) => tr.append(el(b.kepala && i === 0 ? 'th' : 'td', {
+          border: `1px solid ${t.garis}`, padding: '3px 6px', textAlign: 'left', verticalAlign: 'top', wordBreak: 'break-word',
+          fontWeight: b.kepala && i === 0 ? '700' : '400', background: b.kepala && i === 0 ? (t.gelap ? 'rgba(255,255,255,.07)' : '#f4f4f5') : 'transparent',
+        }, sebaris(c, k))));
+        tabel.append(tr);
+      });
+      return el('div', { margin: '6px 0' }, [tabel]);
+    }
+    case 'data': {
+      const beku = b.beku;
+      const r = beku?.ringkasan;
+      const carb = beku?.karbon;
+      const wadah = el('div', {
+        margin: '8px 0', padding: '10px 12px', border: `2px solid ${t.garis}`,
+        background: t.gelap ? 'rgba(255,255,255,.05)' : '#f8fafc',
+      });
+      const judul = b.sumber === 'nursery' ? '🌱 SMART NURSERY' : '📍 GEOTAGGING REKLAMASI';
+      const statusBeku = beku ? ` [Beku: ${beku.pada}]` : ' [Data Lapangan]';
+      const kepala = el('div', { fontWeight: '700', fontSize: '13px', color: b.sumber === 'nursery' ? '#a3e635' : '#38bdf8', marginBottom: '6px' }, `${judul}${statusBeku}`);
+      wadah.append(kepala);
+
+      if (r) {
+        if (b.sumber === 'nursery') {
+          const barisKpi = el('div', { fontSize: '12px', color: t.teks, lineHeight: '1.5' }, [
+            el('div', { fontWeight: '700', fontSize: '15px' }, `Stok: ${(r.stok || 0).toLocaleString('id-ID')} btg · Mortalitas: ${r.mortalitas || 0}%`),
+            el('div', { fontSize: '11px', color: t.redup }, `Hari ini: +${(r.masuk_hari_ini || 0).toLocaleString('id-ID')} masuk · -${(r.keluar_hari_ini || 0).toLocaleString('id-ID')} keluar · ${(r.mati_hari_ini || 0).toLocaleString('id-ID')} mati`),
+          ]);
+          wadah.append(barisKpi);
+        } else {
+          const barisKpi = el('div', { fontSize: '12px', color: t.teks, lineHeight: '1.5' }, [
+            el('div', { fontWeight: '700', fontSize: '15px' }, `Total: ${(r.total || 0).toLocaleString('id-ID')} titik · Hidup: ${r.persen_hidup || 0}%`),
+            el('div', { fontSize: '11px', color: t.redup }, `Tinggi rata-rata: ${r.tinggi_avg || 0} cm · Karbon: ${carb?.karbon_ton || 0} t C (≈ ${carb?.co2e_ton || 0} t CO₂e)`),
+          ]);
+          wadah.append(barisKpi);
+        }
+      } else {
+        wadah.append(el('div', { fontSize: '12px', color: t.redup }, `Data ${b.sumber === 'nursery' ? 'Smart Nursery' : 'Geotagging'} terhubung.`));
+      }
+      return wadah;
+    }
+    case 'berkas':
+      return el('div', { margin: '4px 0' }, [chipSebaris(`📎 ${b.nama}`, { garis: t.garis, teks: t.teks, latar: 'transparent' })]);
+    case 'kosong':
+      return el('div', { height: '8px' });
+    default:
+      return el('div', { padding: '3px 0' }, sebaris(b.teks, k));
   }
-  if (!isi.trim()) wadah.append(el('div', { color: t.redup, fontStyle: 'italic' }, 'Belum ada isi.'));
+}
+
+function susunIsi(isi: string, k: Ktx): HTMLElement {
+  const wadah = el('div', { fontFamily: k.t.hurufIsi, fontSize: '15px', lineHeight: '1.6', color: k.t.teks, overflowWrap: 'anywhere' });
+  for (const b of uraiBlok(isi)) {
+    const n = satuBlok(b, k);
+    // Anak digeser ke kanan seperti di aplikasi (1,5em per tingkat).
+    if (b.kedalaman) n.style.marginLeft = `${b.kedalaman * 22}px`;
+    wadah.append(n);
+  }
+  if (!isi.trim()) wadah.append(el('div', { color: k.t.redup, fontStyle: 'italic' }, 'Belum ada isi.'));
   return wadah;
 }
 
@@ -142,8 +291,26 @@ function chip(c: Chip, t: Tema, bertitik: boolean): HTMLElement {
   }, [...(bertitik ? [el('span', { width: '8px', height: '8px', background: w, borderRadius: t.retro ? '0' : '50%' })] : []), c.label]);
 }
 
-function susunPoster(d: DataGambarMemo, gaya: GayaGambarMemo): HTMLElement {
-  const t = TEMA[gaya];
+/** Sampul utuh selebar kertas (gambar tidak dipotong); sampul warna = pita gradasi. */
+function susunSampul(d: DataGambarMemo, k: Ktx): HTMLElement | null {
+  const s = bacaSampul(d.sampul);
+  if (s.jenis === 'warna') {
+    const pita = el('div', { height: '110px' });
+    pita.style.cssText += `;${CSS_SAMPUL_WARNA[s.kode] ?? ''}`;
+    return pita;
+  }
+  const src = s.jenis === 'gambar' ? s.gambar.src : s.jenis === 'unggahan' ? k.gambar.get(s.kunci) : undefined;
+  if (!src) return null;
+  const g = document.createElement('img');
+  g.src = src;
+  g.alt = '';
+  Object.assign(g.style, { display: 'block', width: '100%', height: 'auto' });
+  const utuh = s.jenis === 'gambar' && s.gambar.muat === 'utuh';
+  return el('div', { background: utuh ? '#ffffff' : 'transparent', borderBottom: `${k.t.retro ? 4 : 1}px solid ${k.t.bingkai}` }, [g]);
+}
+
+function susunPoster(d: DataGambarMemo, gaya: GayaGambarMemo, k: Ktx): HTMLElement {
+  const { t } = k;
   const jenis = d.jenis ?? 'Memo Internal';
 
   // ---- kepala: pita hijau POKEMONKEY (retro) atau kop ber-logo (resmi)
@@ -170,16 +337,27 @@ function susunPoster(d: DataGambarMemo, gaya: GayaGambarMemo): HTMLElement {
     ]);
   }
 
-  // ---- judul, chip, info
+  // ---- ikon & judul (ikon menumpang di tepi bawah sampul, seperti di halaman memo)
+  const sampul = susunSampul(d, k);
+  const badan = el('div', { padding: t.retro ? '18px' : '22px', display: 'flex', flexDirection: 'column', gap: '14px', overflowWrap: 'anywhere' });
+  if (d.ikon) badan.append(el('div', { fontSize: '52px', lineHeight: '1', marginTop: sampul ? '-44px' : '0' }, d.ikon));
+  badan.append(el('div', { fontFamily: t.hurufIsi, fontSize: '25px', fontWeight: '700', lineHeight: '1.25', color: t.judul, wordBreak: 'break-word', marginTop: d.ikon ? '-6px' : '0' }, d.judul.trim() || 'Tanpa judul'));
+
+  // ---- properti: chip kategori/tipe/status, lalu baris "Nama  Nilai" seperti di halaman
   const chips = [d.kategori && chip(d.kategori, t, true), d.tipe && chip(d.tipe, t, false), d.status && chip(d.status, t, true)]
     .filter((x): x is HTMLElement => Boolean(x));
-  const info = [d.tanggal && ['Tanggal', d.tanggal], d.penulis && ['Penulis', d.penulis]].filter((x): x is string[] => Boolean(x));
-  const badan = el('div', { padding: t.retro ? '18px' : '22px', display: 'flex', flexDirection: 'column', gap: '14px' }, [
-    el('div', { fontFamily: t.hurufIsi, fontSize: '25px', fontWeight: '700', lineHeight: '1.25', color: t.judul, wordBreak: 'break-word' }, d.judul.trim() || 'Tanpa judul'),
-    ...(chips.length ? [el('div', { display: 'flex', flexWrap: 'wrap', gap: '6px' }, chips)] : []),
-    ...(info.length ? [el('div', { display: 'flex', flexWrap: 'wrap', gap: '4px 22px', fontFamily: t.hurufIsi, fontSize: '13px', color: t.redup }, info.map(([k, v]) =>
-      el('span', {}, [`${k}: `, el('b', { color: t.teks, fontWeight: '700' }, v)])))] : []),
-  ]);
+  if (chips.length) badan.append(el('div', { display: 'flex', flexWrap: 'wrap', gap: '6px' }, chips));
+  const { selesai, total } = hitungTugas(d.isi);
+  const baris: [string, string][] = [
+    ...(d.tanggal ? [['Tanggal', d.tanggal] as [string, string]] : []),
+    ...(d.penulis ? [['Penulis', d.penulis] as [string, string]] : []),
+    ...(total ? [['Tugas', `${selesai} dari ${total} selesai`] as [string, string]] : []),
+    ...(d.properti ?? []).filter((p) => p.nilai.trim()).map((p) => [p.label, p.nilai] as [string, string]),
+  ];
+  if (baris.length) {
+    badan.append(el('div', { display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '3px 16px', fontFamily: t.hurufIsi, fontSize: '13px' },
+      baris.flatMap(([a, b]) => [el('span', { color: t.redup }, a), el('span', { color: t.teks, fontWeight: '700', wordBreak: 'break-word' }, b)])));
+  }
 
   // ---- ringkasan
   if (d.ringkasan?.trim()) {
@@ -193,7 +371,7 @@ function susunPoster(d: DataGambarMemo, gaya: GayaGambarMemo): HTMLElement {
   }
 
   // ---- isi lengkap
-  badan.append(el('div', { borderTop: t.retro ? `2px dashed ${t.garis}` : `1px solid ${t.garis}`, paddingTop: '12px' }, [susunIsi(d.isi, t)]));
+  badan.append(el('div', { borderTop: t.retro ? `2px dashed ${t.garis}` : `1px solid ${t.garis}`, paddingTop: '12px' }, [susunIsi(d.isi, k)]));
 
   // ---- kaki
   const kaki = el('div', {
@@ -210,19 +388,32 @@ function susunPoster(d: DataGambarMemo, gaya: GayaGambarMemo): HTMLElement {
     border: t.retro ? `4px solid ${t.bingkai}` : `1px solid ${t.bingkai}`,
     boxShadow: t.retro ? `8px 8px 0 ${t.bayangan}` : `0 2px 10px ${t.bayangan}`,
     borderRadius: t.retro ? '0' : '6px',
-  }, [kepala, badan, kaki]);
+  }, [kepala, ...(sampul ? [sampul] : []), badan, kaki]);
 
   return el('div', { width: `${LEBAR}px`, boxSizing: 'border-box', padding: t.retro ? '18px 26px 26px 18px' : '20px', background: t.luar }, [kertas]);
 }
 
 const namaBerkas = (judul: string) => (judul.trim() || 'memo').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'memo';
 
+/** Gambar memo (blok gambar dan sampul unggahan) diambil dulu, supaya ikut terpotret. */
+async function muatGambar(d: DataGambarMemo): Promise<Map<string, string>> {
+  const kunci = uraiBlok(d.isi).flatMap((b) => (b.jenis === 'gambar' ? [b.kunci] : []));
+  const s = bacaSampul(d.sampul);
+  if (s.jenis === 'unggahan') kunci.push(s.kunci);
+  const hasil = new Map<string, string>();
+  await Promise.all([...new Set(kunci)].map(async (k) => { const u = await urlFoto(k); if (u) hasil.set(k, u); }));
+  return hasil;
+}
+
 /** Susun poster di luar layar lalu potret jadi PNG. */
 export async function buatGambarMemo(d: DataGambarMemo, gaya: GayaGambarMemo): Promise<{ blob: Blob; nama: string }> {
   const { toCanvas } = await import('html-to-image');
+  const k: Ktx = {
+    t: TEMA[gaya], gambar: await muatGambar(d), nama: new Map((d.tim ?? []).map((a) => [a.id, a.nama])), hariIni: W.hariIniWita(),
+  };
   // Yang dipotret hanya posternya, bukan pembungkus yang digeser keluar layar.
   const pembungkus = el('div', { position: 'fixed', left: '-20000px', top: '0', pointerEvents: 'none' });
-  const poster = susunPoster(d, gaya);
+  const poster = susunPoster(d, gaya, k);
   pembungkus.append(poster);
   document.body.append(pembungkus);
   try {

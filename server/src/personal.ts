@@ -10,7 +10,8 @@ import type { Env, Pengguna } from './tipe';
 import { bolehUbahKunci, adalahAdmin } from './auth';
 import { sekarangUtcIso, geserHari, tanggalWita, selisihHari } from './waktu';
 import {
-  susunJadwalMemo, tandaJadwalMemo, setCentangTugas, lepasTenggatTugas, type BarisJadwalMemo,
+  susunJadwalMemo, tandaJadwalMemo, setCentangTugas, lepasTenggatTugas, hakMemo, hanyaCentangTugasSendiri, type BarisJadwalMemo,
+  kepalaSampah, memoKosong, gantiLabelHalaman, HARI_SAMPAH,
 } from './memo-blok';
 import { matikanTautanMemo, ruteBagiMemo } from './lihat-memo';
 
@@ -38,7 +39,7 @@ export async function rutePersonal(jalur: string, req: Request, env: Env, penggu
   if (jalur === '/api/roster' && req.method === 'POST') {
     const b = (await req.json()) as { user_id?: string; tanggal?: string; kode?: string; catatan?: string };
     if (!b.user_id || !b.tanggal) return galat('user_id dan tanggal wajib diisi.');
-    if (!bolehUbahKunci(pengguna) && b.user_id !== pengguna.id) return galat('Hanya boleh mengubah roster sendiri.', 403);
+    if (!bolehUbahKunci(pengguna)) return galat('Jadwal roster hanya dapat diatur oleh Supervisor atau Admin.', 403);
 
     if (!b.kode) {
       await env.DB.prepare('DELETE FROM roster WHERE user_id = ?1 AND tanggal = ?2').bind(b.user_id, b.tanggal).run();
@@ -249,15 +250,16 @@ export async function rutePersonal(jalur: string, req: Request, env: Env, penggu
     const lingkup = url.searchParams.get('lingkup') === 'tim' ? 'tim' : 'pribadi';
     const pilihan = `SELECT m.*, t.nama AS penulis, p.no_urut AS pica_no, p.judul AS pica_judul, p.status AS pica_status
                        FROM memo m LEFT JOIN tim t ON t.id = m.user_id LEFT JOIN pica p ON p.id = m.pica_id`;
+    // Memo di Sampah tidak ikut tampil (lihat /api/memo/sampah).
     const { results } = lingkup === 'tim'
       ? await env.DB.prepare(
           `${pilihan}
-            WHERE m.lingkup = 'tim'
+            WHERE m.lingkup = 'tim' AND m.dihapus_pada IS NULL
             ORDER BY COALESCE(m.tanggal, substr(m.dibuat_pada, 1, 10)) DESC, m.dibuat_pada DESC`,
         ).all()
       : await env.DB.prepare(
           `${pilihan}
-            WHERE m.lingkup = 'pribadi' AND m.user_id = ?1
+            WHERE m.lingkup = 'pribadi' AND m.user_id = ?1 AND m.dihapus_pada IS NULL
             ORDER BY m.disematkan DESC, COALESCE(m.diubah_pada, m.dibuat_pada) DESC`,
         ).bind(pengguna.id).all();
     return json({ memo: results, lingkup });
@@ -266,23 +268,90 @@ export async function rutePersonal(jalur: string, req: Request, env: Env, penggu
   if (jalur === '/api/memo' && req.method === 'POST') {
     const b = (await req.json()) as Record<string, unknown>;
     const teks = (k: string) => (typeof b[k] === 'string' ? (b[k] as string) : undefined);
-    const lingkup = b.lingkup === 'tim' ? 'tim' : 'pribadi';
+    let lingkup = b.lingkup === 'tim' ? 'tim' : 'pribadi';
+    // Memo baru: anggota lain bisa mengedit (bawaan), kecuali pembuat memilih "Baca saja".
+    let akses = b.akses === 'baca' ? 'baca' : 'edit';
+
+    // Sub-halaman (blok "Halaman"): ikut lingkup induknya dan mewarisi aksesnya, seperti Notion.
+    // Menambah sub-halaman = mengubah induk, jadi butuh hak edit di induk.
+    let indukId: string | null = null;
+    if (typeof b.induk_id === 'string' && b.induk_id) {
+      const induk = await env.DB.prepare('SELECT id, user_id, lingkup, akses, dihapus_pada FROM memo WHERE id = ?1')
+        .bind(b.induk_id).first<{ id: string; user_id: string; lingkup: string; akses: string | null; dihapus_pada: string | null }>();
+      const hakInduk = induk && !induk.dihapus_pada ? hakMemo(induk, pengguna) : null;
+      if (!induk || !hakInduk) return galat('Halaman induk tidak ditemukan.', 404);
+      if (hakInduk === 'baca') return galat('Halaman induk diatur "Baca saja": sub-halaman tidak bisa ditambahkan.', 403);
+      indukId = induk.id;
+      lingkup = induk.lingkup === 'tim' ? 'tim' : 'pribadi';
+      if (!('akses' in b)) akses = induk.akses === 'baca' ? 'baca' : 'edit';
+    }
     if (lingkup === 'tim' && pengguna.peran === 'pemantau') return galat('Peran Pemantau hanya bisa membaca memo tim.', 403);
 
     const id = `memo_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const judul = teks('judul') ?? '';
     const isi = teks('isi') ?? '';
     await env.DB.prepare(
-      `INSERT INTO memo (id, user_id, lingkup, judul, isi, ringkasan, kategori, tipe, status, tanggal, warna, pica_id, props, dibuat_pada)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)`,
+      `INSERT INTO memo (id, user_id, lingkup, judul, isi, ringkasan, kategori, tipe, status, tanggal, warna, pica_id, props, akses, induk_id, dibuat_pada)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)`,
     ).bind(
       id, pengguna.id, lingkup, judul, isi, teks('ringkasan') ?? null,
       teks('kategori') ?? null, teks('tipe') ?? null, teks('status') ?? null,
       teks('tanggal') ?? (lingkup === 'tim' ? tanggalWita() : null), teks('warna') ?? null,
-      await picaSah(env, b.pica_id), bersihkanProps(b.props), sekarangUtcIso(),
+      await picaSah(env, b.pica_id), bersihkanProps(b.props), akses, indukId, sekarangUtcIso(),
     ).run();
     if (isi) await sinkronJadwalMemo(env, { id, user_id: pengguna.id, lingkup, judul, isi });
-    return json({ id }, 201);
+    return json({ id, lingkup, akses, induk_id: indukId }, 201);
+  }
+
+  // ---------- Sampah (seperti Trash di Notion) ----------
+  // Isinya: memo yang boleh dihapus pengguna ini (akses penuh). Sub-halaman yang ikut
+  // terbuang tidak ditampilkan terpisah; jumlahnya ada di jumlah_anak.
+  if (jalur === '/api/memo/sampah' && req.method === 'GET') {
+    const { results } = await env.DB.prepare(
+      `SELECT m.id, m.user_id, m.lingkup, m.akses, m.judul, m.isi, m.ringkasan, m.kategori, m.tipe, m.status, m.tanggal,
+              m.disematkan, m.warna, m.props, m.pica_id, m.induk_id, m.dibuat_pada, m.diubah_pada, m.dihapus_pada, m.dihapus_oleh,
+              t.nama AS penulis, h.nama AS penghapus, i.judul AS induk_judul
+         FROM memo m LEFT JOIN tim t ON t.id = m.user_id LEFT JOIN tim h ON h.id = m.dihapus_oleh
+         LEFT JOIN memo i ON i.id = m.induk_id AND i.dihapus_pada IS NULL
+        WHERE m.dihapus_pada IS NOT NULL AND (m.lingkup = 'tim' OR m.user_id = ?1)`,
+    ).bind(pengguna.id).all<BarisSampah>();
+    const daftar = kepalaSampah(results)
+      .filter((m) => hakMemo(m, pengguna) === 'penuh')
+      .sort((a, b) => b.dihapus_pada.localeCompare(a.dihapus_pada));
+    return json({ memo: daftar, hari: HARI_SAMPAH });
+  }
+
+  // Pulihkan: kelompok yang dibuang bersamaan kembali utuh. Bila induknya tidak ada lagi
+  // (atau masih di Sampah), halaman kembali sebagai halaman teratas.
+  const cocokPulihkan = jalur.match(/^\/api\/memo\/([\w-]+)\/pulihkan$/);
+  if (cocokPulihkan && req.method === 'POST') {
+    const memo = await env.DB.prepare('SELECT id, user_id, lingkup, akses, induk_id, dihapus_pada FROM memo WHERE id = ?1')
+      .bind(cocokPulihkan[1]).first<BarisSampah>();
+    if (!memo || !memo.dihapus_pada || !hakMemo(memo, pengguna)) return galat('Memo tidak ada di Sampah.', 404);
+    if (hakMemo(memo, pengguna) !== 'penuh') return galat('Hanya pembuat memo, Supervisor, atau Admin yang boleh memulihkan memo ini.', 403);
+    const kelompok = await pohonSampah(env, memo.id, memo.dihapus_pada);
+    const ids = JSON.stringify(kelompok.map((m) => m.id));
+    const indukAda = memo.induk_id
+      ? await env.DB.prepare('SELECT id FROM memo WHERE id = ?1 AND dihapus_pada IS NULL').bind(memo.induk_id).first()
+      : null;
+    await env.DB.batch([
+      env.DB.prepare('UPDATE memo SET dihapus_pada = NULL, dihapus_oleh = NULL WHERE id IN (SELECT value FROM json_each(?1))').bind(ids),
+      ...(memo.induk_id && !indukAda ? [env.DB.prepare('UPDATE memo SET induk_id = NULL WHERE id = ?1').bind(memo.id)] : []),
+    ]);
+    // Tugas bertenggat kembali ke Jadwal.
+    for (const m of kelompok) if (m.isi) await sinkronJadwalMemo(env, m);
+    return json({ ok: true, jumlah: kelompok.length, induk_id: indukAda ? memo.induk_id : null });
+  }
+
+  // Hapus permanen dari Sampah: memo beserta sub-halamannya, gambar/berkas, dan tautan bagikannya.
+  const cocokPermanen = jalur.match(/^\/api\/memo\/([\w-]+)\/permanen$/);
+  if (cocokPermanen && req.method === 'DELETE') {
+    const memo = await env.DB.prepare('SELECT id, user_id, lingkup, akses, induk_id, dihapus_pada FROM memo WHERE id = ?1')
+      .bind(cocokPermanen[1]).first<BarisSampah>();
+    if (!memo || !memo.dihapus_pada || !hakMemo(memo, pengguna)) return galat('Memo tidak ada di Sampah.', 404);
+    if (hakMemo(memo, pengguna) !== 'penuh') return galat('Hanya pembuat memo, Supervisor, atau Admin yang boleh menghapus permanen.', 403);
+    const jumlah = await hapusPermanenMemo(env, memo.id);
+    return json({ ok: true, jumlah });
   }
 
   // Bagikan memo lewat tautan (lihat lihat-memo.ts).
@@ -291,21 +360,51 @@ export async function rutePersonal(jalur: string, req: Request, env: Env, penggu
 
   const cocokMemo = jalur.match(/^\/api\/memo\/([\w-]+)$/);
   if (cocokMemo) {
-    const memo = await env.DB.prepare('SELECT id, user_id, lingkup FROM memo WHERE id = ?1')
-      .bind(cocokMemo[1]).first<{ id: string; user_id: string; lingkup: string }>();
-    // Memo pribadi milik orang lain diperlakukan seolah tidak ada.
-    if (!memo || (memo.lingkup !== 'tim' && memo.user_id !== pengguna.id)) return galat('Memo tidak ditemukan.', 404);
-    const bolehUbah = memo.user_id === pengguna.id || (memo.lingkup === 'tim' && bolehUbahKunci(pengguna));
-    if (!bolehUbah) return galat('Hanya penulis, Supervisor, atau Admin yang boleh mengubah memo tim.', 403);
+    const memo = await env.DB.prepare('SELECT id, user_id, lingkup, akses, judul, isi, ringkasan FROM memo WHERE id = ?1 AND dihapus_pada IS NULL')
+      .bind(cocokMemo[1]).first<{ id: string; user_id: string; lingkup: string; akses: string | null; judul: string; isi: string; ringkasan: string | null }>();
+    // Memo pribadi milik orang lain (dan memo di Sampah) diperlakukan seolah tidak ada.
+    const hak = memo ? hakMemo(memo, pengguna) : null;
+    if (!memo || !hak) return galat('Memo tidak ditemukan.', 404);
 
     if (req.method === 'DELETE') {
-      await hapusIsiTerkaitMemo(env, memo.id);
-      await env.DB.prepare('DELETE FROM memo WHERE id = ?1').bind(memo.id).run();
-      return json({ ok: true });
+      if (hak !== 'penuh') return galat('Hanya pembuat memo, Supervisor, atau Admin yang boleh menghapus memo ini.', 403);
+      // ?kosong=1: halaman baru yang dibiarkan kosong (tanpa sub-halaman) dibuang langsung, tidak mengotori Sampah.
+      if (url.searchParams.get('kosong') === '1') {
+        const adaAnak = await env.DB.prepare('SELECT 1 FROM memo WHERE induk_id = ?1 LIMIT 1').bind(memo.id).first();
+        if (!memoKosong(memo) || adaAnak) return json({ ok: true, dihapus: false });
+        await hapusIsiTerkaitMemo(env, memo.id);
+        await env.DB.prepare('DELETE FROM memo WHERE id = ?1').bind(memo.id).run();
+        return json({ ok: true, dihapus: true });
+      }
+      // Pindah ke Sampah beserta semua sub-halamannya; tugasnya keluar dari Jadwal sampai dipulihkan.
+      const { results: pohon } = await env.DB.prepare(
+        `WITH RECURSIVE pohon(id) AS (
+           SELECT ?1
+           UNION ALL
+           SELECT m.id FROM memo m JOIN pohon p ON m.induk_id = p.id WHERE m.dihapus_pada IS NULL
+         )
+         SELECT id FROM pohon`,
+      ).bind(memo.id).all<{ id: string }>();
+      const ids = JSON.stringify(pohon.map((r) => r.id));
+      await env.DB.batch([
+        env.DB.prepare('UPDATE memo SET dihapus_pada = ?2, dihapus_oleh = ?3 WHERE id IN (SELECT value FROM json_each(?1))')
+          .bind(ids, sekarangUtcIso(), pengguna.id),
+        env.DB.prepare('DELETE FROM jadwal WHERE memo_id IN (SELECT value FROM json_each(?1))').bind(ids),
+      ]);
+      return json({ ok: true, sampah: true, jumlah: pohon.length });
     }
     if (req.method === 'PATCH') {
       const b = (await req.json()) as Record<string, unknown>;
-      const kolom = ['judul', 'isi', 'disematkan', 'warna', 'ringkasan', 'kategori', 'tipe', 'status', 'tanggal', 'pica_id', 'props'].filter((k) => k in b);
+      // Baca saja: hanya boleh mencentang tugas yang menyebut dirinya.
+      if (hak === 'baca') {
+        const hanyaIsi = Object.keys(b).every((k) => k === 'isi');
+        if (!hanyaIsi || typeof b.isi !== 'string' || !hanyaCentangTugasSendiri(memo.isi, b.isi, pengguna.id)) {
+          return galat('Memo ini diatur "Baca saja" oleh pembuatnya. Anda hanya bisa mencentang tugas Anda sendiri.', 403);
+        }
+      }
+      if ('akses' in b && hak !== 'penuh') return galat('Hanya pembuat memo, Supervisor, atau Admin yang boleh mengatur akses.', 403);
+      if ('akses' in b) b.akses = b.akses === 'baca' ? 'baca' : 'edit';
+      const kolom = ['judul', 'isi', 'disematkan', 'warna', 'ringkasan', 'kategori', 'tipe', 'status', 'tanggal', 'pica_id', 'props', 'akses'].filter((k) => k in b);
       if (kolom.length === 0) return json({ ok: true });
       const nilai: unknown[] = [];
       for (const k of kolom) {
@@ -323,6 +422,7 @@ export async function rutePersonal(jalur: string, req: Request, env: Env, penggu
           .first<{ id: string; user_id: string; lingkup: string; judul: string; isi: string }>();
         if (baru) await sinkronJadwalMemo(env, baru);
       }
+      if (typeof b.judul === 'string') await perbaruiLabelHalaman(env, memo.id, b.judul);
       return json({ ok: true });
     }
   }
@@ -401,6 +501,73 @@ async function hapusIsiTerkaitMemo(env: Env, memoId: string): Promise<void> {
   if (results.length) {
     await env.BUKET.delete(results.map((r) => r.kunci_r2));
     await env.DB.prepare("DELETE FROM lampiran WHERE entitas = 'memo' AND entitas_id = ?1").bind(memoId).run();
+  }
+}
+
+/** Judul memo berubah: label tautan/sub-halaman `[[memo:id|…]]` di memo lain ikut diperbarui (tanpa mengubah diubah_pada). */
+async function perbaruiLabelHalaman(env: Env, id: string, judul: string): Promise<void> {
+  const { results } = await env.DB.prepare('SELECT id, isi FROM memo WHERE instr(isi, ?1) > 0 LIMIT 200')
+    .bind(`[[memo:${id}|`).all<{ id: string; isi: string }>();
+  const perintah = results.flatMap((r) => {
+    const baru = gantiLabelHalaman(r.isi, id, judul);
+    return baru === r.isi ? [] : [env.DB.prepare('UPDATE memo SET isi = ?2 WHERE id = ?1').bind(r.id, baru)];
+  });
+  if (perintah.length) await env.DB.batch(perintah);
+}
+
+// ============================================================
+// Sampah memo
+// ============================================================
+
+interface BarisSampah {
+  id: string; user_id: string; lingkup: string; akses: string | null; judul: string; isi: string;
+  induk_id: string | null; dihapus_pada: string;
+}
+
+/** Memo `akarId` dan sub-halaman yang terbuang bersamanya (dihapus_pada sama). */
+async function pohonSampah(env: Env, akarId: string, waktu: string): Promise<BarisSampah[]> {
+  const { results } = await env.DB.prepare(
+    `WITH RECURSIVE pohon(id) AS (
+       SELECT ?1
+       UNION ALL
+       SELECT m.id FROM memo m JOIN pohon p ON m.induk_id = p.id WHERE m.dihapus_pada = ?2
+     )
+     SELECT m.id, m.user_id, m.lingkup, m.akses, m.judul, m.isi, m.induk_id, m.dihapus_pada
+       FROM memo m WHERE m.id IN (SELECT id FROM pohon)`,
+  ).bind(akarId, waktu).all<BarisSampah>();
+  return results;
+}
+
+/** Hapus permanen memo di Sampah beserta semua keturunannya yang juga di Sampah. Mengembalikan jumlah memo. */
+async function hapusPermanenMemo(env: Env, akarId: string): Promise<number> {
+  const { results } = await env.DB.prepare(
+    `WITH RECURSIVE pohon(id) AS (
+       SELECT ?1
+       UNION ALL
+       SELECT m.id FROM memo m JOIN pohon p ON m.induk_id = p.id
+     )
+     SELECT m.id FROM memo m WHERE m.id IN (SELECT id FROM pohon) AND m.dihapus_pada IS NOT NULL`,
+  ).bind(akarId).all<{ id: string }>();
+  for (const r of results) await hapusIsiTerkaitMemo(env, r.id);
+  const ids = JSON.stringify(results.map((r) => r.id));
+  await env.DB.batch([
+    // Jaga-jaga: anak yang tidak ikut terhapus naik jadi halaman teratas, bukan menunjuk induk yang hilang.
+    env.DB.prepare('UPDATE memo SET induk_id = NULL WHERE induk_id IN (SELECT value FROM json_each(?1)) AND dihapus_pada IS NULL').bind(ids),
+    env.DB.prepare('DELETE FROM memo WHERE id IN (SELECT value FROM json_each(?1))').bind(ids),
+  ]);
+  return results.length;
+}
+
+/** Cron: memo yang lebih dari HARI_SAMPAH hari di Sampah dihapus permanen. */
+export async function bersihkanSampahMemo(env: Env): Promise<void> {
+  const batas = new Date(Date.now() - HARI_SAMPAH * 86_400_000).toISOString();
+  const { results } = await env.DB.prepare(
+    'SELECT id FROM memo WHERE dihapus_pada IS NOT NULL AND dihapus_pada < ?1 LIMIT 50',
+  ).bind(batas).all<{ id: string }>();
+  for (const r of results) {
+    // Bisa sudah ikut terhapus sebagai keturunan baris sebelumnya.
+    const masih = await env.DB.prepare('SELECT 1 FROM memo WHERE id = ?1').bind(r.id).first();
+    if (masih) await hapusPermanenMemo(env, r.id);
   }
 }
 

@@ -113,7 +113,7 @@ export const KalenderMemo: React.FC<PropsTugas & { tim: AnggotaRingkas[] }> = ({
               t={t}
               memo={m}
               tim={tim}
-              bolehUbah={m ? bolehUbah(m) : false}
+              bolehUbah={m ? bolehUbah(m, t) : false}
               onCentang={() => m && onCentang(m, t.indeks)}
               onBuka={() => m && onBukaMemo(m)}
             />

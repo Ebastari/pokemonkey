@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { TreePine, ChevronRight, ClipboardList, Bell, CalendarDays, AlarmClock, Coins, Flame } from 'lucide-react';
+import { TreePine, ChevronRight, ClipboardList, Bell, CalendarDays, AlarmClock, Coins, Flame, Sprout, Trees } from 'lucide-react';
 import { GameState, Skin } from '../types';
 import type { Opsi, Pengguna } from '../lib/tipe-api';
 import type { AlarmItem } from '../lib/alarm';
@@ -10,6 +10,7 @@ import { MonkeySprite } from './MonkeySprite';
 import { PanelRealisasi } from './PanelRealisasi';
 import { useCuaca, HujanKebun, ChipCuaca, PanelCuaca } from './CuacaKebun';
 import { useTitikApi, ChipTitikApi, PanelTitikApi } from './TitikApiKebun';
+import { ModalRingkasanLapangan } from './ModalRingkasanLapangan';
 import { ringkasRevegetasi, totalTahun, ha, type BarisRevegetasi } from '../lib/revegetasi';
 import { perbaruiDataWidgetHp } from '../lib/widget';
 
@@ -101,6 +102,7 @@ export const Habitat: React.FC<Props> = ({
   const [ubahStatus, setUbahStatus] = useState(false);
   const [panelCuaca, setPanelCuaca] = useState(false);
   const [panelApi, setPanelApi] = useState(false);
+  const [modalLapangan, setModalLapangan] = useState<'nursery' | 'geotag' | null>(null);
   const { data: titikApi, muat: muatTitikApi } = useTitikApi();
   const { cuaca, galat: galatCuaca, muat: muatCuaca } = useCuaca();
 
@@ -319,6 +321,8 @@ export const Habitat: React.FC<Props> = ({
       {onBukaFire && (
         <ChipFire onBuka={onBukaFire} />
       )}
+      <ChipNursery onBuka={() => setModalLapangan('nursery')} />
+      <ChipGeotag onBuka={() => setModalLapangan('geotag')} />
 
       {/* Papan INFO: pintasan ke pengumuman, dengan lencana yang belum dibaca. */}
       {onBukaInfo && (
@@ -458,6 +462,13 @@ export const Habitat: React.FC<Props> = ({
           onMuatUlang={muatCuaca}
           onTutup={() => setPanelCuaca(false)}
           notify={notify}
+        />
+      )}
+
+      {modalLapangan && (
+        <ModalRingkasanLapangan
+          jenis={modalLapangan}
+          onTutup={() => setModalLapangan(null)}
         />
       )}
 
@@ -703,5 +714,36 @@ export const ChipFire: React.FC<{
     <span className="font-title text-[10px] text-orange-200">FIRE</span>
   </button>
 );
+
+/** Chip Smart Nursery di pojok kebun: pintasan ke data bibit */
+export const ChipNursery: React.FC<{
+  onBuka: () => void;
+}> = ({ onBuka }) => (
+  <button
+    onClick={(e) => { e.stopPropagation(); onBuka(); }}
+    className="absolute z-20 right-2 top-[336px] retro-box !bg-lime-950/80 !border-lime-400 !p-1.5 !px-2 flex items-center gap-1.5 leading-tight hover:!bg-lime-900"
+    title="Smart Nursery (Stok bibit persemaian & mutasi)"
+    aria-label="Buka Smart Nursery"
+  >
+    <Sprout size={16} className="text-lime-300" />
+    <span className="font-title text-[10px] text-lime-200">SEMAI</span>
+  </button>
+);
+
+/** Chip Geotagging di pojok kebun: pintasan ke sensus pohon & biomassa */
+export const ChipGeotag: React.FC<{
+  onBuka: () => void;
+}> = ({ onBuka }) => (
+  <button
+    onClick={(e) => { e.stopPropagation(); onBuka(); }}
+    className="absolute z-20 right-2 top-[376px] retro-box !bg-sky-950/80 !border-sky-400 !p-1.5 !px-2 flex items-center gap-1.5 leading-tight hover:!bg-sky-900"
+    title="Geotagging & Karbon (Sensus pohon & cadangan karbon)"
+    aria-label="Buka Geotagging"
+  >
+    <Trees size={16} className="text-sky-300" />
+    <span className="font-title text-[10px] text-sky-200">POHON</span>
+  </button>
+);
+
 
 

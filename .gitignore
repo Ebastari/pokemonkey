@@ -14,7 +14,28 @@ dist-ssr
 
 # Cloudflare Worker (rahasia & basis data lokal)
 .dev.vars
+server/.dev.vars
+.env
+.env.*
+!.env.example
 server/.wrangler
+
+# Dokumen kerja lokal & berkas sementara di root
+/PT Energi Batubara Lestari*
+/*.xlsx
+/*.xls
+/*.docx
+/*.doc
+/*.pdf
+~$*
+/SK Update/
+/a.png
+/Pk bo.jpg
+/Детство 90х_.jpeg
+/Gemini_Generated_Image_*.jpeg
+/Monyet Pixel Menatap Lembah Jungle.png
+/sampul resmi.jpg
+/analisis-arsitektur-notion-vs-memo.md
 
 # Capacitor / Android build
 android/app/build

@@ -12,12 +12,13 @@ function json(data: unknown, status = 200): Response {
   });
 }
 const galat = (pesan: string, status = 400) => json({ galat: pesan }, status);
-const bolehKelola = (p: Pengguna) => Boolean(p.id);
+const bolehKelola = (p: Pengguna) => p.peran === 'admin' || p.peran === 'supervisor';
 /** Kategori = lembar rincian Excel RAB; 'rnr' = tanpa kategori (hanya di rekap). */
 const KATEGORI = ['atk', 'bbm', 'catering', 'perdin', 'listrik', 'air', 'telp', 'pantry', 'khl', 'kunjungan', 'eksternal'];
 
 export async function ruteKatalogRab(jalur: string, req: Request, env: Env, pengguna: Pengguna): Promise<Response | null> {
   if (!jalur.startsWith('/api/katalog-rab')) return null;
+  if (!bolehKelola(pengguna)) return galat('Akses ditolak: Hanya Admin dan Supervisor.', 403);
 
   if (jalur === '/api/katalog-rab' && req.method === 'GET') {
     const { results } = await env.DB.prepare(
