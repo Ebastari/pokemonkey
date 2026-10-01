@@ -97,8 +97,11 @@ function kenaliKepala(sel: string[]): Kolom | null {
   return adaMinggu || k.harga !== undefined ? (k as Kolom) : null;
 }
 
-const kategoriLembar = (nama: string): KategoriRab | undefined =>
-  DAFTAR_KATEGORI.find((k) => k.nama.toLowerCase() === nama.trim().toLowerCase())?.id;
+const kategoriLembar = (nama: string): KategoriRab | undefined => {
+  const n = nama.trim().toLowerCase();
+  if (n.includes('kunjungan') || n.includes('esternal') || n.includes('eksternal') || n.includes('external')) return 'kunjungan';
+  return DAFTAR_KATEGORI.find((k) => k.nama.toLowerCase() === n)?.id;
+};
 
 /** Baca semua barang dari berkas .xlsx. */
 export async function bacaBerkasImpor(data: ArrayBuffer): Promise<BarisImpor[]> {

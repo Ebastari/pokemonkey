@@ -14,7 +14,7 @@ function json(data: unknown, status = 200): Response {
 const galat = (pesan: string, status = 400) => json({ galat: pesan }, status);
 const bolehKelola = (p: Pengguna) => p.peran === 'admin' || p.peran === 'supervisor';
 /** Kategori = lembar rincian Excel RAB; 'rnr' = tanpa kategori (hanya di rekap). */
-const KATEGORI = ['atk', 'bbm', 'catering', 'perdin', 'listrik', 'air', 'telp', 'pantry', 'khl'];
+const KATEGORI = ['atk', 'bbm', 'catering', 'perdin', 'listrik', 'air', 'telp', 'pantry', 'khl', 'kunjungan', 'eksternal'];
 
 export async function ruteKatalogRab(jalur: string, req: Request, env: Env, pengguna: Pengguna): Promise<Response | null> {
   if (!jalur.startsWith('/api/katalog-rab')) return null;
@@ -34,7 +34,10 @@ export async function ruteKatalogRab(jalur: string, req: Request, env: Env, peng
     if (!nama) return galat('Nama uraian wajib diisi.');
     const id = String(b?.id ?? '').replace(/[^\w-]/g, '').slice(0, 60) || `kat-${Date.now().toString(36)}`;
     // Kategori hanya diubah bila dikirim (aplikasi versi lama tidak mengirimnya).
-    const kategori = b && 'kategori' in b ? (KATEGORI.includes(String(b.kategori)) ? String(b.kategori) : 'rnr') : null;
+    const rawKategori = b && 'kategori' in b ? String(b.kategori) : null;
+    const kategori = rawKategori
+      ? (rawKategori === 'eksternal' || rawKategori === 'kunjungan_eksternal' ? 'kunjungan' : (KATEGORI.includes(rawKategori) ? rawKategori : 'rnr'))
+      : null;
     await env.DB.prepare(
       `INSERT INTO katalog_rab (id, kategori, kelompok, nama, satuan, harga, urutan, diubah_oleh, diubah_pada, wbs)
        VALUES (?1, COALESCE(?9, 'rnr'),?2,?3,?4,?5,?6,?7, datetime('now'), ?8)

@@ -63,11 +63,15 @@ export const DAFTAR_KATEGORI = [
   { id: 'telp', nama: 'Telp & Internet' },
   { id: 'pantry', nama: 'Pantry' },
   { id: 'khl', nama: 'KHL' },
+  { id: 'kunjungan', nama: 'Kunjungan Eksternal' },
 ] as const;
 export type KategoriRab = (typeof DAFTAR_KATEGORI)[number]['id'];
 export const namaKategori = (id?: string) => DAFTAR_KATEGORI.find((k) => k.id === id)?.nama ?? '';
 /** Kategori katalog → kategori RAB; nilai lain ('rnr', kosong) = tanpa kategori. */
-export const kategoriSah = (id?: string): KategoriRab | undefined => DAFTAR_KATEGORI.find((k) => k.id === id)?.id;
+export const kategoriSah = (id?: string): KategoriRab | undefined => {
+  if (id === 'eksternal' || id === 'kunjungan_eksternal') return 'kunjungan';
+  return DAFTAR_KATEGORI.find((k) => k.id === id)?.id;
+};
 
 export interface UraianRab {
   id: string;
