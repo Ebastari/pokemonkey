@@ -1,14 +1,18 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  AtSign, Bold, CalendarClock, ChevronDown, ChevronRight, ChevronUp, Code, Copy, FileText, GripVertical,
-  ImagePlus, ImageOff, Info, Italic, Link2, ListChecks, ListIndentDecrease, ListIndentIncrease, Loader2, Paperclip, Plus,
-  Strikethrough, Trash2, Type, X,
+  AlignCenter, AlignLeft, AlignRight, AtSign, Bold, CalendarClock, ChevronDown, ChevronRight, ChevronUp, Code, Columns2, Copy, FileText,
+  GripVertical, Highlighter, ImagePlus, ImageOff, Info, Italic, Link2, ListChecks, ListIndentDecrease, ListIndentIncrease, Loader2,
+  MessageSquare, Palette, Paperclip, Plus, Send, Sigma, Sparkles, Strikethrough, Trash2, Type, Underline, X,
 } from 'lucide-react';
 import {
-  INDENT, MAKS_BARIS_TABEL, MAKS_KOLOM_TABEL, ambilTugas, bacaTabel, jamSah, pisahIndent, rakitData, rakitTabel, tanggalSah, toggleBaris, ubahTenggatBaris,
-  uraiBlok, uraiInline,
+  INDENT, MAKS_BARIS_TABEL, MAKS_KOLOM_TABEL, ambilTugas, bacaTabel, daftarJudul, jamSah, pisahIndent, rakitData, rakitGambar, rakitKode,
+  rakitGrafik, rakitPenanda, rakitRumus, rakitTabel, tanggalSah, toggleBaris, ubahTenggatBaris, uraiBlok, uraiInline, type Inline, type RataGambar,
 } from '../server/src/memo-blok';
+import { BAHASA_KODE, WARNA_KODE, WARNA_LATAR, WARNA_TEKS, sorotKode } from '../server/src/tampil-memo';
+import { katexSiap, muatKatex, rumusHtml } from '../lib/rumus';
+import { cariEmoji } from '../lib/emoji';
+import { api } from '../lib/api';
 import {
   BLOK_TEKS, bacaBaris, cekPintasan, dariDom, jenisLanjutan, keHtml, kursorDiTepi, offsetKursor, panjangTampil,
   pasangKursor, potongDiKursor, rakitBaris, rentang, type JenisBlok, type PetaHalaman,
@@ -17,9 +21,10 @@ import { barisUntukUnggah, kecilkanGambar, unduhBerkasMemo, unggahKeMemo } from 
 import { useFotoProfil } from '../lib/foto';
 import type { AnggotaRingkas } from '../lib/tipe-api';
 import * as W from '../lib/waktu';
-import { IsiMemo, KartuVideo } from './MemoMarkup';
+import { BlokRumus, DaftarIsi, IsiMemo, KartuPenanda, KartuVideo, gayaGambar } from './MemoMarkup';
 import { KartuDataLapangan } from './KartuDataLapangan';
-import { DAFTAR_BLOK, UBAH_JADI, cocokKueri, type DefinisiBlok } from '../lib/blok-jenis';
+import { GrafikReklamasi } from './GrafikReklamasi';
+import { DAFTAR_BLOK, UBAH_JADI, cocokKueri, skorKueri, type DefinisiBlok } from '../lib/blok-jenis';
 
 /**
  * Penyunting memo gaya Notion: halaman berisi blok yang langsung jadi saat
@@ -58,6 +63,13 @@ interface Props {
   onBukaHalaman?: (idMemo: string) => void;
   /** Blok "Halaman" (menu "/"): buat sub-halaman di dalam memo ini; null = gagal. */
   onBuatHalaman?: () => Promise<{ id: string; judul: string } | null>;
+  /** Komentar pada teks yang dipilih (bilah format); kutipan = teks terpilih. */
+  onKomentar?: (kutipan: string) => void;
+  /**
+   * AI (Gemini lewat server): olah teks terpilih atau tulis blok baru di posisi kursor.
+   * Mengembalikan teks memo yang sudah disaring server.
+   */
+  onAi?: (p: { mode: 'pilihan' | 'tulis'; aksi?: string; pilihan?: string; instruksi?: string }) => Promise<{ teks: string; catatan?: string }>;
   /** Memo "Baca saja": pembaca tetap boleh mencentang tugas yang menyebut dirinya (`@idSaya`). */
   idSaya?: string;
   onCentangBaca?: (baru: string) => void;
@@ -102,6 +114,43 @@ function akhirSubpohon(arr: readonly Blok[], i: number): number {
 
 // Peralatan blok dibaca dari satu daftar (lib/blok-jenis.ts), seperti di Notion.
 type Perintah = Omit<DefinisiBlok, 'grup'> & { grup?: string };
+
+/** Panel AI di penyunting: teks terpilih (satu/sebagian/beberapa blok) atau tulis baru di blok kursor. */
+interface PanelAi {
+  idMulai: string; idAkhir: string;
+  /** Posisi huruf pilihan di dalam satu blok (bila pilihan tidak melewati batas blok). */
+  dari?: number; sampai?: number;
+  pilihan: string;
+  mode: 'pilihan' | 'tulis';
+  status: 'pilih' | 'memuat' | 'siap' | 'galat';
+  hasil?: string; pesan?: string;
+}
+
+const AKSI_AI: [string, string][] = [
+  ['perbaiki', 'Perbaiki tulisan'], ['persingkat', 'Persingkat'], ['perpanjang', 'Perpanjang'], ['lanjutkan', 'Lanjutkan tulisan'],
+  ['resmi', 'Lebih resmi'], ['sederhana', 'Lebih sederhana'], ['ceklis', 'Jadikan ceklis'], ['tabel', 'Jadikan tabel'],
+  ['inggris', 'Ke bahasa Inggris'], ['indonesia', 'Ke bahasa Indonesia'],
+];
+const CONTOH_TULIS_AI = ['Notulen rapat dari catatan di atas', 'Ceklis tindak lanjut minggu ini', 'Tabel rekap dari data di atas', 'Paragraf pembuka memo'];
+
+/** Ikon menu untuk satu emoji (komponen dibuat sekali per emoji). */
+const ikonEmojiSimpan = new Map<string, React.ComponentType<{ size?: number; className?: string }>>();
+function ikonEmoji(e: string): React.ComponentType<{ size?: number; className?: string }> {
+  let k = ikonEmojiSimpan.get(e);
+  if (!k) {
+    k = () => <span className="text-[15px] leading-none">{e}</span>;
+    ikonEmojiSimpan.set(e, k);
+  }
+  return k;
+}
+
+/** Isi blok tanpa pembungkus warna seluruh blok ({w:…|isi} → isi). */
+const lepasWarnaBlok = (isi: string) => isi.match(/^\{[wl]:[a-z]+\|([^{}\n]*)\}$/)?.[1] ?? isi;
+
+const LABEL_MEDIA: Partial<Record<JenisBlok, string>> = {
+  garis: 'Divider', gambar: 'Gambar', video: 'Video', tabel: 'Tabel', data: 'Data Lapangan', kode: 'Kode', rumus: 'Rumus',
+  daftarisi: 'Daftar isi', kolom: 'Kolom', penanda: 'Tautan web', grafik: 'Grafik realisasi reklamasi',
+};
 
 const PH: Partial<Record<JenisBlok, string>> = Object.fromEntries(
   DAFTAR_BLOK.filter((d) => d.jenis && d.penanda).map((d) => [d.jenis, d.penanda]),
@@ -164,6 +213,8 @@ interface Penangan {
   lipat: (id: string) => void;
   /** Ganti seluruh baris blok (mis. tabel yang disunting sel per sel). */
   ubahRaw: (id: string, raw: string) => void;
+  /** Gulir ke blok ke-n (daftar isi). */
+  lompat: (indeks: number) => void;
 }
 
 /**
@@ -246,6 +297,117 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = (
   );
 };
 
+/** Blok kode yang bisa disunting: pilih bahasa, ketik di area teks; di luar fokus tampil berwarna. */
+const KodeSunting: React.FC<{ bahasa: string; isi: string; onUbah: (bahasa: string, isi: string) => void }> = ({ bahasa, isi, onUbah }) => {
+  const [fokus, setFokus] = useState(false);
+  const [disalin, setDisalin] = useState(false);
+  const area = useRef<HTMLTextAreaElement>(null);
+  const tinggikan = (t: HTMLTextAreaElement | null) => { if (t) { t.style.height = 'auto'; t.style.height = `${t.scrollHeight}px`; } };
+  useLayoutEffect(() => { if (fokus) tinggikan(area.current); }, [fokus, isi]);
+  const salin = async () => {
+    try { await navigator.clipboard.writeText(isi); setDisalin(true); setTimeout(() => setDisalin(false), 1500); } catch { /* papan klip ditolak */ }
+  };
+  return (
+    <div data-sunting className="my-1.5 border-2 border-white/20 bg-black/60">
+      <div className="flex items-center gap-2 px-2 h-7 border-b border-white/10 text-[11px] text-zinc-400">
+        <select value={bahasa} onChange={(e) => onUbah(e.target.value, isi)} className="bg-transparent text-zinc-300 outline-none cursor-pointer" aria-label="Bahasa kode">
+          {BAHASA_KODE.map((b) => <option key={b.id} value={b.id} className="bg-zinc-900">{b.label}</option>)}
+        </select>
+        <button type="button" onClick={salin} className="ml-auto flex items-center gap-1 hover:text-white" title="Salin kode">{disalin ? 'Tersalin' : <><Copy size={12} /> Salin</>}</button>
+      </div>
+      {fokus ? (
+        <textarea
+          ref={area}
+          autoFocus
+          value={isi}
+          spellCheck={false}
+          onChange={(e) => { onUbah(bahasa, e.target.value); tinggikan(e.target); }}
+          onBlur={() => setFokus(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { e.currentTarget.blur(); return; }
+            if (e.key === 'Tab') {
+              e.preventDefault();
+              const t = e.currentTarget;
+              const a = t.selectionStart;
+              const baru = `${isi.slice(0, a)}  ${isi.slice(t.selectionEnd)}`;
+              onUbah(bahasa, baru);
+              requestAnimationFrame(() => { t.selectionStart = t.selectionEnd = a + 2; });
+            }
+          }}
+          className="block w-full px-3 py-2 bg-transparent text-zinc-100 font-mono text-[0.85em] leading-[1.55] outline-none resize-none whitespace-pre overflow-x-auto"
+          aria-label="Isi kode"
+        />
+      ) : (
+        <pre onClick={() => setFokus(true)} className="m-0 px-3 py-2 min-h-[2.5em] overflow-x-auto custom-scrollbar text-[0.85em] leading-[1.55] font-mono whitespace-pre cursor-text">
+          <code>{sorotKode(isi, bahasa).map((x, i) => <span key={i} style={{ color: WARNA_KODE[x.t].gelap }}>{x.v}</span>)}{!isi && <span className="text-zinc-600">Ketuk untuk menulis kode</span>}</code>
+        </pre>
+      )}
+    </div>
+  );
+};
+
+/** Blok rumus: ketuk untuk mengubah LaTeX, pratinjau langsung di bawahnya. */
+const RumusSunting: React.FC<{ isi: string; onUbah: (isi: string) => void }> = ({ isi, onUbah }) => {
+  const [ubah, setUbah] = useState(!isi);
+  const [siap, setSiap] = useState(katexSiap);
+  useEffect(() => { if (!siap) void muatKatex().then(() => setSiap(katexSiap())); }, [siap]);
+  return (
+    <div data-sunting className="my-1">
+      <div onClick={() => setUbah(true)} className="cursor-pointer hover:bg-white/5"><BlokRumus isi={isi} /></div>
+      {ubah && (
+        <div className="flex items-start gap-2 border-2 border-lime-500/60 bg-zinc-900 p-2">
+          <span className="text-[12px] text-zinc-400 pt-1.5">TeX</span>
+          <textarea
+            autoFocus
+            rows={1}
+            value={isi}
+            onChange={(e) => onUbah(e.target.value.replace(/\n/g, ' '))}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); setUbah(false); } }}
+            placeholder="mis. \frac{a}{b} atau x^2 + y^2 = r^2"
+            className="flex-1 min-w-0 input-retro !py-1 !text-[13px] font-mono resize-none"
+            aria-label="Rumus LaTeX"
+          />
+          <button type="button" onClick={() => setUbah(false)} className="btn-retro btn-retro-sm bg-lime-600">Selesai</button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** Gambar yang bisa diatur lebar & perataannya, dengan keterangan yang bisa diketik (seperti Notion). */
+const GambarSunting: React.FC<{ kunci: string; nama: string; lebar?: number; rata?: RataGambar; aktif: boolean; onUbah: (raw: string) => void }> = ({ kunci, nama, lebar, rata, aktif, onUbah }) => {
+  const url = useFotoProfil(kunci);
+  const [ket, setKet] = useState(nama === 'foto' ? '' : nama);
+  useEffect(() => { setKet(nama === 'foto' ? '' : nama); }, [nama]);
+  const pasang = (l?: number, r?: RataGambar, n = ket) => onUbah(rakitGambar(n.trim() || 'foto', kunci, l, r));
+  const tombol = (aktifkah: boolean) => `w-7 h-7 flex items-center justify-center text-[11px] font-bold ${aktifkah ? 'bg-lime-600 text-white' : 'text-zinc-300 hover:bg-white/10'}`;
+  return (
+    <figure data-sunting className="group/gambar relative my-1 max-w-full" style={gayaGambar(lebar, rata)}>
+      {url
+        ? <img src={url} alt={nama} className={`${lebar ? 'w-full' : 'max-w-full max-h-[420px]'} border-2 border-white/25`} draggable={false} />
+        : <div className="h-24 border-2 border-dashed border-white/20 flex items-center justify-center gap-2 text-[12px] text-zinc-500"><ImageOff size={14} /> Memuat gambar…</div>}
+      <div className={`absolute right-1 top-1 flex bg-zinc-900/95 border-2 border-black/70 ${aktif ? 'opacity-100' : 'opacity-0 group-hover/gambar:opacity-100'} transition-opacity`}>
+        {([25, 50, 75, 100] as const).map((l) => (
+          <button key={l} type="button" onClick={() => pasang(l === 100 ? undefined : l, rata)} className={tombol((lebar ?? 100) === l)} title={`Lebar ${l}%`}>{l}</button>
+        ))}
+        <span className="w-px bg-white/20 mx-0.5" />
+        {([['kiri', AlignLeft], ['tengah', AlignCenter], ['kanan', AlignRight]] as const).map(([r, Ikon]) => (
+          <button key={r} type="button" onClick={() => pasang(lebar, r)} className={tombol((rata ?? 'kiri') === r)} title={`Rata ${r}`} aria-label={`Rata ${r}`}><Ikon size={13} /></button>
+        ))}
+      </div>
+      <input
+        value={ket}
+        onChange={(e) => setKet(e.target.value)}
+        onBlur={() => { if (ket !== (nama === 'foto' ? '' : nama)) pasang(lebar, rata); }}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+        placeholder="Tulis keterangan…"
+        className={`block w-full mt-0.5 bg-transparent text-[12px] text-zinc-400 outline-none placeholder:text-zinc-700 ${rata === 'tengah' ? 'text-center' : rata === 'kanan' ? 'text-right' : ''}`}
+        aria-label="Keterangan gambar"
+      />
+    </figure>
+  );
+};
+
 const GambarBlok: React.FC<{ kunci: string; nama: string }> = ({ kunci, nama }) => {
   const url = useFotoProfil(kunci);
   if (!url) {
@@ -266,7 +428,11 @@ const BlokBaris = React.memo<{
   terbuka?: boolean;
   /** Judul terkini halaman yang ditautkan. */
   hal?: PetaHalaman;
-}>(({ b, no, terpilih, ph, sentuh, menuTerbuka, tim, h, terbuka = false, hal }) => {
+  /** Judul-judul memo (hanya untuk blok daftar isi). */
+  judul?: { indeks: number; tingkat: number; teks: string }[];
+  /** Tingkat indentasi yang tidak digambar (blok di dalam kolom berdampingan). */
+  kurangi?: number;
+}>(({ b, no, terpilih, ph, sentuh, menuTerbuka, tim, h, terbuka = false, hal, judul, kurangi = 0 }) => {
   const info = bacaBaris(b.raw);
   const el = useRef<HTMLDivElement | null>(null);
   const terbaru = useRef({ isi: info.isi, tim, selesai: info.selesai, halaman: hal });
@@ -290,9 +456,10 @@ const BlokBaris = React.memo<{
   }, [b.v]);
 
   // Anak digeser ke kanan 1,5em per tingkat; gagang "+ ⋮⋮" ikut menempel di kiri blok.
-  const geserKiri = dlm(b) ? { paddingLeft: `${dlm(b) * 1.5}em` } : undefined;
+  const tingkat = Math.max(0, dlm(b) - kurangi);
+  const geserKiri = tingkat ? { paddingLeft: `${tingkat * 1.5}em` } : undefined;
   const gagang = !sentuh && (
-    <div style={{ left: `calc(${dlm(b) * 1.5}em - 2.75rem)` }} className={`absolute top-0.5 w-11 flex justify-end pr-1 ${menuTerbuka ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'}`} contentEditable={false}>
+    <div style={{ left: `calc(${tingkat * 1.5}em - 2.75rem)` }} className={`absolute top-0.5 w-11 flex justify-end pr-1 ${menuTerbuka ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'}`} contentEditable={false}>
       <button type="button" tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onClick={() => h.current.tambahDi(b.id)} className="w-5 h-6 flex items-center justify-center text-zinc-500 hover:text-white hover:bg-white/10" title="Tambah blok di bawah" aria-label="Tambah blok"><Plus size={14} /></button>
       <button type="button" tabIndex={-1} onPointerDown={(e) => h.current.pegang(e, b.id)} className="w-5 h-6 flex items-center justify-center text-zinc-500 hover:text-white hover:bg-white/10 cursor-grab touch-none" title="Seret untuk memindah · ketuk untuk menu" aria-label="Menu blok"><GripVertical size={14} /></button>
     </div>
@@ -307,11 +474,21 @@ const BlokBaris = React.memo<{
           ref={(node) => h.current.daftar(b.id, node)}
           data-media={b.id}
           tabIndex={0}
-          className={`outline-none ${info.jenis === 'garis' || info.jenis === 'video' || info.jenis === 'tabel' || info.jenis === 'data' ? 'py-1 w-full' : 'py-1 inline-block max-w-full'} ${terpilih ? 'outline outline-2 outline-lime-400 outline-offset-1 bg-lime-500/10' : ''}`}
-          aria-label={info.jenis === 'garis' ? 'Divider' : info.jenis === 'gambar' ? 'Gambar' : info.jenis === 'video' ? 'Video' : info.jenis === 'tabel' ? 'Tabel' : info.jenis === 'data' ? 'Data Lapangan' : 'Berkas'}
+          className={`outline-none ${info.jenis === 'berkas' ? 'py-1 inline-block max-w-full' : 'py-1 w-full'} ${terpilih ? 'outline outline-2 outline-lime-400 outline-offset-1 bg-lime-500/10' : ''}`}
+          aria-label={LABEL_MEDIA[info.jenis] ?? 'Berkas'}
         >
           {blok.jenis === 'garis' && <hr className="my-1.5 border-t-2 border-dashed border-white/20" />}
-          {blok.jenis === 'gambar' && <GambarBlok kunci={blok.kunci} nama={blok.nama} />}
+          {blok.jenis === 'gambar' && <GambarSunting kunci={blok.kunci} nama={blok.nama} lebar={blok.lebar} rata={blok.rata} aktif={terpilih} onUbah={(raw) => h.current.ubahRaw(b.id, raw)} />}
+          {blok.jenis === 'kode' && <KodeSunting bahasa={blok.bahasa} isi={blok.isi} onUbah={(bahasa, isi) => h.current.ubahRaw(b.id, rakitKode(bahasa, isi))} />}
+          {blok.jenis === 'rumus' && <RumusSunting isi={blok.isi} onUbah={(isi) => h.current.ubahRaw(b.id, rakitRumus(isi))} />}
+          {blok.jenis === 'daftarisi' && <DaftarIsi judul={judul ?? []} onLompat={(i) => h.current.lompat(i)} />}
+          {blok.jenis === 'kolom' && (
+            <div className="flex items-center gap-1.5 h-6 px-1.5 border-l-2 border-lime-500/60 bg-white/[0.03] text-[11px] text-zinc-400 select-none" title="Kolom: seret blok ke sini untuk memasukkannya. Di layar sempit kolom tampil bertumpuk.">
+              <Columns2 size={12} /> Kolom
+            </div>
+          )}
+          {blok.jenis === 'penanda' && <KartuPenanda url={blok.url} judul={blok.judul} ket={blok.ket} situs={blok.situs} />}
+          {blok.jenis === 'grafik' && <div data-sunting><GrafikReklamasi blok={blok} onUbah={(g) => h.current.ubahRaw(b.id, rakitGrafik(g))} /></div>}
           {blok.jenis === 'video' && <KartuVideo url={blok.url} judul={blok.judul} />}
           {blok.jenis === 'tabel' && <TabelSunting raw={b.raw} onUbah={(raw) => h.current.ubahRaw(b.id, raw)} />}
           {blok.jenis === 'data' && (
@@ -377,7 +554,7 @@ BlokBaris.displayName = 'BlokBaris';
 
 const EditorBlok: React.FC<Props> = ({
   memoId, isi, onIsi, tim, notify, bolehSebutOrang = false, onBukaPica, tinggi = 220, kecil = false, halaman = [], onBukaHalaman,
-  onBuatHalaman,
+  onBuatHalaman, onKomentar, onAi,
 }) => {
   const [blok, setBlokState] = useState<Blok[]>(() => dariTeks(isi));
   const blokRef = useRef(blok);
@@ -396,17 +573,34 @@ const EditorBlok: React.FC<Props> = ({
   const [aktifId, setAktifId] = useState<string | null>(null);
   const [terpilih, setTerpilih] = useState<string | null>(null);
   // Menu ketik: "/" (blok) atau "@" (sebut orang / tanggal), terbuka di blok `id`.
-  const [slash, setSlash] = useState<{ id: string; query: string; panjang: number; jenis?: 'sebut' } | null>(null);
+  const [slash, setSlash] = useState<{ id: string; query: string; panjang: number; jenis?: 'sebut' | 'emoji' } | null>(null);
   const [pilih, setPilih] = useState(0);
-  const [panel, setPanel] = useState<{ jenis: 'tenggat' | 'orang' | 'menu' | 'video' | 'halaman'; id: string; pos: number } | null>(null);
+  const [panel, setPanel] = useState<{ jenis: 'tenggat' | 'orang' | 'menu' | 'video' | 'halaman' | 'penanda' | 'rumus'; id: string; pos: number } | null>(null);
+  const [urlPenanda, setUrlPenanda] = useState('');
+  const [sibukPenanda, setSibukPenanda] = useState(false);
+  const [teksRumus, setTeksRumus] = useState('');
+  /** Chip rumus sebaris yang sedang diubah (null = rumus baru di posisi kursor). */
+  const chipRumus = useRef<HTMLElement | null>(null);
+  const [paletBuka, setPaletBuka] = useState(false);
+  const [aiPanel, setAiPanel] = useState<PanelAi | null>(null);
+  const [teksAi, setTeksAi] = useState('');
   const [urlVideo, setUrlVideo] = useState('');
   const [judulVideo, setJudulVideo] = useState('');
   const [cariHalaman, setCariHalaman] = useState('');
   const [tgl, setTgl] = useState('');
   const [jam, setJam] = useState('');
   const [sibuk, setSibuk] = useState(0);
-  const [seret, setSeret] = useState<{ id: string; ke: number; atas: number } | null>(null);
+  const [seret, setSeret] = useState<{ id: string; ke: number; atas: number; kiri?: number; lebar?: number; dalam?: number } | null>(null);
   const [pilihan, setPilihan] = useState<{ x: number; y: number } | null>(null);
+  /** Bilah format mengambang: digeser agar tidak terpotong tepi layar (teks terpilih di dekat tepi). */
+  const pasBilah = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    el.style.marginLeft = '0px';
+    const r = el.getBoundingClientRect();
+    const tepi = 8;
+    if (r.left < tepi) el.style.marginLeft = `${tepi - r.left}px`;
+    else if (r.right > window.innerWidth - tepi) el.style.marginLeft = `${window.innerWidth - tepi - r.right}px`;
+  }, []);
   // Toggle yang sedang dilipat (di penyunting toggle terbuka secara bawaan, seperti saat menulis di Notion).
   const [tertutup, setTertutup] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -556,8 +750,12 @@ const EditorBlok: React.FC<Props> = ({
   // ---- operasi blok ---------------------------------------------------------------
 
   /** Jumlah bagian isi yang tampil sebagai elemen (tebal, chip, …); orang di luar tim tetap teks. */
-  const jumlahFormat = (md: string) => uraiInline(md).filter((x) => x.t !== 'teks' && (x.t !== 'orang' || tim.some((t) => t.id === x.id))).length;
-  const jumlahFormatDom = (el: HTMLElement) => el.querySelectorAll('b,strong,i,em,s,strike,del,code,[data-raw]').length;
+  const hitungFormat = (daftar: Inline[]): number => daftar.reduce((n, x) => n + (
+    x.t === 'warna' ? 1 + hitungFormat(x.isi)
+      : x.t === 'teks' || x.t === 'baris' || (x.t === 'orang' && !tim.some((t) => t.id === x.id)) ? 0 : 1
+  ), 0);
+  const jumlahFormat = (md: string) => hitungFormat(uraiInline(md));
+  const jumlahFormatDom = (el: HTMLElement) => el.querySelectorAll('b,strong,i,em,s,strike,del,code,u,[data-warna],[data-raw]').length;
 
   /** Tampilan blok disamakan dengan isinya (mis. "**kata**" yang diketik jadi tebal) tanpa mengubah data. */
   const rapikan = (id: string) => {
@@ -619,13 +817,22 @@ const EditorBlok: React.FC<Props> = ({
       pasangKursor(el, panjangTampil(sebelum, ctx));
     }
 
+    // "```" di blok kosong = blok kode (pintasan Notion).
+    if (md === '```' && BLOK_TEKS.has(info.jenis)) {
+      setSlash(null);
+      ganti(id, rakitKode('teks', ''));
+      setTimeout(() => (document.querySelector(`[data-media="${id}"] pre`) as HTMLElement | null)?.click(), 0);
+      return;
+    }
+
     const sebelum = c === null ? '' : (el.textContent ?? '').slice(0, c);
     const m = sebelum.match(/(^|\s)\/([a-zA-Z]*)$/);
     const ms = m ? null : sebelum.match(/(^|\s)@([a-zA-Z0-9_-]*)$/);
-    const cocok = m ?? ms;
+    const me = m || ms ? null : sebelum.match(/(^|\s):([a-zA-Z]{2,})$/);
+    const cocok = m ?? ms ?? (me && cariEmoji(me[2]).length ? me : null);
     if (cocok) {
       const q = cocok[2].toLowerCase();
-      const jenis = ms ? 'sebut' as const : undefined;
+      const jenis = ms ? 'sebut' as const : me ? 'emoji' as const : undefined;
       if (!slash || slash.id !== id || slash.query !== q || slash.jenis !== jenis) setPilih(0);
       setSlash({ id, query: q, panjang: cocok[2].length + 1, jenis });
       setPanel(null);
@@ -752,7 +959,8 @@ const EditorBlok: React.FC<Props> = ({
   };
 
   /** Pindahkan blok beserta anaknya ke posisi `ke`; kedalaman disesuaikan dengan blok di atas tujuan. */
-  const pindah = (id: string, ke: number) => {
+  /** Pindahkan blok (beserta anaknya) ke indeks `ke`; `dalam` = kedalaman tujuan (mis. masuk kolom). */
+  const pindah = (id: string, ke: number, dalam?: number) => {
     const arr = blokRef.current.slice();
     const i = arr.findIndex((b) => b.id === id);
     if (i < 0) return;
@@ -761,7 +969,7 @@ const EditorBlok: React.FC<Props> = ({
     const potong = arr.splice(i, j - i);
     const tujuan = ke > i ? ke - potong.length : ke;
     const batas = tujuan > 0 ? dlm(arr[tujuan - 1]) + 1 : 0;
-    const geserDalam = Math.min(dlm(potong[0]), batas) - dlm(potong[0]);
+    const geserDalam = (dalam ?? Math.min(dlm(potong[0]), batas)) - dlm(potong[0]);
     arr.splice(tujuan, 0, ...potong.map((x) => ({ ...x, dalam: Math.max(0, dlm(x) + geserDalam) })));
     terapkan(arr, { fokus: { id, pos: 'akhir' } });
   };
@@ -847,6 +1055,9 @@ const EditorBlok: React.FC<Props> = ({
     if (!slash) return [];
     const q = slash.query;
     const cocok = (p: Perintah) => cocokKueri(p, q);
+    if (slash.jenis === 'emoji') {
+      return cariEmoji(q).map((x): Perintah => ({ id: `emoji:${x.e}`, label: `${x.e}  ${x.kata[0]}`, ket: x.kata.slice(1, 4).join(', '), ikon: ikonEmoji(x.e), kata: x.kata, grup: 'Emoji' }));
+    }
     if (slash.jenis === 'sebut') {
       const hari = W.hariIniWita();
       const tgl = (n: number, label: string, kata: string[]): Perintah => {
@@ -865,9 +1076,12 @@ const EditorBlok: React.FC<Props> = ({
       ] as Perintah[]).filter(cocok);
     }
     return DAFTAR_BLOK
-      .filter((p) => (orangAktif || p.id !== 'orang') && (halamanLain.length > 0 || p.id !== 'tautan_halaman') && (onBuatHalaman || p.id !== 'halaman'))
-      .filter((p) => cocokKueri(p, q));
-  }, [slash, orangAktif, tim, halamanLain.length, onBuatHalaman]);
+      .filter((p) => (orangAktif || p.id !== 'orang') && (halamanLain.length > 0 || p.id !== 'tautan_halaman') && (onBuatHalaman || p.id !== 'halaman') && (onAi || p.id !== 'ai'))
+      .filter((p) => cocokKueri(p, q))
+      .map((p, i) => ({ p, i, n: skorKueri(p, q) }))
+      .sort((a, b) => b.n - a.n || a.i - b.i)
+      .map((x) => x.p);
+  }, [slash, orangAktif, tim, halamanLain.length, onBuatHalaman, onAi]);
 
   const bukaTenggat = (id: string, pos: number) => {
     const b = blokRef.current.find((x) => x.id === id);
@@ -935,6 +1149,208 @@ const EditorBlok: React.FC<Props> = ({
     }
     if (pid === 'tautan_halaman') { setCariHalaman(''); setPanel({ jenis: 'halaman', id, pos }); }
     if (pid === 'halaman') void buatSubHalaman(id);
+    if (pid.startsWith('emoji:')) { sisipTeks(id, pos, pid.slice(6)); return; }
+    if (pid.startsWith('warna:')) { warnaiBlok(id, pid.slice(6, 7) as 'w' | 'l', pid.slice(8)); return; }
+    if (pid === 'kode') {
+      const baru = sisipBlokKhusus(id, rakitKode('teks', ''));
+      setTimeout(() => (document.querySelector(`[data-media="${baru}"] pre`) as HTMLElement | null)?.click(), 0);
+      return;
+    }
+    if (pid === 'rumus') { void muatKatex(); sisipBlokKhusus(id, rakitRumus('')); return; }
+    if (pid === 'daftarisi') { sisipBlokKhusus(id, '!daftarisi'); return; }
+    if (pid === 'grafik_reklamasi') { sisipBlokKhusus(id, rakitGrafik({ sumber: 'reklamasi', tampil: 'tahun' })); return; }
+    if (pid === 'kolom2' || pid === 'kolom3') { sisipKolom(id, pid === 'kolom2' ? 2 : 3); return; }
+    if (pid === 'penanda') { setUrlPenanda(''); setPanel({ jenis: 'penanda', id, pos }); return; }
+    if (pid === 'rumus_sebaris') { void muatKatex(); chipRumus.current = null; setTeksRumus(''); setPanel({ jenis: 'rumus', id, pos }); }
+    if (pid === 'ai' && onAi) { setTeksAi(''); setPanel(null); setAiPanel({ idMulai: id, idAkhir: id, pilihan: '', mode: 'tulis', status: 'pilih' }); }
+  };
+
+  // ---- AI (lihat server/src/ai-memo.ts) ----------------------------------------------
+
+  /** Teks terpilih → panel AI: dalam satu blok (sebagian/seluruh) atau melewati beberapa blok. */
+  const mulaiAiPilihan = () => {
+    if (!onAi) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { notify('PILIH TEKS DULU, LALU KETUK AI'); return; }
+    const r = sel.getRangeAt(0);
+    const blokDari = (n: Node) => ((n.nodeType === Node.TEXT_NODE ? n.parentElement : n as Element)?.closest('[data-blok-edit]') as HTMLElement | null)?.dataset.blokEdit ?? null;
+    const a = blokDari(r.startContainer);
+    const z = blokDari(r.endContainer);
+    if (!a || !z) return;
+    setPilihan(null);
+    setPaletBuka(false);
+    setTeksAi('');
+    if (a === z) {
+      const el = elRef.current.get(a);
+      if (!el) return;
+      const pre = document.createRange();
+      pre.selectNodeContents(el);
+      pre.setEnd(r.startContainer, r.startOffset);
+      const dari = pre.toString().length;
+      setAiPanel({ idMulai: a, idAkhir: a, dari, sampai: dari + r.toString().length, pilihan: dariDom(r.cloneContents()), mode: 'pilihan', status: 'pilih' });
+      return;
+    }
+    const [x, y] = [indeks(a), indeks(z)].sort((m, n) => m - n);
+    const kumpulan = blokRef.current.slice(x, y + 1);
+    const d0 = Math.min(...kumpulan.map(dlm));
+    setAiPanel({
+      idMulai: blokRef.current[x].id, idAkhir: blokRef.current[y].id,
+      pilihan: kumpulan.map((b) => INDENT.repeat(dlm(b) - d0) + b.raw).join('\n'), mode: 'pilihan', status: 'pilih',
+    });
+  };
+
+  const jalankanAi = async (aksi: string) => {
+    const p = aiPanel;
+    if (!p || !onAi) return;
+    const instruksi = teksAi.trim();
+    if ((aksi === 'bebas' || p.mode === 'tulis') && !instruksi) { notify('TULIS DULU PERMINTAANNYA'); return; }
+    setAiPanel({ ...p, status: 'memuat' });
+    try {
+      const r = await onAi({ mode: p.mode, aksi: p.mode === 'pilihan' ? aksi : undefined, pilihan: p.pilihan || undefined, instruksi: instruksi || undefined });
+      if (!r.teks.trim()) throw new Error('AI tidak menghasilkan teks.');
+      setAiPanel((q) => q && { ...q, status: 'siap', hasil: r.teks, pesan: r.catatan });
+    } catch (e) {
+      setAiPanel((q) => q && { ...q, status: 'galat', pesan: e instanceof Error ? e.message : 'Gagal menghubungi AI.' });
+    }
+  };
+
+  /** Pasang hasil AI. Masuk riwayat penyunting, jadi Ctrl+Z mengurungkannya. */
+  const pasangAi = (cara: 'ganti' | 'bawah') => {
+    const p = aiPanel;
+    if (!p?.hasil) return;
+    setAiPanel(null);
+    catatRiwayat();
+    const arr = blokRef.current.slice();
+    const i0 = arr.findIndex((b) => b.id === p.idMulai);
+    const i1 = arr.findIndex((b) => b.id === p.idAkhir);
+    if (i0 < 0 || i1 < 0) { notify('BLOKNYA SUDAH BERUBAH — COBA LAGI'); return; }
+    const d = dlm(arr[i0]);
+    const baru = dariTeks(p.hasil).map((b) => ({ ...b, dalam: dlm(b) + d }));
+    const akhir = baru[baru.length - 1];
+    const fokus = akhir && BLOK_TEKS.has(bacaBaris(akhir.raw).jenis) ? { id: akhir.id, pos: 'akhir' as const } : undefined;
+    const sebaris = !p.hasil.includes('\n') && bacaBaris(p.hasil).jenis === 'teks';
+
+    if (p.mode === 'pilihan' && cara === 'ganti' && i0 === i1 && p.dari !== undefined && p.sampai !== undefined) {
+      const el = elRef.current.get(p.idMulai);
+      const b = arr[i0];
+      const info = bacaBaris(b.raw);
+      const seluruh = p.dari === 0 && p.sampai >= (el?.textContent?.length ?? 0);
+      if (el && sebaris && BLOK_TEKS.has(info.jenis)) {
+        // Hasil sebaris: hanya bagian terpilih yang diganti, format bloknya tetap.
+        const r = rentang(el, p.dari, p.sampai);
+        r.deleteContents();
+        r.insertNode(document.createTextNode(p.hasil));
+        ganti(p.idMulai, rakitBaris(info.jenis, dariDom(el), info.selesai), { id: p.idMulai, pos: 'akhir' });
+        return;
+      }
+      if (el && !seluruh && BLOK_TEKS.has(info.jenis)) {
+        // Sebagian blok jadi beberapa blok (mis. ceklis/tabel): sisa teks tetap, hasil di bawahnya.
+        rentang(el, p.dari, p.sampai).deleteContents();
+        const sisa = dariDom(el);
+        arr.splice(i0, 1, ...(sisa.trim() ? [{ ...b, raw: rakitBaris(info.jenis, sisa, info.selesai), v: b.v + 1 }] : []), ...baru);
+        terapkan(arr, { fokus, catat: false });
+        return;
+      }
+    }
+    if (p.mode === 'pilihan' && cara === 'ganti') {
+      arr.splice(Math.min(i0, i1), Math.abs(i1 - i0) + 1, ...baru);
+    } else if (p.mode === 'tulis' && tanpaIsi(arr[i0])) {
+      arr.splice(i0, 1, ...baru);
+    } else {
+      arr.splice(akhirSubpohon(arr, Math.max(i0, i1)), 0, ...baru);
+    }
+    terapkan(arr, { fokus, catat: false });
+  };
+
+  /** Teks polos (mis. emoji) di posisi kursor, tanpa spasi tambahan. */
+  const sisipTeks = (id: string, pos: number, teks: string) => {
+    const el = elRef.current.get(id);
+    const b = blokRef.current.find((x) => x.id === id);
+    if (!el || !b) return;
+    const info = bacaBaris(b.raw);
+    pasangKursor(el, pos);
+    const { sebelum, sesudah } = potongDiKursor(el);
+    ganti(id, rakitBaris(info.jenis, sebelum + teks + sesudah, info.selesai), { id, pos: panjangTampil(sebelum + teks, ctx) });
+  };
+
+  /** Blok satu baris (kode, rumus, daftar isi, tautan web) di tempat blok kosong atau di bawahnya; mengembalikan id blok itu. */
+  const sisipBlokKhusus = (id: string, raw: string): string => {
+    const i = indeks(id);
+    const arr = blokRef.current.slice();
+    const d = i >= 0 ? dlm(arr[i]) : 0;
+    const blokBaru: Blok = { id: idBaru(), raw, v: 0, dalam: d };
+    const lanjut: Blok = { id: idBaru(), raw: '', v: 0, dalam: d };
+    if (i >= 0 && tanpaIsi(arr[i])) arr.splice(i, 1, blokBaru, lanjut);
+    else arr.splice(i >= 0 ? akhirSubpohon(arr, i) : arr.length, 0, blokBaru, lanjut);
+    terapkan(arr);
+    return blokBaru.id;
+  };
+
+  /** Tata letak kolom: n blok "!kolom" bersebelahan, masing-masing dengan satu baris isi. */
+  const sisipKolom = (id: string, n: number) => {
+    const i = indeks(id);
+    const arr = blokRef.current.slice();
+    const d = i >= 0 ? dlm(arr[i]) : 0;
+    const baru: Blok[] = [];
+    let pertama = '';
+    for (let k = 0; k < n; k += 1) {
+      const isi: Blok = { id: idBaru(), raw: '', v: 0, dalam: d + 1 };
+      if (!pertama) pertama = isi.id;
+      baru.push({ id: idBaru(), raw: '!kolom', v: 0, dalam: d }, isi);
+    }
+    baru.push({ id: idBaru(), raw: '', v: 0, dalam: d });
+    if (i >= 0 && tanpaIsi(arr[i])) arr.splice(i, 1, ...baru);
+    else arr.splice(i >= 0 ? akhirSubpohon(arr, i) : arr.length, 0, ...baru);
+    terapkan(arr, { fokus: { id: pertama, pos: 0 } });
+  };
+
+  /** Warna/stabilo untuk seluruh teks satu blok ("/merah", menu ⋮⋮). nama kosong = hapus warna. */
+  const warnaiBlok = (id: string, jenis: 'w' | 'l', nama: string) => {
+    const b = blokRef.current.find((x) => x.id === id);
+    if (!b) return;
+    const info = bacaBaris(b.raw);
+    if (!BLOK_TEKS.has(info.jenis)) return;
+    const polos = lepasWarnaBlok(info.isi);
+    if (nama && !polos.trim()) { notify('KETIK TEKSNYA DULU, LALU PILIH WARNA'); return; }
+    const isi = nama ? `{${jenis}:${nama}|${polos.replace(/\{[wl]:[a-z]+\|([^{}\n]*)\}/g, '$1').replace(/[{}]/g, '')}}` : polos;
+    setPanel(null);
+    ganti(id, rakitBaris(info.jenis, isi, info.selesai), { id, pos: 'akhir' });
+  };
+
+  /** Kartu tautan web: judul & keterangan diambil server dari halaman itu. */
+  const sisipPenanda = async () => {
+    if (!panel) return;
+    const url = urlPenanda.trim();
+    if (!/^https?:\/\/\S+$/.test(url)) { notify('ALAMAT HARUS DIAWALI https://'); return; }
+    setSibukPenanda(true);
+    let info = { judul: '', ket: '', situs: '' };
+    try { info = await api<typeof info>(`/api/pratinjau-tautan?url=${encodeURIComponent(url)}`); } catch { /* tetap pasang tanpa pratinjau */ }
+    let situs = info.situs;
+    try { situs ||= new URL(url).hostname.replace(/^www\./, ''); } catch { /* biarkan */ }
+    setSibukPenanda(false);
+    const id = panel.id;
+    setPanel(null);
+    sisipBlokKhusus(id, rakitPenanda({ url, judul: info.judul || situs, ket: info.ket, situs }));
+  };
+
+  /** Rumus sebaris: pasang baru di posisi kursor, atau ganti chip yang diketuk. */
+  const pasangRumusSebaris = () => {
+    if (!panel) return;
+    const tex = teksRumus.replace(/[$\n]/g, ' ').trim();
+    const { id, pos } = panel;
+    setPanel(null);
+    const chip = chipRumus.current;
+    chipRumus.current = null;
+    if (chip) {
+      const el = elRef.current.get(id);
+      const b = blokRef.current.find((x) => x.id === id);
+      if (!el || !b || !el.contains(chip)) return;
+      chip.replaceWith(document.createTextNode(tex ? `$$${tex}$$` : ''));
+      const info = bacaBaris(b.raw);
+      ganti(id, rakitBaris(info.jenis, dariDom(el), info.selesai), { id, pos: 'akhir' });
+      return;
+    }
+    if (tex) sisipToken(id, pos, `$$${tex}$$`);
   };
 
   /**
@@ -1034,7 +1450,7 @@ const EditorBlok: React.FC<Props> = ({
     return ed && wadah.current?.contains(ed) ? ed.dataset.blokEdit ?? null : null;
   };
 
-  const format = (jenis: 'tebal' | 'miring' | 'coret' | 'kode' | 'tautan') => {
+  const format = (jenis: 'tebal' | 'miring' | 'coret' | 'kode' | 'tautan' | 'garisbawah' | 'rumus' | 'komentar') => {
     const id = blokDariPilihan();
     if (!id) return;
     const sel = window.getSelection();
@@ -1043,6 +1459,27 @@ const EditorBlok: React.FC<Props> = ({
     if (jenis === 'tebal') { document.execCommand('bold'); return; }
     if (jenis === 'miring') { document.execCommand('italic'); return; }
     if (jenis === 'coret') { document.execCommand('strikeThrough'); return; }
+    if (jenis === 'garisbawah') { document.execCommand('underline'); return; }
+    if (jenis === 'komentar') {
+      const kutipan = r.toString().trim();
+      if (kutipan && onKomentar) { sel.removeAllRanges(); setPilihan(null); onKomentar(kutipan.slice(0, 300)); }
+      return;
+    }
+    if (jenis === 'rumus') {
+      // Teks terpilih jadi rumus sebaris; tanpa pilihan, panel rumus baru dibuka.
+      const el = elRef.current.get(id);
+      const tex = r.toString().replace(/[$\n]/g, ' ').trim();
+      void muatKatex();
+      if (!el) return;
+      if (!tex) { chipRumus.current = null; setTeksRumus(''); setPanel({ jenis: 'rumus', id, pos: offsetKursor(el) ?? 0 }); return; }
+      r.deleteContents();
+      r.insertNode(document.createTextNode(`$$${tex}$$`));
+      const b = blokRef.current.find((x) => x.id === id);
+      if (!b) return;
+      const info = bacaBaris(b.raw);
+      ganti(id, rakitBaris(info.jenis, dariDom(el), info.selesai), { id, pos: 'akhir' });
+      return;
+    }
     if (jenis === 'kode') {
       if (r.collapsed) return;
       const k = document.createElement('code');
@@ -1063,6 +1500,64 @@ const EditorBlok: React.FC<Props> = ({
     const info = bacaBaris(b.raw);
     ganti(id, rakitBaris(info.jenis, dariDom(el), info.selesai), { id, pos: 'akhir' });
   };
+
+  /** Warna teks/stabilo untuk teks terpilih; nama kosong = lepas warna di dalam pilihan. */
+  const warnai = (jenis: 'w' | 'l', nama: string) => {
+    const id = blokDariPilihan();
+    const sel = window.getSelection();
+    const el = id ? elRef.current.get(id) : undefined;
+    if (!id || !el || !sel || sel.rangeCount === 0) return;
+    const r = sel.getRangeAt(0);
+    setPaletBuka(false);
+    if (!nama) {
+      el.querySelectorAll<HTMLElement>('[data-warna]').forEach((sp) => { if (r.intersectsNode(sp)) sp.replaceWith(...Array.from(sp.childNodes)); });
+      prosesInput(id);
+      return;
+    }
+    if (r.collapsed) return;
+    const sp = document.createElement('span');
+    sp.dataset.warna = `${jenis}:${nama}`;
+    sp.className = `m${jenis}-${nama}`;
+    sp.appendChild(r.extractContents());
+    // Warna di dalam pilihan diganti, bukan ditumpuk.
+    sp.querySelectorAll<HTMLElement>('[data-warna]').forEach((x) => x.replaceWith(...Array.from(x.childNodes)));
+    r.insertNode(sp);
+    prosesInput(id);
+  };
+
+  /** Shift+Enter: baris baru di dalam blok yang sama (disimpan sebagai <br>). */
+  const barisLunak = (id: string) => {
+    const el = elRef.current.get(id);
+    const sel = window.getSelection();
+    if (!el || !sel || sel.rangeCount === 0) return;
+    const r = sel.getRangeAt(0);
+    r.deleteContents();
+    const sisa = document.createRange();
+    sisa.selectNodeContents(el);
+    sisa.setStart(r.endContainer, r.endOffset);
+    // Di ujung blok perlu huruf penahan tak terlihat agar baris barunya tampil.
+    const n = document.createTextNode(sisa.toString().replace(/\u200B/g, '') ? '\n' : '\n\u200B');
+    r.insertNode(n);
+    const c = document.createRange();
+    c.setStart(n, 1);
+    c.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(c);
+    prosesInput(id);
+  };
+
+  // Rumus yang sudah ada: muat KaTeX, lalu gambar ulang blok yang berisi rumus sebaris.
+  useEffect(() => {
+    if (katexSiap() || !/\$\$|!rumus\{/.test(isi)) return;
+    let hidup = true;
+    void muatKatex().then(() => {
+      if (!hidup || !katexSiap()) return;
+      const arr = blokRef.current.map((x) => (x.raw.includes('$$') ? { ...x, v: x.v + 1 } : x));
+      blokRef.current = arr;
+      setBlokState(arr);
+    });
+    return () => { hidup = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Bilah format mengambang saat teks dipilih (layar bertetikus).
   useEffect(() => {
@@ -1120,27 +1615,51 @@ const EditorBlok: React.FC<Props> = ({
 
   // ---- seret blok ----------------------------------------------------------------
 
-  const tujuanSeret = (y: number): { ke: number; atas: number } => {
+  const tujuanSeret = (id: string, x: number, y: number): { ke: number; atas: number; kiri?: number; lebar?: number; dalam?: number } => {
     const daftar = daftarEl.current;
     if (!daftar) return { ke: 0, atas: 0 };
-    const dasar = daftar.getBoundingClientRect().top;
-    const baris = blokRef.current.map((b) => daftar.querySelector(`[data-baris="${b.id}"]`) as HTMLElement | null);
+    const kotak = daftar.getBoundingClientRect();
+    const dasar = kotak.top;
+    const arr = blokRef.current;
+    const barisEl = (b: Blok) => daftar.querySelector(`[data-baris="${b.id}"]`) as HTMLElement | null;
+    // Penunjuk di atas salah satu kolom berdampingan: jatuhkan di antara isi kolom itu (seperti Notion).
+    const kolomEl = arr.find((b) => b.id === id)?.raw === '!kolom' ? undefined : Array.from(daftar.querySelectorAll<HTMLElement>('[data-kolom-isi]')).find((k) => {
+      const r = k.getBoundingClientRect();
+      const deret = (k.parentElement ?? k).getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= deret.top && y <= deret.bottom;
+    });
+    const a = kolomEl ? arr.findIndex((b) => b.id === kolomEl.dataset.kolomIsi) : -1;
+    if (kolomEl && a >= 0) {
+      const z = akhirSubpohon(arr, a);
+      const r = kolomEl.getBoundingClientRect();
+      const posisi = { kiri: r.left - kotak.left, lebar: r.width, dalam: dlm(arr[a]) + 1 };
+      for (let k = a + 1; k < z; k++) {
+        const rb = barisEl(arr[k])?.getBoundingClientRect();
+        if (rb && rb.height && y < rb.top + rb.height / 2) return { ke: k, atas: rb.top - dasar, ...posisi };
+      }
+      const akhir = barisEl(arr[z - 1])?.getBoundingClientRect();
+      return { ke: z, atas: (akhir ? akhir.bottom : r.bottom) - dasar, ...posisi };
+    }
+    const baris = arr.map(barisEl);
+    // Keluar dari kolom: blok ikut tingkat blok di tempat jatuhnya (tidak tetap menjorok).
+    const dariKolom = !!daftar.querySelector(`[data-kolom-isi] [data-baris="${id}"]`);
     for (let k = 0; k < baris.length; k++) {
       const r = baris[k]?.getBoundingClientRect();
-      if (r && y < r.top + r.height / 2) return { ke: k, atas: r.top - dasar };
+      if (r && y < r.top + r.height / 2) return { ke: k, atas: r.top - dasar, ...(dariKolom ? { dalam: dlm(arr[k]) } : {}) };
     }
     const akhir = baris[baris.length - 1]?.getBoundingClientRect();
-    return { ke: baris.length, atas: akhir ? akhir.bottom - dasar : 0 };
+    return { ke: baris.length, atas: akhir ? akhir.bottom - dasar : 0, ...(dariKolom ? { dalam: 0 } : {}) };
   };
 
   const pegang = (e: React.PointerEvent, id: string) => {
     e.preventDefault();
+    const x0 = e.clientX;
     const y0 = e.clientY;
     let menyeret = false;
     const gerak = (ev: PointerEvent) => {
-      if (!menyeret && Math.abs(ev.clientY - y0) < 5) return;
+      if (!menyeret && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
       menyeret = true;
-      setSeret({ id, ...tujuanSeret(ev.clientY) });
+      setSeret({ id, ...tujuanSeret(id, ev.clientX, ev.clientY) });
     };
     const lepas = (ev: PointerEvent) => {
       window.removeEventListener('pointermove', gerak);
@@ -1148,7 +1667,7 @@ const EditorBlok: React.FC<Props> = ({
       window.removeEventListener('pointercancel', lepas);
       if (menyeret) {
         setSeret(null);
-        if (ev.type === 'pointerup') pindah(id, tujuanSeret(ev.clientY).ke);
+        if (ev.type === 'pointerup') { const t = tujuanSeret(id, ev.clientX, ev.clientY); pindah(id, t.ke, t.dalam); }
       } else {
         const el = elRef.current.get(id);
         setSlash(null);
@@ -1224,7 +1743,7 @@ const EditorBlok: React.FC<Props> = ({
   };
 
   const tekan = (e: React.KeyboardEvent) => {
-    if ((e.target as HTMLElement).closest?.('[data-tabel]')) return;
+    if ((e.target as HTMLElement).closest?.('[data-tabel],[data-sunting]')) return;
     const media = idDari(e.target, 'media');
     if (media) { tombolMedia(e, media); return; }
     const id = idDari(e.target, 'blokEdit');
@@ -1238,6 +1757,7 @@ const EditorBlok: React.FC<Props> = ({
     if (mod && k === 'k') { e.preventDefault(); format('tautan'); return; }
     if (mod && k === 'e') { e.preventDefault(); format('kode'); return; }
     if (mod && e.shiftKey && k === 's') { e.preventDefault(); format('coret'); return; }
+    if (mod && k === 'u') { e.preventDefault(); format('garisbawah'); return; }
 
     if (slash && daftarSlash.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setPilih((p) => (p + 1) % daftarSlash.length); return; }
@@ -1246,6 +1766,7 @@ const EditorBlok: React.FC<Props> = ({
     }
     if (e.key === 'Escape') { setSlash(null); setPanel(null); return; }
     if (e.key === 'Tab') { e.preventDefault(); ubahKedalaman(id, e.shiftKey ? -1 : 1); return; }
+    if (e.key === 'Enter' && e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); barisLunak(id); return; }
     if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); enter(id); return; }
 
     const i = indeks(id);
@@ -1311,7 +1832,7 @@ const EditorBlok: React.FC<Props> = ({
       return;
     }
     const media = idDari(t, 'media');
-    if (media && t.closest('[data-tabel]')) return;
+    if (media && t.closest('[data-tabel],[data-sunting],a[href]')) return;
     if (media) { setTerpilih(media); return; }
     const chip = t.closest('[data-raw]') as HTMLElement | null;
     const id = idDari(t, 'blokEdit');
@@ -1330,6 +1851,12 @@ const EditorBlok: React.FC<Props> = ({
       onBukaPica?.(chip.dataset.pica);
     } else if (chip.dataset.tautan) {
       window.open(chip.dataset.tautan, '_blank', 'noopener,noreferrer');
+    } else if (chip.dataset.rumus !== undefined) {
+      const el = elRef.current.get(id);
+      void muatKatex();
+      chipRumus.current = chip;
+      setTeksRumus(chip.dataset.rumus);
+      setPanel({ jenis: 'rumus', id, pos: el ? offsetKursor(el) ?? 0 : 0 });
     }
   };
 
@@ -1353,7 +1880,7 @@ const EditorBlok: React.FC<Props> = ({
 
   // ---- penangan untuk BlokBaris (ref tetap agar BlokBaris tidak dirender ulang) ----------
 
-  const h = useRef<Penangan>({ daftar: () => undefined, centang: () => undefined, pegang: () => undefined, tambahDi: () => undefined, lipat: () => undefined, ubahRaw: () => undefined });
+  const h = useRef<Penangan>({ daftar: () => undefined, centang: () => undefined, pegang: () => undefined, tambahDi: () => undefined, lipat: () => undefined, ubahRaw: () => undefined, lompat: () => undefined });
   h.current = {
     daftar: (id, el) => { if (el) elRef.current.set(id, el); else elRef.current.delete(id); },
     centang,
@@ -1366,9 +1893,16 @@ const EditorBlok: React.FC<Props> = ({
       ketikTerakhir.current = kini;
       terapkan(blokRef.current.map((x) => (x.id === id ? { ...x, raw } : x)), { catat: false });
     },
+    lompat: (i) => {
+      const b = blokRef.current[i];
+      if (b) elRef.current.get(b.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
   };
 
   // ---- tampilan ---------------------------------------------------------------------
+
+  // Judul-judul untuk blok daftar isi (dihitung sekali per perubahan isi).
+  const judulMemo = useMemo(() => (blok.some((b) => b.raw === '!daftarisi') ? daftarJudul(keTeks(blok)) : []), [blok]);
 
   // Menu dan panel yang baru terbuka digulir ke tampilan (bisa muncul di dasar halaman).
   const gulirKe = useCallback((el: HTMLElement | null) => { if (!sentuh) el?.scrollIntoView({ block: 'nearest' }); }, [sentuh]);
@@ -1389,17 +1923,33 @@ const EditorBlok: React.FC<Props> = ({
     : { className: 'absolute z-30', style: { top: bawahBaris(id) + 2, left: 0 } });
 
   const satuKosong = blok.length === 1 && blok[0].raw === '';
+  // Kolom berdampingan seperti Notion: deret "!kolom" bersaudara jadi satu baris kolom
+  // (aturan sama dengan mode baca, components/MemoMarkup.tsx). Indeks awal deret → [awal, akhir) tiap kolom.
+  const deretKolom = new Map<number, [number, number][]>();
+  const kurangiKolom = new Map<string, number>();
+  for (let i = 0; i < blok.length;) {
+    if (blok[i].raw !== '!kolom') { i += 1; continue; }
+    const d = dlm(blok[i]);
+    const kolom: [number, number][] = [];
+    let k = i;
+    while (k < blok.length && blok[k].raw === '!kolom' && dlm(blok[k]) === d) { const z = akhirSubpohon(blok, k); kolom.push([k, z]); k = z; }
+    deretKolom.set(i, kolom);
+    for (const [a, z] of kolom) for (let x = a; x < z; x++) kurangiKolom.set(blok[x].id, x === a ? d : d + 1);
+    i = k;
+  }
   // Nomor urut per kedalaman, seperti Notion: daftar bernomor di dalam anak mulai lagi dari 1.
   const urut: number[] = [];
-  const baris: React.ReactNode[] = [];
+  const perBlok: React.ReactNode[][] = blok.map(() => []);
   blok.forEach((b, i) => {
+    const baris = perBlok[i];
     const info = bacaBaris(b.raw);
     const d = dlm(b);
     urut[d] = info.jenis === 'nomor' ? (urut[d] ?? 0) + 1 : 0;
     urut.length = d + 1;
     if (tersembunyi.has(b.id)) return;
+    const diKolom = kurangiKolom.has(b.id) && b.raw !== '!kolom';
     const ph = info.jenis === 'teks'
-      ? (satuKosong ? 'Mulai menulis… ketik / untuk menu blok' : aktifId === b.id ? 'Ketik / untuk perintah' : '')
+      ? (satuKosong ? 'Mulai menulis… ketik / untuk menu blok' : aktifId === b.id ? 'Ketik / untuk perintah' : diKolom && !b.raw ? 'Kolom kosong' : '')
       : PH[info.jenis] ?? '';
     const terbuka = info.jenis === 'toggle' && !tertutup.has(b.id);
     baris.push(
@@ -1415,6 +1965,8 @@ const EditorBlok: React.FC<Props> = ({
         h={h}
         terbuka={terbuka}
         hal={peta}
+        judul={info.jenis === 'daftarisi' ? judulMemo : undefined}
+        kurangi={kurangiKolom.get(b.id)}
       />,
     );
     // Toggle terbuka tanpa isi: petunjuk seperti "Toggle kosong" di Notion; diketuk = isi pertama.
@@ -1431,7 +1983,7 @@ const EditorBlok: React.FC<Props> = ({
             arr.splice(k + 1, 0, anak);
             terapkan(arr, { fokus: { id: anak.id, pos: 0 } });
           }}
-          style={{ paddingLeft: `${(d + 1) * 1.5}em` }}
+          style={{ paddingLeft: `${(d + 1 - (kurangiKolom.get(b.id) ?? 0)) * 1.5}em` }}
           className="block w-full text-left py-[3px] text-[0.875em] text-zinc-600 hover:text-zinc-400"
         >
           Toggle kosong. Ketuk untuk menambah isi.
@@ -1439,11 +1991,44 @@ const EditorBlok: React.FC<Props> = ({
       );
     }
   });
+  const baris: React.ReactNode[] = [];
+  for (let i = 0; i < blok.length;) {
+    const kolom = deretKolom.get(i);
+    if (!kolom) { baris.push(...perBlok[i]); i += 1; continue; }
+    const d = dlm(blok[i]);
+    baris.push(
+      <div key={`kolom-${blok[i].id}`} className="grid gap-x-12 sm:grid-flow-col sm:auto-cols-fr" style={d ? { marginLeft: `${d * 1.5}em` } : undefined}>
+        {kolom.map(([a, z]) => (
+          <div key={blok[a].id} data-kolom-isi={blok[a].id} className="min-w-0">{perBlok.slice(a, z).flat()}</div>
+        ))}
+      </div>,
+    );
+    i = kolom[kolom.length - 1][1];
+  }
 
   const blokAktif = aktifId ? blok.find((b) => b.id === aktifId) : undefined;
   const infoAktif = blokAktif ? bacaBaris(blokAktif.raw) : null;
   const penuh = tinggi === 'penuh';
   const tahanFokus = { onPointerDown: (e: React.PointerEvent) => e.preventDefault(), onMouseDown: (e: React.MouseEvent) => e.preventDefault() };
+  /** Seperti tahanFokus, tetapi kotak isian di dalamnya tetap bisa diketuk. */
+  const tahanFokusLuarIsian = {
+    onMouseDown: (e: React.MouseEvent) => { if (!(e.target as HTMLElement).closest('input,textarea,select')) e.preventDefault(); },
+  };
+
+  /** Isi palet warna teks & stabilo (bilah format mengambang dan bilah alat HP). */
+  const isiPalet = (
+    <>
+      <p className="text-[11px] uppercase text-zinc-500">Warna teks</p>
+      <div className="flex flex-wrap gap-1">
+        <button type="button" onClick={() => warnai('w', '')} className="w-7 h-7 border border-white/25 text-[11px] text-zinc-200 hover:border-white" title="Bawaan (lepas warna)">A</button>
+        {WARNA_TEKS.map((w) => <button key={w.nama} type="button" onClick={() => warnai('w', w.nama)} className={`w-7 h-7 border border-white/25 text-[12px] font-bold hover:border-white mw-${w.nama}`} title={w.label} aria-label={`Teks ${w.label}`}>A</button>)}
+      </div>
+      <p className="text-[11px] uppercase text-zinc-500 flex items-center gap-1"><Highlighter size={11} /> Stabilo / latar</p>
+      <div className="flex flex-wrap gap-1">
+        {WARNA_LATAR.map((w) => <button key={w.nama} type="button" onClick={() => warnai('l', w.nama)} className={`w-7 h-7 border border-white/25 text-[12px] font-bold hover:border-white ml-${w.nama}`} title={`Latar ${w.label}`} aria-label={`Latar ${w.label}`}>A</button>)}
+      </div>
+    </>
+  );
 
   const tombolAlat = (id: string, Ikon: Ikon, label: string, aksi: () => void, aktif = false) => (
     <button key={id} type="button" {...tahanFokus} onClick={aksi} className={`btn-ikon !w-9 !h-9 shrink-0 ${aktif ? 'bg-lime-600' : 'bg-zinc-800'}`} title={label} aria-label={label}>
@@ -1472,9 +2057,9 @@ const EditorBlok: React.FC<Props> = ({
           {baris}
 
           {/* Area kosong di bawah: klik untuk lanjut menulis, seperti halaman Notion. */}
-          <div className="min-h-[56px] cursor-text" onMouseDown={(e) => { e.preventDefault(); klikBawah(); }} aria-hidden="true" />
+          <div className="min-h-[max(56px,30vh)] cursor-text" onMouseDown={(e) => { e.preventDefault(); klikBawah(); }} aria-hidden="true" />
 
-          {seret && <div className="absolute left-0 right-0 h-1 bg-lime-400 pointer-events-none" style={{ top: seret.atas - 2 }} />}
+          {seret && <div className="absolute h-1 bg-lime-400 pointer-events-none" style={{ top: seret.atas - 2, left: seret.kiri ?? 0, width: seret.lebar ?? '100%' }} />}
 
           {slash && daftarSlash.length > 0 && (
             <div
@@ -1530,6 +2115,15 @@ const EditorBlok: React.FC<Props> = ({
                   </div>
                   <div className="h-px bg-white/15 my-1" />
                   <button type="button" onClick={() => bukaTenggat(panel.id, panel.pos)} className="flex w-full items-center gap-2 px-2 py-1.5 text-[13px] hover:bg-white/10"><CalendarClock size={14} /> Tenggat</button>
+                  <p className="px-2 pt-1.5 pb-0.5 text-[11px] uppercase text-zinc-500">Warna teks</p>
+                  <div className="flex flex-wrap gap-1 px-2 pb-1">
+                    <button type="button" onClick={() => warnaiBlok(panel.id, 'w', '')} className="w-6 h-6 border border-white/25 text-[11px] text-zinc-200 hover:border-white" title="Bawaan (tanpa warna)">A</button>
+                    {WARNA_TEKS.map((w) => <button key={w.nama} type="button" onClick={() => warnaiBlok(panel.id, 'w', w.nama)} className={`w-6 h-6 border border-white/25 text-[12px] font-bold hover:border-white mw-${w.nama}`} title={w.label} aria-label={`Teks ${w.label}`}>A</button>)}
+                  </div>
+                  <p className="px-2 pt-1 pb-0.5 text-[11px] uppercase text-zinc-500">Latar (stabilo)</p>
+                  <div className="flex flex-wrap gap-1 px-2 pb-1">
+                    {WARNA_LATAR.map((w) => <button key={w.nama} type="button" onClick={() => warnaiBlok(panel.id, 'l', w.nama)} className={`w-6 h-6 border border-white/25 text-[12px] font-bold hover:border-white ml-${w.nama}`} title={`Latar ${w.label}`} aria-label={`Latar ${w.label}`}>A</button>)}
+                  </div>
                 </>
               )}
               <button type="button" onClick={() => duplikat(panel.id)} className="flex w-full items-center gap-2 px-2 py-1.5 text-[13px] hover:bg-white/10"><Copy size={14} /> Duplikat</button>
@@ -1589,6 +2183,80 @@ const EditorBlok: React.FC<Props> = ({
             </div>
           )}
 
+          {aiPanel && (
+            <div ref={gulirKe} className={`${letak(aiPanel.idMulai).className} retro-box !bg-zinc-900 border-purple-500 !p-2 w-[22rem] max-w-[calc(100%-0.5rem)] space-y-2`} style={letak(aiPanel.idMulai).style} {...tahanFokusLuarIsian}>
+              <div className="flex items-center gap-1.5 text-[12px] text-purple-200">
+                <Sparkles size={13} /> <span className="flex-1">{aiPanel.mode === 'tulis' ? 'Tulis dengan AI' : 'AI untuk teks terpilih'}</span>
+                <button type="button" onClick={() => setAiPanel(null)} className="text-zinc-400 hover:text-white" aria-label="Tutup"><X size={13} /></button>
+              </div>
+              {aiPanel.mode === 'pilihan' && aiPanel.status !== 'siap' && <p className="text-[11px] text-zinc-500 italic line-clamp-2">“{aiPanel.pilihan}”</p>}
+              {(aiPanel.status === 'pilih' || aiPanel.status === 'galat') && (
+                <>
+                  {aiPanel.mode === 'pilihan' && (
+                    <div className="grid grid-cols-2 gap-1">
+                      {AKSI_AI.map(([a, label]) => (
+                        <button key={a} type="button" onClick={() => { void jalankanAi(a); }} className="px-2 py-1 border border-white/15 text-left text-[12px] text-zinc-200 hover:border-purple-400 hover:bg-purple-900/30">{label}</button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-1">
+                    <input
+                      autoFocus={aiPanel.mode === 'tulis'}
+                      value={teksAi}
+                      onChange={(e) => setTeksAi(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void jalankanAi('bebas'); } if (e.key === 'Escape') setAiPanel(null); }}
+                      placeholder={aiPanel.mode === 'tulis' ? 'Minta AI menulis… mis. notulen dari catatan di atas' : 'Atau ketik permintaan sendiri…'}
+                      className="input-retro !py-1 !text-[13px] flex-1 min-w-0"
+                      aria-label="Permintaan untuk AI"
+                    />
+                    <button type="button" onClick={() => { void jalankanAi('bebas'); }} className="btn-ikon !w-8 !h-8 bg-purple-700" aria-label="Kirim ke AI"><Send size={13} /></button>
+                  </div>
+                  {aiPanel.mode === 'tulis' && (
+                    <div className="flex flex-wrap gap-1">
+                      {CONTOH_TULIS_AI.map((c) => <button key={c} type="button" onClick={() => setTeksAi(c)} className="px-1.5 py-0.5 border border-white/15 text-[11px] text-zinc-300 hover:border-purple-400">{c}</button>)}
+                    </div>
+                  )}
+                  {aiPanel.status === 'galat' && <p className="text-[12px] text-red-300">{aiPanel.pesan}</p>}
+                </>
+              )}
+              {aiPanel.status === 'memuat' && <p className="text-[12px] text-zinc-300 flex items-center gap-1.5 py-2"><Loader2 size={13} className="animate-spin" /> AI sedang bekerja…</p>}
+              {aiPanel.status === 'siap' && aiPanel.hasil && (
+                <>
+                  <div className="max-h-60 overflow-y-auto custom-scrollbar border border-white/10 bg-black/30 px-2 py-1 text-[14px] leading-[1.5]"><IsiMemo isi={aiPanel.hasil} tim={tim} /></div>
+                  {aiPanel.pesan && <p className="text-[11px] text-purple-200/80">{aiPanel.pesan}</p>}
+                  <div className="flex flex-wrap gap-1">
+                    <button type="button" onClick={() => pasangAi('ganti')} className="btn-retro btn-retro-sm !bg-purple-700 text-white font-bold">{aiPanel.mode === 'tulis' ? 'Sisipkan' : 'Ganti teks terpilih'}</button>
+                    {aiPanel.mode === 'pilihan' && <button type="button" onClick={() => pasangAi('bawah')} className="btn-retro btn-retro-sm !bg-zinc-700 text-zinc-100">Sisipkan di bawah</button>}
+                    <button type="button" onClick={() => setAiPanel({ ...aiPanel, status: 'pilih' })} className="btn-retro btn-retro-sm !bg-zinc-800 text-zinc-200">Coba lagi</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {panel?.jenis === 'penanda' && (
+            <div ref={gulirKe} className={`${letak(panel.id).className} retro-box !bg-zinc-900 border-lime-500 !p-2 w-80 max-w-[calc(100%-0.5rem)] space-y-2`} style={letak(panel.id).style}>
+              <p className="text-[12px] text-zinc-300">Tautan web — judul & keterangan diambil otomatis dari halamannya.</p>
+              <input autoFocus type="url" value={urlPenanda} onChange={(e) => setUrlPenanda(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void sisipPenanda(); } if (e.key === 'Escape') setPanel(null); }} placeholder="https://…" className="input-retro !py-1 !text-[13px]" aria-label="Alamat tautan" />
+              <div className="flex gap-2">
+                <button type="button" disabled={sibukPenanda} onClick={() => { void sisipPenanda(); }} className="btn-retro btn-retro-sm bg-lime-600 flex-1 justify-center">{sibukPenanda ? <Loader2 size={12} className="animate-spin" /> : 'Pasang kartu'}</button>
+                <button type="button" onClick={() => setPanel(null)} className="btn-retro btn-retro-sm bg-zinc-800" aria-label="Tutup"><X size={12} /></button>
+              </div>
+            </div>
+          )}
+
+          {panel?.jenis === 'rumus' && (
+            <div ref={gulirKe} className={`${letak(panel.id).className} retro-box !bg-zinc-900 border-lime-500 !p-2 w-80 max-w-[calc(100%-0.5rem)] space-y-2`} style={letak(panel.id).style} {...tahanFokusLuarIsian}>
+              <p className="text-[12px] text-zinc-300 flex items-center gap-1.5"><Sigma size={13} /> Rumus sebaris (LaTeX)</p>
+              <input autoFocus value={teksRumus} onChange={(e) => setTeksRumus(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); pasangRumusSebaris(); } if (e.key === 'Escape') setPanel(null); }} placeholder="mis. x^2 + \sqrt{y}" className="input-retro !py-1 !text-[13px] font-mono" aria-label="Rumus LaTeX" />
+              <div className="min-h-[1.75rem] px-2 py-1 bg-black/30 text-center text-zinc-100" dangerouslySetInnerHTML={{ __html: teksRumus.trim() ? (rumusHtml(teksRumus) ?? '') : '<span style="color:#71717a">Pratinjau</span>' }} />
+              <div className="flex gap-2">
+                <button type="button" onClick={pasangRumusSebaris} className="btn-retro btn-retro-sm bg-lime-600 flex-1 justify-center">{chipRumus.current ? 'Simpan' : 'Sisipkan'}</button>
+                <button type="button" onClick={() => setPanel(null)} className="btn-retro btn-retro-sm bg-zinc-800" aria-label="Tutup"><X size={12} /></button>
+              </div>
+            </div>
+          )}
+
           {panel?.jenis === 'orang' && orangAktif && (
             <div ref={gulirKe} className={`${letak(panel.id).className} retro-box !bg-zinc-900 border-lime-500 !p-1 w-64 max-w-[calc(100%-0.5rem)] max-h-60 overflow-y-auto custom-scrollbar`} style={letak(panel.id).style} {...tahanFokus}>
               <p className="px-2 py-1 text-[11px] text-zinc-400">Penanggung jawab tugas</p>
@@ -1603,9 +2271,14 @@ const EditorBlok: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* HP: palet warna/stabilo untuk teks terpilih, tepat di atas bilah alat. */}
+      {sentuh && paletBuka && blokAktif && (
+        <div className="sticky bottom-[46px] z-20 retro-box !bg-zinc-900 border-lime-500 !p-2 space-y-1.5" {...tahanFokus}>{isiPalet}</div>
+      )}
+
       {/* HP: bilah alat di atas papan ketik untuk blok yang sedang ditulis (pengganti "+" dan "⋮⋮"). */}
       {sentuh && blokAktif && infoAktif && (
-        <div className="sticky bottom-0 z-20 -mx-1 mt-1 px-1 py-1 bg-zinc-950 border-t-2 border-white/20 flex items-center gap-1 overflow-x-auto custom-scrollbar" role="toolbar" aria-label="Alat blok">
+        <div className="sticky bottom-0 z-20 -mx-1 mt-1 px-1 py-1 bg-zinc-950 border-t-2 border-white/20 flex items-center gap-1 overflow-x-auto tanpa-scrollbar" role="toolbar" aria-label="Alat blok">
           {tombolAlat('tambah', Plus, 'Tambah blok', () => blokBaruSetelah(blokAktif.id))}
           {BLOK_TEKS.has(infoAktif.jenis) && tombolAlat('menu', Type, 'Ubah jadi', () => {
             const el = elRef.current.get(blokAktif.id);
@@ -1615,6 +2288,10 @@ const EditorBlok: React.FC<Props> = ({
           {BLOK_TEKS.has(infoAktif.jenis) && tombolAlat('ceklis', ListChecks, 'Ceklis', () => ubahJenis(blokAktif.id, infoAktif.jenis === 'ceklis' ? 'teks' : 'ceklis'), infoAktif.jenis === 'ceklis')}
           {BLOK_TEKS.has(infoAktif.jenis) && tombolAlat('tebal', Bold, 'Tebal', () => format('tebal'))}
           {BLOK_TEKS.has(infoAktif.jenis) && tombolAlat('miring', Italic, 'Miring', () => format('miring'))}
+          {onAi && BLOK_TEKS.has(infoAktif.jenis) && tombolAlat('ai', Sparkles, 'AI untuk teks terpilih', mulaiAiPilihan)}
+          {BLOK_TEKS.has(infoAktif.jenis) && tombolAlat('garisbawah', Underline, 'Garis bawah', () => format('garisbawah'))}
+          {BLOK_TEKS.has(infoAktif.jenis) && tombolAlat('warna', Palette, 'Warna & stabilo (pilih teks dulu)', () => setPaletBuka((v) => !v), paletBuka)}
+          {onKomentar && BLOK_TEKS.has(infoAktif.jenis) && tombolAlat('komentar', MessageSquare, 'Komentari teks terpilih', () => format('komentar'))}
           {BLOK_TEKS.has(infoAktif.jenis) && tombolAlat('tenggat', CalendarClock, 'Tenggat', () => {
             const el = elRef.current.get(blokAktif.id);
             bukaTenggat(blokAktif.id, el ? offsetKursor(el) ?? 0 : 0);
@@ -1636,10 +2313,33 @@ const EditorBlok: React.FC<Props> = ({
 
       {/* Layar bertetikus: bilah format mengambang di atas teks yang dipilih. */}
       {!sentuh && pilihan && createPortal(
-        <div className="fixed z-[400] flex items-center gap-0.5 retro-box !bg-zinc-900 border-lime-500 !p-0.5 -translate-x-1/2" style={{ left: pilihan.x, top: Math.max(4, pilihan.y - 44) }} role="toolbar" aria-label="Format teks" {...tahanFokus}>
-          {([['tebal', Bold, 'Tebal (Ctrl+B)'], ['miring', Italic, 'Miring (Ctrl+I)'], ['coret', Strikethrough, 'Coret (Ctrl+Shift+S)'], ['kode', Code, 'Kode (Ctrl+E)'], ['tautan', Link2, 'Tautan (Ctrl+K)']] as const).map(([j, Ikon, l]) => (
+        <div key={`${pilihan.x},${pilihan.y}`} ref={pasBilah} className="fixed z-[400] flex items-center gap-0.5 retro-box !bg-zinc-900 border-lime-500 !p-0.5 -translate-x-1/2" style={{ left: pilihan.x, top: Math.max(4, pilihan.y - 44) }} role="toolbar" aria-label="Format teks" {...tahanFokus}>
+          {onAi && (
+            <button type="button" onClick={mulaiAiPilihan} className="h-8 px-2 flex items-center gap-1 text-[12px] font-bold text-purple-200 hover:bg-purple-700 hover:text-white" title="AI untuk teks terpilih">
+              <Sparkles size={14} /> AI
+            </button>
+          )}
+          <select
+            value=""
+            onChange={(e) => { const id = blokDariPilihan(); if (id && e.target.value) ubahJenis(id, e.target.value as JenisBlok); }}
+            className="h-8 px-1 bg-transparent text-[12px] text-zinc-200 hover:bg-white/10 outline-none cursor-pointer"
+            title="Ubah jadi"
+            aria-label="Ubah jadi"
+          >
+            <option value="" className="bg-zinc-900">Ubah jadi…</option>
+            {UBAH_JADI.map((p) => <option key={p.id} value={p.jenis} className="bg-zinc-900">{p.label}</option>)}
+          </select>
+          <span className="w-px h-6 bg-white/20" />
+          {([['tebal', Bold, 'Tebal (Ctrl+B)'], ['miring', Italic, 'Miring (Ctrl+I)'], ['garisbawah', Underline, 'Garis bawah (Ctrl+U)'], ['coret', Strikethrough, 'Coret (Ctrl+Shift+S)'], ['kode', Code, 'Kode (Ctrl+E)'], ['tautan', Link2, 'Tautan (Ctrl+K)'], ['rumus', Sigma, 'Rumus sebaris']] as const).map(([j, Ikon, l]) => (
             <button key={j} type="button" onClick={() => format(j)} className="w-8 h-8 flex items-center justify-center text-zinc-200 hover:bg-lime-600 hover:text-white" title={l} aria-label={l}><Ikon size={14} /></button>
           ))}
+          <span className="relative">
+            <button type="button" onClick={() => setPaletBuka((v) => !v)} className={`w-8 h-8 flex items-center justify-center hover:bg-lime-600 hover:text-white ${paletBuka ? 'bg-lime-600 text-white' : 'text-zinc-200'}`} title="Warna & stabilo" aria-label="Warna & stabilo" aria-expanded={paletBuka}><Palette size={14} /></button>
+            {paletBuka && (
+              <div className={`absolute left-1/2 -translate-x-1/2 ${pilihan.y > window.innerHeight - 300 ? 'bottom-full mb-1' : 'top-full mt-1'} w-56 retro-box !bg-zinc-900 border-lime-500 !p-2 space-y-1.5`}>{isiPalet}</div>
+            )}
+          </span>
+          {onKomentar && <button type="button" onClick={() => format('komentar')} className="w-8 h-8 flex items-center justify-center text-zinc-200 hover:bg-lime-600 hover:text-white" title="Komentari teks ini" aria-label="Komentar"><MessageSquare size={14} /></button>}
         </div>,
         document.body,
       )}

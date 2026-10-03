@@ -354,17 +354,33 @@ export async function rutePersonal(jalur: string, req: Request, env: Env, penggu
     return json({ ok: true, jumlah });
   }
 
+  // Komentar memo (lihat ruteKomentar).
+  const cocokKomentar = jalur.match(/^\/api\/memo\/([\w-]+)\/komentar(?:\/([\w-]+))?$/);
+  if (cocokKomentar) return ruteKomentar(cocokKomentar[1], cocokKomentar[2], req, env, pengguna);
+
+  // Kartu tautan web di memo: judul & keterangan halaman yang ditautkan.
+  if (jalur === '/api/pratinjau-tautan' && req.method === 'GET') return pratinjauTautan(url.searchParams.get('url') ?? '');
+
   // Bagikan memo lewat tautan (lihat lihat-memo.ts).
   const cocokBagiMemo = jalur.match(/^\/api\/memo\/([\w-]+)\/bagi$/);
   if (cocokBagiMemo) return ruteBagiMemo(cocokBagiMemo[1], req, env, pengguna);
 
   const cocokMemo = jalur.match(/^\/api\/memo\/([\w-]+)$/);
   if (cocokMemo) {
-    const memo = await env.DB.prepare('SELECT id, user_id, lingkup, akses, judul, isi, ringkasan FROM memo WHERE id = ?1 AND dihapus_pada IS NULL')
-      .bind(cocokMemo[1]).first<{ id: string; user_id: string; lingkup: string; akses: string | null; judul: string; isi: string; ringkasan: string | null }>();
+    const memo = await env.DB.prepare('SELECT id, user_id, lingkup, akses, judul, isi, ringkasan, diubah_pada FROM memo WHERE id = ?1 AND dihapus_pada IS NULL')
+      .bind(cocokMemo[1]).first<{ id: string; user_id: string; lingkup: string; akses: string | null; judul: string; isi: string; ringkasan: string | null; diubah_pada: string | null }>();
     // Memo pribadi milik orang lain (dan memo di Sampah) diperlakukan seolah tidak ada.
     const hak = memo ? hakMemo(memo, pengguna) : null;
     if (!memo || !hak) return galat('Memo tidak ditemukan.', 404);
+
+    // Satu memo terbaru — halaman yang sedang dibuka memeriksa perubahan dari orang lain.
+    if (req.method === 'GET') {
+      const baris = await env.DB.prepare(
+        `SELECT m.*, t.nama AS penulis, p.no_urut AS pica_no, p.judul AS pica_judul, p.status AS pica_status
+           FROM memo m LEFT JOIN tim t ON t.id = m.user_id LEFT JOIN pica p ON p.id = m.pica_id WHERE m.id = ?1`,
+      ).bind(memo.id).first();
+      return json({ memo: baris });
+    }
 
     if (req.method === 'DELETE') {
       if (hak !== 'penuh') return galat('Hanya pembuat memo, Supervisor, atau Admin yang boleh menghapus memo ini.', 403);
@@ -395,6 +411,14 @@ export async function rutePersonal(jalur: string, req: Request, env: Env, penggu
     }
     if (req.method === 'PATCH') {
       const b = (await req.json()) as Record<string, unknown>;
+      // Penjaga bentrok: isi baru membawa versi dasarnya. Bila memo sudah diubah orang lain
+      // sejak versi itu, jawab 409 beserta isi terbaru — aplikasi menggabung per baris lalu mengirim ulang.
+      const adaDasar = 'dasar_diubah' in b;
+      const dasar = b.dasar_diubah ?? null;
+      delete b.dasar_diubah;
+      if (adaDasar && typeof b.isi === 'string' && dasar !== (memo.diubah_pada ?? null) && b.isi !== memo.isi) {
+        return json({ galat: 'Memo ini baru saja diubah orang lain.', memo: { isi: memo.isi, diubah_pada: memo.diubah_pada } }, 409);
+      }
       // Baca saja: hanya boleh mencentang tugas yang menyebut dirinya.
       if (hak === 'baca') {
         const hanyaIsi = Object.keys(b).every((k) => k === 'isi');
@@ -414,8 +438,9 @@ export async function rutePersonal(jalur: string, req: Request, env: Env, penggu
         else nilai.push(b[k]);
       }
       const set = kolom.map((k, i) => `${k} = ?${i + 2}`).join(', ');
+      const waktu = sekarangUtcIso();
       await env.DB.prepare(`UPDATE memo SET ${set}, diubah_pada = ?${kolom.length + 2} WHERE id = ?1`)
-        .bind(memo.id, ...nilai, sekarangUtcIso())
+        .bind(memo.id, ...nilai, waktu)
         .run();
       if ('isi' in b || 'judul' in b) {
         const baru = await env.DB.prepare('SELECT id, user_id, lingkup, judul, isi FROM memo WHERE id = ?1').bind(memo.id)
@@ -423,7 +448,7 @@ export async function rutePersonal(jalur: string, req: Request, env: Env, penggu
         if (baru) await sinkronJadwalMemo(env, baru);
       }
       if (typeof b.judul === 'string') await perbaruiLabelHalaman(env, memo.id, b.judul);
-      return json({ ok: true });
+      return json({ ok: true, diubah_pada: waktu });
     }
   }
 
@@ -495,6 +520,7 @@ async function sinkronJadwalMemo(env: Env, m: MemoSinkron): Promise<void> {
 /** Memo dihapus: Jadwal buatannya, tautan bagikan, lampiran, dan berkas di R2 ikut dibersihkan. */
 async function hapusIsiTerkaitMemo(env: Env, memoId: string): Promise<void> {
   await env.DB.prepare('DELETE FROM jadwal WHERE memo_id = ?1').bind(memoId).run();
+  await env.DB.prepare('DELETE FROM memo_komentar WHERE memo_id = ?1').bind(memoId).run();
   await matikanTautanMemo(env, memoId);
   const { results } = await env.DB.prepare("SELECT kunci_r2 FROM lampiran WHERE entitas = 'memo' AND entitas_id = ?1")
     .bind(memoId).all<{ kunci_r2: string }>();
@@ -513,6 +539,128 @@ async function perbaruiLabelHalaman(env: Env, id: string, judul: string): Promis
     return baru === r.isi ? [] : [env.DB.prepare('UPDATE memo SET isi = ?2 WHERE id = ?1').bind(r.id, baru)];
   });
   if (perintah.length) await env.DB.batch(perintah);
+}
+
+// ============================================================
+// Komentar memo
+// ============================================================
+
+/**
+ * GET    /api/memo/:id/komentar        semua komentar memo (urut waktu)
+ * POST   /api/memo/:id/komentar        { isi, kutipan?, induk_id? }
+ * PATCH  /api/memo/:id/komentar/:kid   { isi } (penulisnya) · { selesai } (penulis atau yang bisa mengedit memo)
+ * DELETE /api/memo/:id/komentar/:kid   penulisnya atau akses penuh memo; balasannya ikut terhapus
+ * Siapa pun yang bisa membaca memo boleh berkomentar (teks memo tidak berubah).
+ */
+async function ruteKomentar(memoId: string, kid: string | undefined, req: Request, env: Env, pengguna: Pengguna): Promise<Response> {
+  const memo = await env.DB.prepare('SELECT id, user_id, lingkup, akses FROM memo WHERE id = ?1 AND dihapus_pada IS NULL')
+    .bind(memoId).first<{ id: string; user_id: string; lingkup: string; akses: string | null }>();
+  const hak = memo ? hakMemo(memo, pengguna) : null;
+  if (!memo || !hak) return galat('Memo tidak ditemukan.', 404);
+
+  if (!kid && req.method === 'GET') {
+    const { results } = await env.DB.prepare(
+      `SELECT k.id, k.memo_id, k.induk_id, k.user_id, k.kutipan, k.isi, k.selesai, k.dibuat_pada, k.diubah_pada, t.nama
+         FROM memo_komentar k LEFT JOIN tim t ON t.id = k.user_id WHERE k.memo_id = ?1 ORDER BY k.dibuat_pada`,
+    ).bind(memo.id).all();
+    return json({ komentar: results });
+  }
+  if (!kid && req.method === 'POST') {
+    const b = (await req.json()) as Record<string, unknown>;
+    const isi = typeof b.isi === 'string' ? b.isi.trim().slice(0, 2000) : '';
+    if (!isi) return galat('Komentar masih kosong.');
+    const kutipan = typeof b.kutipan === 'string' && b.kutipan.trim() ? b.kutipan.trim().slice(0, 300) : null;
+    let induk: string | null = null;
+    if (typeof b.induk_id === 'string' && b.induk_id) {
+      const k = await env.DB.prepare('SELECT id, induk_id FROM memo_komentar WHERE id = ?1 AND memo_id = ?2').bind(b.induk_id, memo.id)
+        .first<{ id: string; induk_id: string | null }>();
+      if (!k) return galat('Komentar yang dibalas tidak ditemukan.', 404);
+      induk = k.induk_id ?? k.id; // balasan selalu ke komentar pertama utas
+    }
+    const id = `kom_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const pada = sekarangUtcIso();
+    await env.DB.prepare(
+      'INSERT INTO memo_komentar (id, memo_id, induk_id, user_id, kutipan, isi, dibuat_pada) VALUES (?1,?2,?3,?4,?5,?6,?7)',
+    ).bind(id, memo.id, induk, pengguna.id, induk ? null : kutipan, isi, pada).run();
+    return json({ id, memo_id: memo.id, induk_id: induk, user_id: pengguna.id, kutipan: induk ? null : kutipan, isi, selesai: 0, dibuat_pada: pada, diubah_pada: null, nama: pengguna.nama }, 201);
+  }
+  if (!kid) return galat('Metode tidak didukung.', 405);
+
+  const k = await env.DB.prepare('SELECT id, user_id FROM memo_komentar WHERE id = ?1 AND memo_id = ?2').bind(kid, memo.id)
+    .first<{ id: string; user_id: string }>();
+  if (!k) return galat('Komentar tidak ditemukan.', 404);
+  const milik = k.user_id === pengguna.id;
+  if (req.method === 'PATCH') {
+    const b = (await req.json()) as Record<string, unknown>;
+    if (typeof b.isi === 'string') {
+      if (!milik) return galat('Hanya penulis komentar yang boleh mengubahnya.', 403);
+      const isi = b.isi.trim().slice(0, 2000);
+      if (!isi) return galat('Komentar masih kosong.');
+      await env.DB.prepare('UPDATE memo_komentar SET isi = ?2, diubah_pada = ?3 WHERE id = ?1').bind(k.id, isi, sekarangUtcIso()).run();
+    }
+    if ('selesai' in b) {
+      if (!milik && hak === 'baca') return galat('Hanya penulis komentar atau yang bisa mengedit memo yang boleh menandai selesai.', 403);
+      await env.DB.prepare('UPDATE memo_komentar SET selesai = ?2 WHERE id = ?1 OR induk_id = ?1').bind(k.id, b.selesai ? 1 : 0).run();
+    }
+    return json({ ok: true });
+  }
+  if (req.method === 'DELETE') {
+    if (!milik && hak !== 'penuh') return galat('Hanya penulis komentar, pembuat memo, Supervisor, atau Admin yang boleh menghapusnya.', 403);
+    await env.DB.prepare('DELETE FROM memo_komentar WHERE id = ?1 OR induk_id = ?1').bind(k.id).run();
+    return json({ ok: true });
+  }
+  return galat('Metode tidak didukung.', 405);
+}
+
+// ============================================================
+// Pratinjau tautan web (kartu "Tautan web" di memo)
+// ============================================================
+
+const entitas = (s: string) => s
+  .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+  .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+  .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+
+/** Judul, keterangan, dan nama situs dari tag <title>/<meta>; kosong bila tidak bisa diambil. */
+async function pratinjauTautan(alamat: string): Promise<Response> {
+  let u: URL;
+  try { u = new URL(alamat); } catch { return galat('Alamat tautan tidak sah.'); }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return galat('Hanya alamat http/https.');
+  const situs = u.hostname.replace(/^www\./, '');
+  const kosong = json({ judul: '', ket: '', situs });
+  // Hanya nama domain publik: alamat IP dan nama lokal tidak diambil.
+  if (/^(localhost|.*\.local|.*\.internal|.*\.lan)$/i.test(u.hostname) || /^[\d.]+$/.test(u.hostname) || u.hostname.includes(':')) return kosong;
+  const henti = new AbortController();
+  const pewaktu = setTimeout(() => henti.abort(), 5000);
+  try {
+    const res = await fetch(u.toString(), {
+      signal: henti.signal, redirect: 'follow',
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; POKEMONKEY-pratinjau/1.0)', Accept: 'text/html' },
+    });
+    if (!res.ok || !(res.headers.get('content-type') ?? '').includes('text/html') || !res.body) return kosong;
+    // Cukup bagian awal halaman (<head>), paling banyak 100 KB.
+    const pembaca = res.body.getReader();
+    const urai = new TextDecoder();
+    let html = '';
+    while (html.length < 100_000) {
+      const { done, value } = await pembaca.read();
+      if (done) break;
+      html += urai.decode(value, { stream: true });
+      if (/<\/head>/i.test(html)) break;
+    }
+    void pembaca.cancel().catch(() => undefined);
+    const meta = (nama: string) => {
+      const m = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${nama}["'][^>]*>`, 'i'))?.[0];
+      return m ? entitas(m.match(/content=["']([^"']*)["']/i)?.[1] ?? '').trim() : '';
+    };
+    const judul = meta('og:title') || meta('twitter:title') || entitas(html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ?? '').trim();
+    const ket = meta('og:description') || meta('description') || meta('twitter:description');
+    return json({ judul: judul.slice(0, 200), ket: ket.slice(0, 400), situs: (meta('og:site_name') || situs).slice(0, 100) });
+  } catch {
+    return kosong;
+  } finally {
+    clearTimeout(pewaktu);
+  }
 }
 
 // ============================================================

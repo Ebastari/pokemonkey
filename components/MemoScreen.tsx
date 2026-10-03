@@ -3,7 +3,7 @@ import {
   NotebookPen, Plus, ListFilter, ArrowUpDown, Search, Trash2, Pencil, Eye, Loader2, KanbanSquare,
   CircleDot, Tags, Lock, Pin, PinOff, ChevronLeft, ChevronDown, User, ImageDown, FileSpreadsheet,
   FileText, ClipboardList, Download, Clock, MapPin, Hash, Sun, Moon, Send, ListChecks, CalendarDays, Target,
-  MoreHorizontal, MoveHorizontal, Smile, Image as ImageIcon, Type, AlignLeft, Menu, Users, Sparkles,
+  MoreHorizontal, MoveHorizontal, Smile, Image as ImageIcon, Type, AlignLeft, Menu, Users, Sparkles, MessageSquare, X,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { unduhGambar } from '../lib/gambar';
@@ -16,6 +16,7 @@ import * as W from '../lib/waktu';
 import { EditorMemo } from './EditorMemo';
 import { BagikanMemo } from './BagikanMemo';
 import { ModalAiMemo } from './ModalAiMemo';
+import { prosesMemoAi, type AksiPilihanAi } from '../lib/gemini';
 import { SidebarMemo } from './SidebarMemo';
 import { SampahMemo } from './SampahMemo';
 import { PemilihSampul, SampulMemo, type PatchSampul } from './SampulMemo';
@@ -23,7 +24,10 @@ import { SAMPUL_BAWAAN } from '../lib/sampul';
 import { BarisProperti, Kosong, NilaiPolos, PilihanTembus, TanggalTembus } from './BarisProperti';
 import { EditorProperti, PilihPicaMemo, TambahPropertiMemo, bacaProps, teksNilai, opsiProperti } from './PropertiMemo';
 import { cuplikanMemo, gantiLabelHalaman, hakMemo, hitungTugas, pohonMemo } from '../server/src/memo-blok';
-import { patchMemo, pasangPengirimTertunda, type PatchMemo } from '../lib/memo-simpan';
+import { patchMemo, simpanMemo, pasangPengirimTertunda, type DasarIsi, type PatchMemo } from '../lib/memo-simpan';
+import { gabungTigaArah, tambahDiBawah } from '../lib/gabung-isi';
+import { KomentarMemo } from './KomentarMemo';
+import { TanyaMemo } from './TanyaMemo';
 import { FormInternalMemo } from './FormInternalMemo';
 import { type DataMemoDinas, MEMO_DINAS_DEFAULT, eksporMemoDinasKeExcel } from '../lib/ekspor-memo-dinas';
 import { FormMOM } from './FormMOM';
@@ -50,12 +54,13 @@ type Urut = 'tanggal' | 'judul' | 'diubah';
 
 const KUNCI_TAB = 'pokemonkey_memo_tab';
 
-const TAB: { id: Tab; label: string; ikon: React.ReactElement }[] = [
+/** `pendek` = label di layar HP (tab satu baris yang digeser). */
+const TAB: { id: Tab; label: string; pendek?: string; ikon: React.ReactElement }[] = [
   { id: 'ikhtisar', label: 'Memo Kerja', ikon: <KanbanSquare size={14} /> },
   // Catatan pribadi tersimpan di server, hanya terlihat oleh akun pemiliknya.
   { id: 'pribadi', label: 'Memo Pribadi', ikon: <Lock size={14} /> },
   { id: 'internal_memo', label: 'Internal Memo', ikon: <FileText size={14} /> },
-  { id: 'mom', label: 'Minutes of Meeting', ikon: <ClipboardList size={14} /> },
+  { id: 'mom', label: 'Minutes of Meeting', pendek: 'MoM', ikon: <ClipboardList size={14} /> },
   { id: 'nomor_surat', label: 'Nomor Surat', ikon: <Hash size={14} /> },
   // Memo yang dihapus (beserta sub-halamannya) menunggu 30 hari di sini, seperti Trash di Notion.
   { id: 'sampah', label: 'Sampah', ikon: <Trash2 size={14} /> },
@@ -111,6 +116,10 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
   const [memuat, setMemuat] = useState(true);
   const [cari, setCari] = useState('');
   const [cariBuka, setCariBuka] = useState(false);
+  const [tanyaBuka, setTanyaBuka] = useState(false);
+  // HP: tab aktif digeser ke dalam layar (baris tab satu baris yang digeser).
+  const tabAktifEl = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => { tabAktifEl.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [tab]);
   const [saring, setSaring] = useState({ tipe: '', status: '' });
   const [urut, setUrut] = useState<Urut>('tanggal');
   const [alat, setAlat] = useState<null | 'saring' | 'urut'>(null);
@@ -523,7 +532,7 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
             </div>
             <div>
               <h2 className="font-title text-[15px] md:text-[20px] text-white leading-tight">Memo &amp; Surat</h2>
-              <p className="text-[11px] text-zinc-400">Arsip memo internal, MoM, dan penomoran surat resmi</p>
+              <p className="hidden sm:block text-[11px] text-zinc-400">Arsip memo internal, MoM, dan penomoran surat resmi</p>
             </div>
           </div>
 
@@ -536,17 +545,19 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
             <span className="hidden sm:inline font-mono font-bold">{temaAktif === 'gelap' ? 'Mode Terang' : 'Mode Gelap'}</span>
           </button>
         </div>
-        {/* Baris 2: Tab Navigasi Utama (Tepat di bawah Judul) */}
-        <div className="flex flex-wrap gap-1 border-b-4 border-white pb-2 mb-2">
+        {/* Baris 2: Tab Navigasi Utama (Tepat di bawah Judul). Di HP satu baris yang digeser, agar papan tidak terdesak. */}
+        <div className="flex flex-nowrap overflow-x-auto tanpa-scrollbar sm:flex-wrap gap-1 border-b-4 border-white pb-2 mb-2">
           {TAB.map((t) => (
             <button
               key={t.id}
+              ref={tab === t.id ? tabAktifEl : undefined}
               onClick={() => setTab(t.id)}
-              className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 text-[13px] font-bold border-2 transition-colors ${
+              className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-2.5 py-1.5 text-[13px] font-bold border-2 transition-colors ${
                 tab === t.id ? 'bg-lime-600 border-white text-white shadow-[2px_2px_0_#000]' : 'border-transparent text-zinc-400 hover:text-white'
               }`}
             >
-              {t.ikon}{t.label}
+              {t.ikon}
+              {t.pendek ? <><span className="sm:hidden">{t.pendek}</span><span className="hidden sm:inline">{t.label}</span></> : t.label}
             </button>
           ))}
         </div>
@@ -558,11 +569,18 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
               {bolehBuat && (
                 <button
                   onClick={() => buat()}
-                  className="btn-retro btn-retro-sm !bg-zinc-800 hover:!bg-zinc-700 !text-white font-bold flex items-center gap-1.5 shadow-[2px_2px_0_#000]"
+                  className="btn-retro btn-retro-sm !bg-zinc-800 hover:!bg-zinc-700 !text-white font-bold flex items-center gap-1.5 shrink-0 whitespace-nowrap shadow-[2px_2px_0_#000]"
                 >
-                  <Plus size={12} /> Entri baru
+                  <Plus size={12} /> <span className="sm:hidden">Baru</span><span className="hidden sm:inline">Entri baru</span>
                 </button>
               )}
+              <button
+                onClick={() => setTanyaBuka(true)}
+                className="btn-retro btn-retro-sm !bg-purple-700 hover:!bg-purple-600 !text-white font-bold flex items-center gap-1.5 shrink-0 whitespace-nowrap shadow-[2px_2px_0_#000]"
+                title="Tanya semua memo dengan AI"
+              >
+                <Sparkles size={12} /> Tanya AI
+              </button>
 
               <div className="flex items-center gap-1 shrink-0 relative ml-auto">
                 <button onClick={() => setAlat(alat === 'saring' ? null : 'saring')} className={`btn-ikon !w-8 !h-8 ${saring.tipe || saring.status ? 'bg-lime-600' : 'bg-zinc-800'}`} title="Saring"><ListFilter size={14} /></button>
@@ -713,6 +731,15 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
           onBuatAnak={buatAnak}
           bolehAnak={bolehAnak}
           onSampah={() => { setTerpilihId(null); setTab('sampah'); }}
+        />
+      )}
+
+      {tanyaBuka && (
+        <TanyaMemo
+          memo={[...memo, ...memoPribadi]}
+          tim={boot.tim}
+          onBuka={(id) => { setTanyaBuka(false); setTerpilihId(id); }}
+          onTutup={() => setTanyaBuka(false)}
         />
       )}
 
@@ -1415,6 +1442,25 @@ const LembarMemo: React.FC<{
   const [tampilan, setTampilanState] = useState<TampilanHalaman>(bacaTampilan);
   const [laci, setLaci] = useState(false);
   const [modalAiBuka, setModalAiBuka] = useState(false);
+  /** Isi sebelum AI menerapkan hasilnya (untuk "Urungkan"). */
+  const cadanganAi = useRef<{ judul: string; isi: string; ringkasan: string } | null>(null);
+  const [urungAi, setUrungAi] = useState(false);
+  useEffect(() => {
+    if (!urungAi) return;
+    const t = setTimeout(() => setUrungAi(false), 30_000);
+    return () => clearTimeout(t);
+  }, [urungAi]);
+  const urungkanAi = () => {
+    const c = cadanganAi.current;
+    if (!c) return;
+    setJudul(c.judul);
+    setIsi(c.isi);
+    setRingkasan(c.ringkasan);
+    jadwalkan({ judul: c.judul, isi: c.isi, ringkasan: c.ringkasan }, true);
+    cadanganAi.current = null;
+    setUrungAi(false);
+    notify('PERUBAHAN AI DIURUNGKAN');
+  };
   const fokusJudulAwal = useRef(true);
   const tertunda = useRef<PatchMemo>({});
   const pewaktu = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -1440,15 +1486,32 @@ const LembarMemo: React.FC<{
     return () => window.removeEventListener('keydown', tekan);
   }, [alihSidebar]);
 
+  /** Isi yang terakhir diketahui ada di server: dasar penjaga bentrok (lib/memo-simpan.ts). */
+  const dasar = useRef<DasarIsi>({ isi: memo.isi, diubah_pada: memo.diubah_pada ?? null });
+  const ketikTerakhir = useRef(0);
   const kirim = useCallback(async () => {
     const patch = tertunda.current;
     tertunda.current = {};
     if (Object.keys(patch).length === 0) return;
     setStatusSimpan('menyimpan');
     try {
-      const hasil = await patchMemo(memo.id, patch);
-      onUbah({ ...patch, diubah_pada: new Date().toISOString() } as Partial<Memo>);
-      setStatusSimpan(hasil);
+      const hasil = await simpanMemo(memo.id, patch, typeof patch.isi === 'string' ? dasar.current : undefined);
+      const gabung = hasil.gabung;
+      if (hasil.status === 'tersimpan') {
+        dasar.current = { isi: gabung?.isi ?? patch.isi ?? dasar.current.isi, diubah_pada: hasil.diubah_pada ?? dasar.current.diubah_pada };
+      }
+      if (gabung && typeof patch.isi === 'string') {
+        // Suntingan orang lain ikut masuk. Ketikan kita yang belum terkirim ikut digabung, tidak tertimpa.
+        const lanjut = tertunda.current.isi;
+        const isiLayar = typeof lanjut === 'string' ? gabungTigaArah(patch.isi, lanjut, gabung.isi).isi : gabung.isi;
+        if (typeof lanjut === 'string') tertunda.current = { ...tertunda.current, isi: isiLayar };
+        setIsi(isiLayar);
+        notify(gabung.bentrok
+          ? `DIGABUNG DENGAN SUNTINGAN ORANG LAIN · ${gabung.bentrok} BAGIAN BENTROK, VERSI ANDA DIPAKAI`
+          : 'DIGABUNG DENGAN SUNTINGAN ORANG LAIN');
+      }
+      onUbah({ ...patch, ...(gabung ? { isi: gabung.isi } : {}), diubah_pada: hasil.diubah_pada ?? new Date().toISOString() } as Partial<Memo>);
+      setStatusSimpan(hasil.status);
     } catch (e) {
       setStatusSimpan('mengetik');
       notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENYIMPAN MEMO');
@@ -1457,6 +1520,7 @@ const LembarMemo: React.FC<{
 
   const jadwalkan = (patch: PatchMemo, segera = false) => {
     if (!boleh) return;
+    ketikTerakhir.current = Date.now();
     tertunda.current = { ...tertunda.current, ...patch };
     setStatusSimpan('mengetik');
     if (pewaktu.current) clearTimeout(pewaktu.current);
@@ -1629,6 +1693,41 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
   const pasangSampul = (p: PatchSampul) => { setMenu(null); simpanProps({ ...bacaProps(memo), ...p }, true); };
 
   /** Memo "Baca saja": pembaca mencentang tugas yang menyebut dirinya; server memastikan hanya itu yang berubah. */
+  // Suntingan orang lain tampil sendiri (seperti Notion yang tersinkron): diperiksa tiap 20 detik,
+  // hanya saat tidak sedang mengetik dan tidak ada perubahan kita yang belum terkirim.
+  useEffect(() => {
+    const tenang = () => Object.keys(tertunda.current).length === 0 && Date.now() - ketikTerakhir.current > 5000;
+    const periksa = async () => {
+      if (document.visibilityState !== 'visible' || ditutup.current || !tenang()) return;
+      try {
+        const d = await api<{ memo: Memo | null }>(`/api/memo/${memo.id}`);
+        const m = d.memo;
+        if (!m || (m.diubah_pada ?? null) === dasar.current.diubah_pada || !tenang()) return;
+        dasar.current = { isi: m.isi, diubah_pada: m.diubah_pada ?? null };
+        setIsi(m.isi);
+        setJudul(m.judul);
+        setRingkasan(m.ringkasan ?? '');
+        onUbah(m);
+      } catch { /* tanpa sinyal: coba lagi nanti */ }
+    };
+    const t = setInterval(() => { void periksa(); }, 20_000);
+    return () => clearInterval(t);
+  }, [memo.id, onUbah]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Komentar (panel kanan; di HP lembar bawah).
+  const [komentarBuka, setKomentarBuka] = useState(false);
+  const [tanyaBuka, setTanyaBuka] = useState(false);
+  const [kutipanKomentar, setKutipanKomentar] = useState<string | null>(null);
+  const [jumlahKomentar, setJumlahKomentar] = useState(0);
+  const lihatKutipan = (k: string) => {
+    const kunci = k.slice(0, 60);
+    const el = Array.from(document.querySelectorAll<HTMLElement>('[data-blok-edit],[data-indeks]')).find((n) => (n.textContent ?? '').includes(kunci));
+    if (!el) { notify('TEKS YANG DIKOMENTARI SUDAH BERUBAH'); return; }
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('sorot-komentar');
+    setTimeout(() => el.classList.remove('sorot-komentar'), 1800);
+  };
+
   const centangBaca = async (baru: string) => {
     const lama = isi;
     setIsi(baru);
@@ -1663,6 +1762,7 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
         onBaruAnak={(m) => { void tambahAnakSidebar(m); }}
         bolehAnak={bolehAnak}
         onSampah={() => { void keSampah(); }}
+        onTanya={() => setTanyaBuka(true)}
       />
       {laci && (
         <div className="lg:hidden fixed inset-0 z-[120] flex">
@@ -1680,10 +1780,35 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
             onBaruAnak={(m) => { void tambahAnakSidebar(m); }}
             bolehAnak={bolehAnak}
             onSampah={() => { void keSampah(); }}
+            onTanya={() => { setLaci(false); setTanyaBuka(true); }}
           />
           <button type="button" className="flex-1 bg-black/60" onClick={() => setLaci(false)} aria-label="Tutup daftar halaman" />
         </div>
       )}
+
+      {tanyaBuka && (
+        <TanyaMemo
+          memo={[...memoTim, ...memoPribadi]}
+          tim={tim}
+          onBuka={(id) => { setTanyaBuka(false); bukaHalaman(id); }}
+          onTutup={() => setTanyaBuka(false)}
+        />
+      )}
+
+      {/* Komentar: dimuat sejak halaman dibuka (untuk angka di tombol), tampil saat dibuka. */}
+      <KomentarMemo
+        memoId={memo.id}
+        idSaya={idSaya}
+        penuh={penuh}
+        boleh={boleh}
+        buka={komentarBuka}
+        onTutup={() => setKomentarBuka(false)}
+        kutipan={kutipanKomentar}
+        onKutipanTerpakai={() => setKutipanKomentar(null)}
+        onLihat={lihatKutipan}
+        onJumlah={setJumlahKomentar}
+        notify={notify}
+      />
 
       <div className="flex-1 min-w-0 flex flex-col">
       {/* ---------- Bilah atas ---------- */}
@@ -1710,6 +1835,17 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
         <span className="ml-auto hidden md:inline text-[11px] text-zinc-500 whitespace-nowrap">{diedit}</span>
         {boleh && <TandaSimpan status={status_} className="hidden sm:inline" />}
         {!boleh && !pribadi && <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 border border-white/20 text-[11px] text-zinc-400 whitespace-nowrap" title="Pembuat memo mengatur memo ini Baca saja"><Eye size={11} /> Hanya baca</span>}
+        <button
+          type="button"
+          onClick={() => setKomentarBuka((v) => !v)}
+          className={`relative btn-ikon !w-9 !h-9 shrink-0 ${komentarBuka ? 'bg-lime-600' : 'bg-zinc-800'}`}
+          title="Komentar"
+          aria-label={`Komentar${jumlahKomentar ? ` (${jumlahKomentar})` : ''}`}
+          aria-expanded={komentarBuka}
+        >
+          <MessageSquare size={16} />
+          {jumlahKomentar > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5 bg-amber-400 text-black text-[10px] font-bold flex items-center justify-center">{jumlahKomentar}</span>}
+        </button>
         <BagikanMemo
           memoId={memo.id}
           judul={judul}
@@ -1990,6 +2126,11 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
               halaman={daftarHalaman}
               onBukaHalaman={bukaHalaman}
               onBuatHalaman={boleh ? buatSubHalaman : undefined}
+              onKomentar={(k) => { setKutipanKomentar(k); setKomentarBuka(true); }}
+              onAi={boleh ? async (q) => {
+                const r = await prosesMemoAi({ mode: q.mode, aksi: q.aksi as AksiPilihanAi | undefined, pilihan: q.pilihan, instruksi_khusus: q.instruksi, memo_id: memo.id, lingkup: pribadi ? 'pribadi' : 'tim', judul, isi });
+                return { teks: (q.mode === 'pilihan' ? r.hasil : r.isi) ?? '', catatan: r.catatan_ai };
+              } : undefined}
             />
           </div>
 
@@ -2018,27 +2159,37 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
       </div>
       </div>
 
+      {urungAi && (
+        <div className="fixed z-[120] left-1/2 -translate-x-1/2 bottom-4 flex items-center gap-3 px-3 py-2 retro-box !bg-zinc-900 border-purple-500 text-[13px] text-zinc-100" role="status">
+          <Sparkles size={14} className="text-purple-300" /> Memo diubah oleh AI
+          <button type="button" onClick={urungkanAi} className="btn-retro btn-retro-sm !bg-purple-700 text-white font-bold">Urungkan</button>
+          <button type="button" onClick={() => setUrungAi(false)} className="text-zinc-400 hover:text-white" aria-label="Tutup"><X size={14} /></button>
+        </div>
+      )}
+
       {modalAiBuka && (
         <ModalAiMemo
+          memoId={memo.id}
+          lingkup={pribadi ? 'pribadi' : 'tim'}
           judulAwal={judul}
           isiAwal={isi}
-          kategori={String(nilaiProps.kategori ?? '') || undefined}
-          onTerapkan={(hasilAi) => {
+          ringkasanAwal={ringkasan}
+          tim={tim}
+          kelola={kelola}
+          onTerapkan={(a) => {
+            // Cadangan untuk "Urungkan": isi sebelum AI menyentuhnya.
+            cadanganAi.current = { judul, isi, ringkasan };
             const patch: PatchMemo = {};
-            if (hasilAi.judul) {
-              setJudul(hasilAi.judul);
-              patch.judul = hasilAi.judul;
-            }
-            if (hasilAi.isi) {
-              setIsi(hasilAi.isi);
-              patch.isi = hasilAi.isi;
-            }
-            if (hasilAi.ringkasan) {
-              setRingkasan(hasilAi.ringkasan);
-              patch.ringkasan = hasilAi.ringkasan;
+            if (a.judul) { setJudul(a.judul); patch.judul = a.judul; }
+            if (a.ringkasan) { setRingkasan(a.ringkasan); patch.ringkasan = a.ringkasan; }
+            if (a.jenis !== 'ringkasan') {
+              const isiBaru = a.jenis === 'ganti' ? a.isi : tambahDiBawah(isi, a.isi, a.bagian);
+              setIsi(isiBaru);
+              patch.isi = isiBaru;
             }
             jadwalkan(patch, true);
-            notify('MEMO DIPERBARUI OLEH AI');
+            setUrungAi(true);
+            notify(a.jenis === 'ringkasan' ? 'RINGKASAN DIISI OLEH AI' : a.jenis === 'tambah' ? 'HASIL AI DITAMBAHKAN DI BAWAH' : 'ISI MEMO DIGANTI OLEH AI');
             setModalAiBuka(false);
           }}
           onTutup={() => setModalAiBuka(false)}

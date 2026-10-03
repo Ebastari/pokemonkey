@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, ChevronsLeft, FileText, Home, Lock, NotebookPen, Pin, Plus, Search, SquarePen, Trash2, Users, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronsLeft, FileText, Home, Lock, NotebookPen, Pin, Plus, Search, Sparkles, SquarePen, Trash2, Users, X } from 'lucide-react';
 import type { Memo } from '../types';
 import { bacaProps } from './PropertiMemo';
 
@@ -148,9 +148,11 @@ export const SidebarMemo: React.FC<{
   bolehAnak?: (m: Memo) => boolean;
   /** Buka Sampah (memo yang dihapus, bisa dipulihkan). */
   onSampah?: () => void;
+  /** Tanya semua memo dengan AI. */
+  onTanya?: () => void;
 }> = ({
   memoTim, memoPribadi, aktifId, lingkupAktif, bolehBuatTim, onPilih, onBaru, onBeranda, onTutup, className = '', onSembunyi,
-  onBaruAnak, bolehAnak, onSampah,
+  onBaruAnak, bolehAnak, onSampah, onTanya,
 }) => {
   const [cari, setCari] = useState('');
   const [cariBuka, setCariBuka] = useState(false);
@@ -205,6 +207,11 @@ export const SidebarMemo: React.FC<{
         ) : (
           <button type="button" onClick={() => setCariBuka(true)} className="w-full flex items-center gap-2 px-2 h-8 text-[13px] text-zinc-300 hover:bg-white/5 text-left">
             <Search size={15} /> Cari
+          </button>
+        )}
+        {onTanya && (
+          <button type="button" onClick={onTanya} className="w-full flex items-center gap-2 px-2 h-8 text-[13px] text-purple-200 hover:bg-white/5 text-left">
+            <Sparkles size={15} /> Tanya AI <span className="text-[11px] text-zinc-500 ml-auto">semua memo</span>
           </button>
         )}
       </div>

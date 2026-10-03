@@ -8,13 +8,17 @@
  * serta posisi kursor di dalam satu blok yang bisa disunting.
  */
 
-import { bacaData, bacaTabel, uraiInline } from '../server/src/memo-blok';
+import { bacaData, bacaTabel, uraiBlok, uraiInline, type Inline } from '../server/src/memo-blok';
+import { rumusHtml } from './rumus';
 import type { AnggotaRingkas } from './tipe-api';
 import * as W from './waktu';
 
 export type JenisBlok =
   | 'teks' | 'h1' | 'h2' | 'h3' | 'h4' | 'butir' | 'nomor' | 'ceklis' | 'toggle' | 'kutipan' | 'penting'
-  | 'garis' | 'gambar' | 'video' | 'tabel' | 'berkas' | 'data';
+  | 'garis' | 'gambar' | 'video' | 'tabel' | 'berkas' | 'data' | 'kode' | 'rumus' | 'daftarisi' | 'kolom' | 'penanda' | 'grafik';
+
+/** Blok khusus berawalan "!" yang dikenali uraiBlok (bukan teks yang diketik langsung). */
+const JENIS_KHUSUS: ReadonlySet<string> = new Set(['kode', 'rumus', 'daftarisi', 'kolom', 'penanda', 'gambar', 'grafik']);
 
 /** Blok yang isinya diketik langsung (bukan garis, gambar, berkas). */
 export const BLOK_TEKS: ReadonlySet<JenisBlok> = new Set(['teks', 'h1', 'h2', 'h3', 'h4', 'butir', 'nomor', 'ceklis', 'toggle', 'kutipan', 'penting']);
@@ -34,6 +38,10 @@ export function bacaBaris(raw: string): InfoBaris {
   if (/^!video\[[^\]]*\]\(https?:\/\/[^)\s]+\)\s*$/.test(raw)) return { jenis: 'video', isi: raw, selesai: false };
   if (raw.startsWith('!tabel{') && bacaTabel(raw)) return { jenis: 'tabel', isi: raw, selesai: false };
   if (raw.startsWith('!data{') && bacaData(raw)) return { jenis: 'data', isi: raw, selesai: false };
+  if (raw.startsWith('!')) {
+    const khusus = uraiBlok(raw)[0];
+    if (khusus && JENIS_KHUSUS.has(khusus.jenis)) return { jenis: khusus.jenis as JenisBlok, isi: raw, selesai: false };
+  }
   if (/^!\[[^\]]*\]\([^)\s]+\)\s*$/.test(raw)) return { jenis: 'gambar', isi: raw, selesai: false };
   if (/^\[[^\]]+\]\((?:memo|demo)\/[^)\s]+\)\s*$/.test(raw)) return { jenis: 'berkas', isi: raw, selesai: false };
   if (raw.startsWith('- ')) return { jenis: 'butir', isi: raw.slice(2), selesai: false };
@@ -120,9 +128,24 @@ export function infoHalaman(id: string, judulSimpan: string, peta?: PetaHalaman)
 }
 
 export function keHtml(md: string, k: KonteksHtml = {}): string {
-  return uraiInline(md).map((x) => {
+  const potong = uraiInline(md);
+  // Baris baru di akhir blok perlu satu huruf penahan agar barisnya tampil (dibuang lagi saat disimpan).
+  const ekor = potong[potong.length - 1]?.t === 'baris' ? '\u200B' : '';
+  return htmlInline(potong, k) + ekor;
+}
+
+function htmlInline(potong: Inline[], k: KonteksHtml): string {
+  return potong.map((x) => {
     switch (x.t) {
       case 'teks': return esc(x.v);
+      // Baris baru di dalam blok = huruf "\n" (whitespace-pre-wrap), jadi posisi kursor tetap terhitung.
+      case 'baris': return '\n';
+      case 'garisbawah': return `<u>${esc(x.v)}</u>`;
+      case 'warna': return `<span data-warna="${x.jenis}:${x.warna}" class="m${x.jenis}-${x.warna}">${htmlInline(x.isi, k)}</span>`;
+      case 'rumus': {
+        const html = rumusHtml(x.v);
+        return `<span contenteditable="false" data-raw="${esc(`$$${x.v}$$`)}" data-rumus="${esc(x.v)}" class="inline-block px-0.5 mx-px cursor-pointer hover:bg-white/10 align-baseline" title="Rumus — ketuk untuk mengubah">${html ?? `<code class="text-lime-200">${esc(x.v)}</code>`}</span>`;
+      }
       case 'tebal': return `<b>${esc(x.v)}</b>`;
       case 'miring': return `<i>${esc(x.v)}</i>`;
       case 'coret': return `<s>${esc(x.v)}</s>`;
@@ -166,13 +189,15 @@ function bungkusTanda(isi: string, tanda: string, tutup = tanda): string {
 }
 
 function serial(n: Node, dalamFormat: boolean): string {
-  if (n.nodeType === Node.TEXT_NODE) return (n.textContent ?? '').replace(/[ ]/g, ' ').replace(/[​\n\r]/g, '');
+  // "\n" di teks = baris baru di dalam blok (Shift+Enter) -> disimpan sebagai <br>.
+  if (n.nodeType === Node.TEXT_NODE) return (n.textContent ?? '').replace(/[ ]/g, ' ').replace(/[​\r]/g, '').replace(/\n/g, '<br>');
   if (n.nodeType !== Node.ELEMENT_NODE && n.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return '';
   if (n.nodeType === Node.ELEMENT_NODE) {
     const el = n as HTMLElement;
     const raw = el.getAttribute('data-raw');
     if (raw !== null) return raw;
-    if (el.tagName === 'BR') return '';
+    // <br> sisipan peramban: yang masih diikuti isi = baris baru; yang di ujung hanya penahan.
+    if (el.tagName === 'BR') return el.nextSibling ? '<br>' : '';
   }
   const el = n as HTMLElement;
   const tag = n.nodeType === Node.ELEMENT_NODE ? el.tagName : '';
@@ -181,13 +206,23 @@ function serial(n: Node, dalamFormat: boolean): string {
   const miring = tag === 'I' || tag === 'EM' || (gaya && gaya.fontStyle === 'italic');
   const coret = tag === 'S' || tag === 'STRIKE' || tag === 'DEL' || (gaya && gaya.textDecoration.includes('line-through'));
   const kode = tag === 'CODE';
-  const format = !dalamFormat && (tebal || miring || coret || kode);
+  const garisBawah = tag === 'U' || Boolean(gaya && gaya.textDecoration.includes('underline'));
+  // Warna/stabilo membungkus format lain ({l:kuning|**tebal**}); di dalam format lain warnanya dilepas.
+  const warna = n.nodeType === Node.ELEMENT_NODE ? el.getAttribute('data-warna') : null;
+  if (warna && /^[wl]:[a-z]+$/.test(warna)) {
+    const dalam = Array.from(n.childNodes).map((c) => serial(c, dalamFormat)).join('');
+    if (dalamFormat || !dalam.trim()) return dalam;
+    const m = dalam.match(/^(\s*)([\s\S]*?)(\s*)$/);
+    return m ? `${m[1]}{${warna}|${m[2].replace(/\{[wl]:[a-z]+\|([^{}\n]*)\}/g, '$1').replace(/[{}]/g, '')}}${m[3]}` : dalam;
+  }
+  const format = !dalamFormat && (tebal || miring || coret || kode || garisBawah);
   // Format bertumpuk (tebal+miring) disederhanakan ke yang terluar: teks memo tidak mengenal tumpukan.
   const isi = Array.from(n.childNodes).map((c) => serial(c, dalamFormat || Boolean(format))).join('');
   if (!format) return isi;
   if (kode) return bungkusTanda(isi, '`');
   if (tebal) return bungkusTanda(isi, '**');
   if (miring) return bungkusTanda(isi, '*');
+  if (garisBawah && !coret) return bungkusTanda(isi, '++');
   return bungkusTanda(isi, '~~');
 }
 

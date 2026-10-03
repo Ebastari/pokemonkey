@@ -20,7 +20,7 @@ import {
 } from '../server/src/ringkasan';
 import {
   susunJadwalMemo, tandaJadwalMemo, setCentangTugas, lepasTenggatTugas, hakMemo, hanyaCentangTugasSendiri, type BarisJadwalMemo,
-  kepalaSampah, pohonMemo, memoKosong, gantiLabelHalaman, HARI_SAMPAH,
+  kepalaSampah, pohonMemo, memoKosong, gantiLabelHalaman, HARI_SAMPAH, pisahIndent, rakitTabel,
 } from '../server/src/memo-blok';
 
 const KUNCI_DEMO = 'pokemonkey_demo';
@@ -134,6 +134,8 @@ interface Db {
   surat: Baris[];
   memoDinas: Baris[];
   mom: Baris[];
+  /** Komentar memo (sejak 0029); bisa tidak ada di data demo lama. */
+  memoKomentar?: Baris[];
   /** Foto profil demo: data URL per user, tidak pernah ke server mana pun. */
   foto: Record<string, string>;
   libur: Baris[];
@@ -415,6 +417,7 @@ function sinkronJadwalMemoDemo(d: Db, m: Baris): void {
 /** Memo dihapus: jadwal buatannya dan lampirannya ikut dibuang. */
 function hapusIsiTerkaitMemoDemo(d: Db, memoId: string): void {
   d.jadwal = d.jadwal.filter((j) => j.memo_id !== memoId);
+  d.memoKomentar = (d.memoKomentar ?? []).filter((k) => k.memo_id !== memoId);
   d.lampiran = d.lampiran.filter((l) => !(l.entitas === 'memo' && l.entitas_id === memoId));
 }
 
@@ -842,10 +845,122 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
       simpan(); return { ok: true, jumlah: ids.size };
     }
   }
+  // ----- Asisten AI memo: mode demo tanpa Gemini, jawaban contoh yang jujur (bukan AI sungguhan) -----
+  if (path === '/api/ai/memo/proses' && method === 'POST') {
+    const catatan = 'Mode demo: ini jawaban contoh, bukan AI sungguhan. Di aplikasi tim, Gemini menyusun hasil yang sebenarnya.';
+    const isi = String(body.isi ?? '');
+    const judul = String(body.judul ?? '');
+    const kalimat = isi.split('\n').map((b) => pisahIndent(b).isi.replace(/^(#{1,4}|-( \[[ xX]\])?|\d+\.|>>?|!!)\s*/, '').trim()).filter((b) => b && !b.startsWith('!'));
+    const jawab = (hasil: Record<string, unknown>) => ({ sukses: true, hasil: { ...hasil, catatan_ai: catatan }, model: 'demo' });
+    if (body.mode === 'ringkas') return jawab({ ringkasan: kalimat.slice(0, 3).join('. ') || judul, judul_usulan: '' });
+    if (body.mode === 'ekstrak_tugas') {
+      const butir = isi.split('\n').map((b) => pisahIndent(b).isi).filter((b) => /^(- (?!\[)|\d+\. )/.test(b)).map((b) => b.replace(/^(- |\d+\. )/, '').trim());
+      return jawab({ tugas: butir.slice(0, 8).map((teks) => ({ teks, tanggal: '', jam: '', pic: '', pica: '', alasan: 'contoh demo', sudah_ada: false })) });
+    }
+    if (body.mode === 'pilihan') {
+      const pilihan = String(body.pilihan ?? '').trim();
+      const baris = pilihan.split(/\n+|(?<=[.;])\s+/).map((x) => x.replace(/^[-*\d.\s]*(\[[ xX]\]\s*)?/, '').trim()).filter(Boolean);
+      const hasil = body.aksi === 'ceklis' ? baris.map((x) => `- [ ] ${x}`).join('\n')
+        : body.aksi === 'tabel' ? rakitTabel([['Butir', 'Keterangan'], ...baris.map((x) => { const [k, ...v] = x.split(/[:–-]/); return [k.trim(), v.join(' ').trim()]; })], true)
+          : body.aksi === 'persingkat' ? baris[0] ?? pilihan
+            : pilihan.charAt(0).toUpperCase() + pilihan.slice(1);
+      return jawab({ hasil });
+    }
+    if (body.mode === 'tulis') {
+      return jawab({ isi: `## ${String(body.instruksi_khusus ?? 'Bagian baru').slice(0, 60)}\n- [ ] Langkah pertama\n- [ ] Langkah kedua\n!! ${catatan}` });
+    }
+    if (body.mode === 'laporan') {
+      const l = (body.laporan ?? {}) as Record<string, unknown>;
+      const bagian = [`!! ${catatan}`, '## Ringkasan', 'Contoh susunan laporan otomatis; angka di bawah diambil dari data demo.'];
+      if (l.pica) bagian.push('## PICA', `- ${d.pica.filter((x) => !x.dihapus && x.status !== 'Closed').length} PICA masih terbuka`);
+      if (l.reklamasi) bagian.push('## Realisasi reklamasi', '!grafik{"sumber":"reklamasi","tampil":"tahun"}');
+      if (l.nursery) bagian.push('## Smart Nursery', '!data{"sumber":"nursery","saring":{},"tampil":"kpi"}');
+      if (l.geotag) bagian.push('## Geotagging', '!data{"sumber":"geotag","saring":{},"tampil":"kpi"}');
+      bagian.push('## Tindak lanjut', '- [ ] Tinjau angka bersama tim');
+      return jawab({ judul: `Laporan operasional ${hariIni}`, isi: bagian.join('\n'), ringkasan: 'Laporan contoh mode demo.' });
+    }
+    return jawab({ judul: judul || 'Memo kerja', isi: isi || '# Memo kerja', ringkasan: kalimat.slice(0, 2).join('. ') });
+  }
+  // ----- Tanya semua memo & pemakaian AI: mode demo (pencarian kata sungguhan, jawaban contoh) -----
+  if (path === '/api/ai/memo/tanya' && method === 'POST') {
+    const kata = String(body.pertanyaan ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4).slice(0, 6);
+    const cocok = d.memo
+      .filter((m) => !m.dihapus_pada && ((m.lingkup ?? 'pribadi') === 'tim' || m.user_id === saya.id))
+      .map((m) => ({ m, n: kata.filter((k) => `${m.judul} ${m.isi}`.toLowerCase().includes(k)).length }))
+      .filter((x) => x.n > 0).sort((a, b) => b.n - a.n).slice(0, 5).map((x) => x.m);
+    const sumber = cocok.map((m) => ({ id: m.id, judul: m.judul || 'Tanpa judul', tanggal: String(m.tanggal ?? m.dibuat_pada).slice(0, 10), lingkup: m.lingkup ?? 'pribadi' }));
+    const jawaban = cocok.length
+      ? `Mode demo — jawaban contoh. Memo yang memuat kata kunci Anda:\n${sumber.map((x) => `- [[memo:${x.id}|${x.judul.replace(/[\]|\n]/g, ' ')}]] (${x.tanggal})`).join('\n')}`
+      : `Tidak ditemukan memo yang memuat: ${kata.join(', ') || '(kata kunci kosong)'}.`;
+    return { jawaban, sumber, yakin: 'rendah', kata, model: 'demo' };
+  }
+  if (path === '/api/ai/pemakaian' && method === 'GET') return { hari_ini: 0, batas: 60, sisa: 60, tercatat: false };
+  // ----- Pratinjau tautan web: mode demo tanpa server, cukup nama situsnya -----
+  if (path === '/api/pratinjau-tautan' && method === 'GET') {
+    let situs = '';
+    try { situs = new URL(q.get('url') ?? '').hostname.replace(/^www\./, ''); } catch { /* biarkan kosong */ }
+    return { judul: '', ket: '', situs };
+  }
+  // ----- Komentar memo (sama dengan server/src/personal.ts ruteKomentar) -----
+  if ((m = path.match(/^\/api\/memo\/([\w-]+)\/komentar(?:\/([\w-]+))?$/))) {
+    const x = d.memo.find((y) => y.id === m![1] && !y.dihapus_pada) as Baris | undefined;
+    const hak = x ? hakMemo({ user_id: x.user_id, lingkup: x.lingkup ?? 'pribadi', akses: x.akses }, saya) : null;
+    if (!x || !hak) gagal('Memo tidak ditemukan.', 404);
+    d.memoKomentar ??= [];
+    const kid = m[2];
+    if (!kid && method === 'GET') {
+      return { komentar: d.memoKomentar.filter((k) => k.memo_id === x!.id).map((k): Baris => ({ ...k, nama: namaTim(d, k.user_id) })).sort((a, b) => String(a.dibuat_pada).localeCompare(String(b.dibuat_pada))) };
+    }
+    if (!kid && method === 'POST') {
+      const isi = typeof body.isi === 'string' ? body.isi.trim().slice(0, 2000) : '';
+      if (!isi) gagal('Komentar masih kosong.');
+      let induk: string | null = null;
+      if (typeof body.induk_id === 'string' && body.induk_id) {
+        const k = d.memoKomentar.find((y) => y.id === body.induk_id && y.memo_id === x!.id);
+        if (!k) gagal('Komentar yang dibalas tidak ditemukan.', 404);
+        induk = k!.induk_id ?? k!.id;
+      }
+      const kutipan = !induk && typeof body.kutipan === 'string' && body.kutipan.trim() ? body.kutipan.trim().slice(0, 300) : null;
+      const baru: Baris = { id: idBaru('kom'), memo_id: x!.id, induk_id: induk, user_id: saya.id, kutipan, isi, selesai: 0, dibuat_pada: kini(), diubah_pada: null };
+      d.memoKomentar.push(baru);
+      simpan(); return { ...baru, nama: namaTim(d, saya.id) };
+    }
+    const k = d.memoKomentar.find((y) => y.id === kid && y.memo_id === x!.id);
+    if (!k) gagal('Komentar tidak ditemukan.', 404);
+    const milik = k!.user_id === saya.id;
+    if (method === 'PATCH') {
+      if (typeof body.isi === 'string') {
+        if (!milik) gagal('Hanya penulis komentar yang boleh mengubahnya.', 403);
+        k!.isi = body.isi.trim().slice(0, 2000); k!.diubah_pada = kini();
+      }
+      if ('selesai' in body) {
+        if (!milik && hak === 'baca') gagal('Hanya penulis komentar atau yang bisa mengedit memo yang boleh menandai selesai.', 403);
+        for (const y of d.memoKomentar) if (y.id === k!.id || y.induk_id === k!.id) y.selesai = body.selesai ? 1 : 0;
+      }
+      simpan(); return { ok: true };
+    }
+    if (method === 'DELETE') {
+      if (!milik && hak !== 'penuh') gagal('Hanya penulis komentar, pembuat memo, Supervisor, atau Admin yang boleh menghapusnya.', 403);
+      d.memoKomentar = d.memoKomentar.filter((y) => y.id !== k!.id && y.induk_id !== k!.id);
+      simpan(); return { ok: true };
+    }
+  }
   if ((m = path.match(/^\/api\/memo\/([\w-]+)$/))) {
     const x = d.memo.find((y) => y.id === m![1] && !y.dihapus_pada) as Baris | undefined;
     const hak = x ? hakMemo({ user_id: x.user_id, lingkup: x.lingkup ?? 'pribadi', akses: x.akses }, saya) : null;
     if (!x || !hak) gagal('Memo tidak ditemukan.', 404);
+    if (method === 'GET') {
+      const pc = x!.pica_id ? d.pica.find((y) => y.id === x!.pica_id) : null;
+      return { memo: { ...x, penulis: namaTim(d, x!.user_id), pica_no: pc?.no_urut ?? null, pica_judul: pc?.judul ?? null, pica_status: pc?.status ?? null } };
+    }
+    if (method === 'PATCH' && 'dasar_diubah' in body) {
+      // Penjaga bentrok (sama dengan server): isi dari versi lama dijawab 409 + isi terbaru.
+      const dasar = body.dasar_diubah ?? null;
+      delete body.dasar_diubah;
+      if (typeof body.isi === 'string' && dasar !== (x!.diubah_pada ?? null) && body.isi !== x!.isi) {
+        gagal('Memo ini baru saja diubah orang lain.', 409, { memo: { isi: x!.isi, diubah_pada: x!.diubah_pada ?? null } });
+      }
+    }
     if (method === 'DELETE') {
       if (hak !== 'penuh') gagal('Hanya pembuat memo, Supervisor, atau Admin yang boleh menghapus memo ini.', 403);
       // Halaman baru yang kosong dibuang langsung; selain itu pindah ke Sampah beserta sub-halamannya.
@@ -873,7 +988,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     x!.diubah_pada = kini();
     if ('isi' in body || 'judul' in body) sinkronJadwalMemoDemo(d, x!);
     if (typeof body.judul === 'string') for (const y of d.memo) y.isi = gantiLabelHalaman(String(y.isi ?? ''), x!.id, body.judul);
-    simpan(); return { ok: true };
+    simpan(); return { ok: true, diubah_pada: x!.diubah_pada };
   }
 
   // ----- PICA -----

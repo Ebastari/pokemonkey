@@ -55,7 +55,8 @@ export async function unduhGambar(el: HTMLElement, opsi: OpsiGambar): Promise<'d
       height: h,
       pixelRatio: rasio,
       backgroundColor: latar,
-      cacheBust: true,
+      cacheBust: false,
+      onImageErrorHandler: () => '',
       style: { width: `${w}px`, height: `${h}px`, margin: '0', overflow: 'visible' },
       filter: (n) => !(n instanceof HTMLElement && n.dataset.tanpaGambar !== undefined),
     });

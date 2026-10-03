@@ -284,3 +284,44 @@ Tidak menyentuh: `lib/demo.ts` dan berkas RAB (sedang diubah sesi lain), skema d
    - gambar stage berikutnya dibuat oleh Anda (dengan *prompt* dari saya), atau dipesan?
    - label `STAGE 1-1 · …` di pojok sampul ditampilkan atau tidak?
 5. Pintasan `>`: ikuti Notion (toggle) dengan kutipan pindah ke `"`, atau tetap `>` = kutipan?
+
+---
+
+## Tambahan 2 Okt 2026 — alat menulis lanjutan & AI (sudah dikerjakan, belum dicek di peramban)
+
+**Format sebaris** (server/src/memo-blok.ts): `++garis bawah++`, `{w:merah|teks}` warna teks, `{l:kuning|teks}` stabilo (palet tanpa Coklat, latar boleh Putih — server/src/tampil-memo.ts), `$$x^2$$` rumus sebaris (KaTeX → MathML), `<br>` baris baru di dalam blok (Shift+Enter). Tugas di dalam stabilo tetap terbaca (tenggat & PIC).
+
+**Blok baru**: `!kode{…}` (pewarna sintaks + salin, pintasan ```` ``` ````), `!rumus{…}`, `!daftarisi`, `!kolom` (kolom bersebelahan; di HP bertumpuk), `!penanda{…}` kartu tautan web (judul/keterangan diambil server, IP/nama lokal ditolak), gambar `![…](…){"lebar":50,"rata":"tengah"}` + keterangan yang bisa diketik. Menu `/` grup Lanjutan & Warna (`/merah`, `/latar kuning`), `:emoji`, warna blok dari ⋮⋮, palet di bilah format & bilah alat HP. Semua ikut di mode baca, gambar unduhan, dan halaman bagikan.
+
+**Komentar** (migrasi `0029_memo_komentar.sql`): pada teks terpilih atau halaman, balasan, selesai, ubah/hapus; pembaca "Baca saja" boleh berkomentar.
+
+**Bentrok suntingan**: PATCH isi membawa `dasar_diubah`; server menjawab 409 + isi terbaru bila memo sudah berubah; aplikasi menggabung per baris (lib/gabung-isi.ts, diff3 — baris yang sama diubah keduanya: versi kita) lalu mengirim ulang. Halaman yang terbuka memeriksa perubahan orang lain tiap 20 detik.
+
+**AI memo** (server/src/ai-memo.ts; Tahap 1–2 dari tinjauan AI):
+- Hanya lewat server (kunci Gemini di aplikasi dihapus); keluaran JSON terstruktur (`responseSchema`), batas token besar + pesan bila terpotong, model bertingkat (`GEMINI_MODEL_CEPAT` / `GEMINI_MODEL_KUAT`).
+- Konteks: hari ini (WITA), tim aktif, PICA terbuka, properti & sub-halaman memo; kamus sintaks POKEMONKEY di prompt; hasil disaring (Markdown → format memo, `@id`/tanggal/`#PICA` tidak sah dilepas).
+- Modal: Kembangkan, Rapikan, Ringkas (hanya kolom Ringkasan), Tugas (usulan bisa disunting: centang, teks, tanggal, PIC; tidak dobel; masuk bagian "Tindak lanjut"), Tulis baru. Pratinjau memo sungguhan + perbedaan per baris; "Urungkan" 30 detik.
+- Penyunting: tombol AI di bilah format & bilah alat HP untuk teks terpilih (satu/sebagian/beberapa blok); `/ai` "Tulis dengan AI" di posisi kursor; bisa Ctrl+Z.
+- Juga diperbaiki: ai.ts memeriksa kunci Gemini untuk semua rute sesudahnya (kunci kosong = /api/lapangan ikut 503).
+
+**Tahap 3 (migrasi `0030_ai_pemakaian.sql`)**:
+- *Tanya semua memo* (tombol "Tanya AI" di papan Memo Kerja & sidebar): kata kunci dicari dengan LIKE di memo yang boleh dibaca penanya (memo tim + catatan pribadinya), 8 memo teratas dikutip, AI menjawab HANYA dari kutipan dengan sumber [[memo:id|judul]] (judul dari data, tautan palsu dilepas). Sengaja tanpa FTS5: D1 tidak bisa mengekspor database bertabel virtual.
+- *Laporan otomatis* (tab Laporan di Asisten Memo): PICA (terbuka/telat/baru/ditutup), realisasi reklamasi, Smart Nursery, Geotagging untuk 7 hari / bulan ini; angka persis dari data; laporan memuat blok hidup `!grafik{…}` dan `!data{…}`.
+- *Batas & catatan pemakaian*: tabel `ai_pemakaian` (fitur, model, token); batas harian `AI_BATAS_HARIAN` (bawaan 60; Admin/SPV ×3, Pemantau ÷3) → 429; Admin/SPV melihat pemakaian tim bulan ini. Tanpa migrasi, AI tetap jalan (tidak tercatat).
+
+**Grafik realisasi reklamasi** (`!grafik{"sumber":"reklamasi","tampil":"tahun|kegiatan|blok|lengkap","dari","sampai"}`; menu `/` → Data lapangan): tampilan sama dengan slide Monkey Point (kartu putih, kotak angka, batang bertumpuk APL + Hutan, batang per kegiatan & per blok); data /api/revegetasi dengan cadangan lokal; ikut di mode baca, gambar unduhan (lib/gambar-memo.ts), dan halaman bagikan (server/src/grafik-memo.ts).
+
+## Pengecekan 3 Okt 2026 (peramban, mode demo)
+
+Lulus dicoba di layar: stabilo, warna teks, garis bawah (Ctrl+U), rumus sebaris (`$$…$$` langsung tampil) & blok rumus, Shift+Enter, blok kode (``` → kode, ganti bahasa SQL, pewarnaan), daftar isi (lompat), 2 kolom, kartu tautan (`/tautan`), lebar 75% & rata kanan gambar, keterangan gambar, komentar pada teks terpilih, penggabungan suntingan dua orang (judul versi kita + paragraf versi orang lain, keduanya tersimpan).
+
+Diperbaiki:
+- Blok rumus menampilkan batang gulir putih (isi 37px di kotak 32px) → `overflow-y: hidden` (aplikasi & halaman bagikan).
+- Palet warna terpotong di bawah layar → terbuka ke atas bila ruang bawah sempit.
+- Bilah format terpotong di tepi kiri/kanan → digeser masuk layar.
+- Blok kode/khusus di akhir memo: klik di bawahnya tidak membuat baris baru → area klik bawah 30vh seperti Notion.
+- Menu `/`: "/kolom" menaruh Tabel di atas "2 kolom" → hasil diurutkan (label diawali kueri > kata di label > kata kunci).
+- Kolom kini **berdampingan juga saat menyunting** (layar ≥640px; di HP bertumpuk); seret blok ke dalam kolom tertentu, seret keluar kolom = ikut tingkat tujuan.
+- HP: batang gulir bilah alat disembunyikan; papan memo: tab satu baris yang digeser (MoM disingkat), subjudul disembunyikan, tombol "Baru"/"Tanya AI" tidak terlipat.
+
+Catatan: APK membungkus `dist`, jadi HP baru menampilkan semua ini setelah APK dibuild ulang.

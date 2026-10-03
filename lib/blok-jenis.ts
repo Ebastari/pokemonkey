@@ -9,13 +9,15 @@
  */
 
 import {
-  AtSign, CalendarClock, FileSymlink, FileText, Heading1, Heading2, Heading3, Heading4, ImagePlus, Info, List, ListChecks,
-  ListCollapse, ListOrdered, MapPin, Minus, Paperclip, Quote, Sprout, Table2, Type, Video,
+  AtSign, BarChart3, Bookmark, CalendarClock, Columns2, Columns3, FileSymlink, FileText, Heading1, Heading2, Heading3, Heading4, Highlighter,
+  ImagePlus, Info, List, ListChecks, ListCollapse, ListOrdered, ListTree, MapPin, Minus, Palette, Paperclip, Quote, Sigma, Smile,
+  Sparkles, SquareCode, Sprout, Table2, Type, Video,
 } from 'lucide-react';
+import { WARNA_LATAR, WARNA_TEKS } from '../server/src/tampil-memo';
 import type { ComponentType } from 'react';
 import type { JenisBlok } from './memo-dom';
 
-export type GrupBlok = 'Blok dasar' | 'Media' | 'Data lapangan' | 'Sebaris';
+export type GrupBlok = 'AI' | 'Blok dasar' | 'Media' | 'Data lapangan' | 'Lanjutan' | 'Sebaris' | 'Warna';
 
 export interface DefinisiBlok {
   /** Id perintah menu "/"; untuk blok teks sama dengan jenisnya. */
@@ -35,6 +37,8 @@ export interface DefinisiBlok {
 }
 
 export const DAFTAR_BLOK: DefinisiBlok[] = [
+  // ---- AI (seperti "Ask AI" Notion): tulis blok baru di posisi kursor ----
+  { id: 'ai', grup: 'AI', label: 'Tulis dengan AI', ket: 'Minta AI menulis di sini (notulen, ceklis, tabel, …)', ikon: Sparkles, kata: ['ai', 'tulis', 'gemini', 'asisten', 'buat', 'tanya'] },
   // ---- Blok dasar ----
   { id: 'teks', jenis: 'teks', grup: 'Blok dasar', label: 'Teks', ket: 'Mulai menulis teks biasa', ikon: Type, kata: ['teks', 'paragraf', 'text', 'biasa'] },
   { id: 'h1', jenis: 'h1', grup: 'Blok dasar', label: 'Judul 1', ket: 'Judul bagian besar', pintasan: '#', ikon: Heading1, kata: ['judul', 'heading', 'h1', 'besar'], penanda: 'Judul 1' },
@@ -54,13 +58,26 @@ export const DAFTAR_BLOK: DefinisiBlok[] = [
   // ---- Media ----
   { id: 'gambar', grup: 'Media', label: 'Gambar', ket: 'Foto dari kamera atau galeri', ikon: ImagePlus, kata: ['gambar', 'foto', 'image', 'kamera'] },
   { id: 'video', grup: 'Media', label: 'Video', ket: 'Tautan video (YouTube, Drive, …)', ikon: Video, kata: ['video', 'youtube', 'film', 'rekaman'] },
+  { id: 'penanda', grup: 'Media', label: 'Tautan web', ket: 'Kartu pratinjau situs (bookmark)', ikon: Bookmark, kata: ['bookmark', 'penanda', 'tautan', 'web', 'situs', 'link', 'url'] },
   { id: 'berkas', grup: 'Media', label: 'Berkas', ket: 'PDF, Excel, Word', ikon: Paperclip, kata: ['berkas', 'file', 'lampiran', 'pdf', 'excel'] },
   // ---- Data lapangan ----
   { id: 'data_nursery', grup: 'Data lapangan', label: 'Smart Nursery', ket: 'Data stok & mutasi persemaian', ikon: Sprout, kata: ['nursery', 'bibit', 'semai', 'stok', 'mutasi'] },
+  { id: 'grafik_reklamasi', grup: 'Data lapangan', label: 'Grafik realisasi reklamasi', ket: 'Batang APL & Hutan per tahun, per kegiatan, per blok', ikon: BarChart3, kata: ['grafik', 'reklamasi', 'revegetasi', 'realisasi', 'chart', 'apl', 'hutan', 'ppkh'] },
   { id: 'data_geotag', grup: 'Data lapangan', label: 'Geotagging Lapangan', ket: 'Sensus pohon, kesehatan & karbon', ikon: MapPin, kata: ['geotag', 'pohon', 'sensus', 'karbon', 'lapangan'] },
+  // ---- Lanjutan ----
+  { id: 'kode', grup: 'Lanjutan', label: 'Kode', ket: 'Blok kode berwarna + tombol salin', pintasan: '```', ikon: SquareCode, kata: ['kode', 'code', 'skrip', 'program'] },
+  { id: 'rumus', grup: 'Lanjutan', label: 'Rumus', ket: 'Persamaan matematika (LaTeX)', pintasan: '$$', ikon: Sigma, kata: ['rumus', 'math', 'matematika', 'persamaan', 'latex', 'equation'] },
+  { id: 'daftarisi', grup: 'Lanjutan', label: 'Daftar isi', ket: 'Daftar judul otomatis', ikon: ListTree, kata: ['daftar', 'isi', 'toc', 'judul', 'navigasi'] },
+  { id: 'kolom2', grup: 'Lanjutan', label: '2 kolom', ket: 'Dua kolom berdampingan', ikon: Columns2, kata: ['kolom', 'col2', 'dua', 'tata', 'letak', 'columns'] },
+  { id: 'kolom3', grup: 'Lanjutan', label: '3 kolom', ket: 'Tiga kolom berdampingan', ikon: Columns3, kata: ['kolom', 'col3', 'tiga', 'tata', 'letak', 'columns'] },
   // ---- Sebaris ----
+  { id: 'rumus_sebaris', grup: 'Sebaris', label: 'Rumus sebaris', ket: 'Rumus di dalam kalimat', pintasan: '$$', ikon: Sigma, kata: ['rumus', 'math', 'sebaris', 'inline', 'latex'] },
+  { id: 'emoji', grup: 'Sebaris', label: 'Emoji', ket: 'Ketik : lalu nama emoji', pintasan: ':', ikon: Smile, kata: ['emoji', 'ikon', 'senyum'] },
   { id: 'tenggat', grup: 'Sebaris', label: 'Tanggal atau tenggat', ket: 'Tugas bertenggat masuk Jadwal', pintasan: '@', ikon: CalendarClock, kata: ['tenggat', 'tanggal', 'jadwal', 'date', 'waktu', 'pengingat'] },
   { id: 'orang', grup: 'Sebaris', label: 'Sebut orang', ket: 'Penanggung jawab tugas', pintasan: '@', ikon: AtSign, kata: ['orang', 'pic', 'sebut', 'mention', 'anggota'] },
+  // ---- Warna (seperti "/merah" di Notion): seluruh teks blok diberi warna atau stabilo ----
+  ...WARNA_TEKS.map((w): DefinisiBlok => ({ id: `warna:w:${w.nama}`, grup: 'Warna', label: w.label, ket: 'Warna teks blok ini', ikon: Palette, kata: [w.nama, ...w.label.toLowerCase().split(' '), 'warna', 'teks', 'color'] })),
+  ...WARNA_LATAR.map((w): DefinisiBlok => ({ id: `warna:l:${w.nama}`, grup: 'Warna', label: `Latar ${w.label.toLowerCase()}`, ket: 'Stabilo seluruh blok ini', ikon: Highlighter, kata: [w.nama, ...w.label.toLowerCase().split(' '), 'latar', 'stabilo', 'highlight', 'background'] })),
 ];
 
 /** Blok teks yang bisa dipilih di "Ubah jadi". */
@@ -71,3 +88,15 @@ export const definisiJenis = (jenis: JenisBlok): DefinisiBlok | undefined => DAF
 /** Cocokkan kueri menu "/" dengan kata kunci atau label (awal kata). */
 export const cocokKueri = (d: Pick<DefinisiBlok, 'kata' | 'label'>, q: string): boolean =>
   !q || d.kata.some((k) => k.startsWith(q)) || d.label.toLowerCase().split(/\s+/).some((k) => k.startsWith(q));
+
+/**
+ * Peringkat hasil menu "/" (seperti Notion): label yang diawali kueri di atas,
+ * lalu kata di label, terakhir kata kunci sampingan ("/kolom" → "2 kolom" sebelum "Tabel").
+ */
+export const skorKueri = (d: Pick<DefinisiBlok, 'kata' | 'label'>, q: string): number => {
+  if (!q) return 0;
+  const label = d.label.toLowerCase();
+  if (label.startsWith(q)) return 3;
+  if (label.split(/\s+/).some((k) => k.startsWith(q))) return 2;
+  return d.kata.some((k) => k.startsWith(q)) ? 1 : 0;
+};

@@ -816,3 +816,46 @@ input[type='date'], input[type='time'] {
   }
 }
 
+/* Memo: warna teks {w:…|…} dan stabilo {l:…|…} — palet sama dengan server/src/tampil-memo.ts (tanpa Coklat; latar boleh Putih). */
+.mw-abu { color: #a1a1aa; }
+[data-tema='terang'] .mw-abu { color: #6b7280; }
+.mw-oranye { color: #fb923c; }
+[data-tema='terang'] .mw-oranye { color: #c2410c; }
+.mw-kuning { color: #facc15; }
+[data-tema='terang'] .mw-kuning { color: #a16207; }
+.mw-hijau { color: #4ade80; }
+[data-tema='terang'] .mw-hijau { color: #15803d; }
+.mw-biru { color: #60a5fa; }
+[data-tema='terang'] .mw-biru { color: #1d4ed8; }
+.mw-ungu { color: #c084fc; }
+[data-tema='terang'] .mw-ungu { color: #7e22ce; }
+.mw-pink { color: #f472b6; }
+[data-tema='terang'] .mw-pink { color: #be185d; }
+.mw-merah { color: #f87171; }
+[data-tema='terang'] .mw-merah { color: #b91c1c; }
+.ml-putih { background: #f4f4f5; padding: 0 2px; color: #18181b; }
+[data-tema='terang'] .ml-putih { background: #ffffff; box-shadow: inset 0 0 0 1px #d4d4d8; }
+.ml-abu { background: rgba(161,161,170,.28); padding: 0 2px; }
+[data-tema='terang'] .ml-abu { background: #e4e4e7; }
+.ml-oranye { background: rgba(249,115,22,.32); padding: 0 2px; }
+[data-tema='terang'] .ml-oranye { background: #ffedd5; }
+.ml-kuning { background: rgba(234,179,8,.38); padding: 0 2px; }
+[data-tema='terang'] .ml-kuning { background: #fef08a; }
+.ml-hijau { background: rgba(34,197,94,.30); padding: 0 2px; }
+[data-tema='terang'] .ml-hijau { background: #dcfce7; }
+.ml-biru { background: rgba(59,130,246,.32); padding: 0 2px; }
+[data-tema='terang'] .ml-biru { background: #dbeafe; }
+.ml-ungu { background: rgba(168,85,247,.32); padding: 0 2px; }
+[data-tema='terang'] .ml-ungu { background: #f3e8ff; }
+.ml-pink { background: rgba(236,72,153,.32); padding: 0 2px; }
+[data-tema='terang'] .ml-pink { background: #fce7f3; }
+.ml-merah { background: rgba(239,68,68,.32); padding: 0 2px; }
+[data-tema='terang'] .ml-merah { background: #fee2e2; }
+/* Rumus MathML (KaTeX): ikut warna teks sekitarnya. */
+.rumus-blok { overflow-y: hidden; padding: .3em 0; }
+/* Deret tombol yang digeser jari (bilah alat HP, tab): tanpa batang gulir. */
+.tanpa-scrollbar { scrollbar-width: none; }
+.tanpa-scrollbar::-webkit-scrollbar { display: none; }
+.rumus-blok math { font-size: 1.2em; }
+/* Memo: teks yang dikomentari disorot sebentar saat dibuka dari panel komentar. */
+.sorot-komentar { outline: 2px solid #fbbf24; outline-offset: 2px; background: rgba(251,191,36,.14); transition: background .3s; }

@@ -8,7 +8,7 @@
 import { api } from './api';
 import type { PicaItem } from './tipe-api';
 
-const KUNCI_GEMINI_FALLBACK = (import.meta.env.VITE_GEMINI_API_KEY as string | undefined) || '';
+// Kunci Gemini TIDAK disimpan di aplikasi (akan ikut ke APK/web dan bisa dicuri): semua AI lewat server.
 
 export interface SaranPicaAi {
   judul: string;
@@ -37,50 +37,9 @@ function ekstrakJson(teks: string): string {
   return bersih.trim();
 }
 
-/** Panggilan langsung ke Google Gemini API jika server offline / demo */
-async function panggilGeminiLangsung(prompt: string, modelUtama = 'gemini-3.5-flash-lite'): Promise<string> {
-  const apiKey = (import.meta.env.VITE_GEMINI_API_KEY as string | undefined) || KUNCI_GEMINI_FALLBACK;
-  if (!apiKey) {
-    throw new Error('Kunci API Gemini tidak disetel di browser. Pastikan server online untuk memproses dengan AI.');
-  }
-  const modelList = [modelUtama, 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
-  let errorTerakhir: Error | null = null;
-
-  for (const m of modelList) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.3,
-            maxOutputTokens: 2048,
-          },
-        }),
-      });
-
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(`Model ${m} (${res.status}): ${t}`);
-      }
-
-      const d = (await res.json()) as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-      };
-
-      const teks = d.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (teks && teks.trim()) {
-        return teks.trim();
-      }
-      throw new Error(`Model ${m} tidak mengembalikan teks`);
-    } catch (e) {
-      errorTerakhir = e instanceof Error ? e : new Error(String(e));
-    }
-  }
-
-  throw errorTerakhir ?? new Error('Gagal menghubungi Gemini AI');
+/** Cadangan lama (panggilan Gemini langsung dari aplikasi) dimatikan demi keamanan kunci. */
+async function panggilGeminiLangsung(_prompt: string): Promise<string> {
+  throw new Error('AI hanya tersedia lewat server POKEMONKEY. Periksa sinyal, lalu coba lagi.');
 }
 
 /** Kembangkan Uraian PICA dengan AI */
@@ -249,81 +208,80 @@ Kembalikan HANYA format JSON valid tanpa teks pengantar:
   }
 }
 
+export type ModeMemoAi = 'kembangkan' | 'rapikan' | 'ringkas' | 'ekstrak_tugas' | 'tulis' | 'pilihan' | 'laporan';
+
+/** Sumber data laporan otomatis (mode "laporan"). */
+export interface PilihanLaporanAi { pica?: boolean; reklamasi?: boolean; nursery?: boolean; geotag?: boolean; periode?: 'minggu' | 'bulan' }
+export type AksiPilihanAi = 'perbaiki' | 'persingkat' | 'perpanjang' | 'resmi' | 'sederhana' | 'inggris' | 'indonesia' | 'ceklis' | 'tabel' | 'lanjutkan' | 'bebas';
+
+/** Usulan tugas dari AI — disunting pengguna sebelum disisipkan. */
+export interface TugasAi {
+  teks: string;
+  /** YYYY-MM-DD atau kosong. */
+  tanggal: string;
+  jam: string;
+  /** id anggota (sudah diperiksa server) atau kosong. */
+  pic: string;
+  pica: string;
+  /** Dasar AI memilih tanggal/PIC. */
+  alasan: string;
+  /** Tugas yang sama sudah ada di memo. */
+  sudah_ada: boolean;
+}
+
 export interface HasilMemoAi {
   judul?: string;
   isi?: string;
   ringkasan?: string;
-  tugas?: string[];
+  judul_usulan?: string;
+  tugas?: TugasAi[];
+  /** Pengganti teks terpilih (mode "pilihan"). */
+  hasil?: string;
   catatan_ai?: string;
+  model?: string;
 }
 
-/** Proses dan kembangkan tulisan Memo dengan AI */
+/**
+ * Asisten AI memo (lihat server/src/ai-memo.ts). Hanya lewat server; galat
+ * diteruskan apa adanya — tidak ada hasil "pura-pura berhasil".
+ */
 export async function prosesMemoAi(params: {
-  mode: 'kembangkan' | 'rapikan' | 'ringkas' | 'ekstrak_tugas';
+  mode: ModeMemoAi;
+  memo_id?: string;
+  lingkup?: 'tim' | 'pribadi';
   judul: string;
   isi: string;
-  kategori?: string;
   instruksi_khusus?: string;
+  pilihan?: string;
+  aksi?: AksiPilihanAi;
+  laporan?: PilihanLaporanAi;
 }): Promise<HasilMemoAi> {
-  try {
-    const hasil = await api<{ sukses: boolean; hasil: HasilMemoAi }>('/api/ai/memo/proses', {
-      method: 'POST',
-      body: params,
-    });
-    if (hasil?.hasil) return hasil.hasil;
-  } catch {
-    // Fallback ke Gemini langsung jika rute backend belum tersedia / demo mode
-  }
-
-  const instruksiMode: Record<string, string> = {
-    kembangkan: 'Kembangkan catatan/poin ini menjadi draf Internal Memo resmi yang komprehensif, terstruktur dengan heading Notion/Markdown (#, ##, ###), latar belakang, maksud & tujuan, detail pelaksanaan/teknis, dan penutup.',
-    rapikan: 'Perbaiki tata bahasa, profesionalisme, struktur heading (#, ##), dan daftar poin dari teks ini tanpa mengubah maksud aslinya.',
-    ringkas: 'Buat ringkasan eksekutif 2-4 kalimat yang padat dan jelas yang merangkum keseluruhan memo, serta usulan judul jika judul sekarang kurang tepat.',
-    ekstrak_tugas: 'Identifikasi semua tugas, komitmen, dan rencana tindak lanjut dari memo ini, lalu susun menjadi daftar ceklis tugas dengan format "- [ ] Nama Tugas".',
-  };
-
-  const prompt = `
-Anda adalah Asisten Eksekutif dan Spesialis Manajemen Dokumen Operasional Tambang & Kehutanan (Revegetasi / Nursery / K3).
-Tugas Anda: ${instruksiMode[params.mode] || instruksiMode.kembangkan}
-
-Data Memo Saat Ini:
-- Judul: "${params.judul || 'Tanpa judul'}"
-- Kategori: "${params.kategori || 'Operasional'}"
-- Isi Catatan:
-"""
-${params.isi}
-"""
-${params.instruksi_khusus ? `- Catatan Khusus Pengguna: "${params.instruksi_khusus}"` : ''}
-
-Ketentuan Format Output:
-- "judul": Usulan judul yang tajam, formal, dan mencerminkan isi (atau pertahankan jika sudah bagus).
-- "isi": Teks lengkap memo yang sudah diproses (menggunakan format teks baris/heading Notion yang bersih).
-- "ringkasan": Ringkasan eksekutif padat 2-3 kalimat.
-- "tugas": Array string daftar tugas (misal ["- [ ] Inspeksi bedeng A", "- [ ] Koordinasi pengadaan pupuk"]).
-- "catatan_ai": 1 kalimat saran dari AI mengenai perbaikan ini.
-
-Kembalikan HANYA format JSON valid tanpa kata pengantar:
-{
-  "judul": "...",
-  "isi": "...",
-  "ringkasan": "...",
-  "tugas": ["..."],
-  "catatan_ai": "..."
-}
-`.trim();
-
-  try {
-    const teks = await panggilGeminiLangsung(prompt);
-    const jsonStr = ekstrakJson(teks);
-    return JSON.parse(jsonStr) as HasilMemoAi;
-  } catch (err) {
-    console.error('Gagal memproses memo AI:', err);
-    return {
-      judul: params.judul,
-      isi: params.isi,
-      ringkasan: params.isi.slice(0, 150),
-      catatan_ai: 'Penyesuaian format dasar diterapkan.',
-    };
-  }
+  const r = await api<{ sukses: boolean; hasil: HasilMemoAi; model?: string }>('/api/ai/memo/proses', { method: 'POST', body: params });
+  return { ...r.hasil, model: r.model };
 }
 
+export interface JawabanTanyaAi {
+  /** Jawaban dalam format memo, dengan sumber [[memo:id|judul]]. */
+  jawaban: string;
+  sumber: { id: string; judul: string; tanggal: string; lingkup: string }[];
+  yakin: 'tinggi' | 'sedang' | 'rendah';
+  kata?: string[];
+  model?: string;
+}
+
+/** Tanya semua memo yang boleh dibaca (lihat server/src/ai-memo.ts ruteTanyaMemo). */
+export async function tanyaMemoAi(pertanyaan: string): Promise<JawabanTanyaAi> {
+  return api<JawabanTanyaAi>('/api/ai/memo/tanya', { method: 'POST', body: { pertanyaan } });
+}
+
+export interface PemakaianAi {
+  hari_ini: number; batas: number; sisa: number; tercatat: boolean;
+  /** Admin/SPV: pemakaian tim bulan ini. */
+  tim_bulan_ini?: { user_id: string; nama: string | null; permintaan: number; token: number; gagal: number }[];
+}
+export const pemakaianAi = (): Promise<PemakaianAi> => api<PemakaianAi>('/api/ai/pemakaian');
+
+/** Satu tugas AI → baris ceklis memo (tenggat & PIC jadi chip, tugas bertenggat masuk Jadwal). */
+export function barisTugasAi(t: TugasAi): string {
+  return ['- [ ]', t.teks, t.tanggal && `@${t.tanggal}${t.jam ? ` ${t.jam}` : ''}`, t.pic && `@${t.pic}`, t.pica && `#${t.pica}`].filter(Boolean).join(' ');
+}

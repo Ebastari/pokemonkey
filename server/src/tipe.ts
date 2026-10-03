@@ -16,6 +16,11 @@ export interface Env {
   FIRMS_MAP_KEY?: string;
   /** Rahasia — Google Gemini AI API Key untuk asisten tulisan PICA dan Resume */
   GEMINI_API_KEY?: string;
+  /** Model Gemini per tingkat (opsional, dipisah koma): cepat = rapikan/ringkas/teks terpilih, kuat = kembangkan/tugas/tulis. */
+  GEMINI_MODEL_CEPAT?: string;
+  GEMINI_MODEL_KUAT?: string;
+  /** Batas permintaan AI per orang per hari (bawaan 60; Admin/SPV ×3, Pemantau ÷3). */
+  AI_BATAS_HARIAN?: string;
   /** Alamat publik Worker, untuk tautan papan PICA hanya-baca di rekap WA. */
   ALAMAT_PUBLIK?: string;
   /** Binding D1 hanya-baca langsung ke data lapangan (satu akun Cloudflare) */

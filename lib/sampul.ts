@@ -62,7 +62,7 @@ export type JenisSampul =
 
 export function bacaSampul(nilai: unknown): JenisSampul {
   if (typeof nilai !== 'string' || !nilai) return { jenis: 'tidak-ada' };
-  const gambar = [...GALERI_POKEMONKEY, ...SAMPUL_RESMI].find((g) => g.kode === nilai);
+  const gambar = [...GALERI_POKEMONKEY, ...SAMPUL_RESMI].find((g) => g.kode === nilai || g.src === nilai || nilai.endsWith(g.src.replace(/^\//, '')));
   if (gambar) return { jenis: 'gambar', gambar };
   if (SAMPUL_WARNA[nilai]) return { jenis: 'warna', kode: nilai };
   if (/^(memo|demo)\//.test(nilai)) return { jenis: 'unggahan', kunci: nilai };

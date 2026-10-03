@@ -14,9 +14,11 @@
  */
 
 import type { Env, Pengguna } from './tipe';
-import { uraiBlok, uraiInline, hitungTugas, hakMemo, type Blok } from './memo-blok';
+import katex from 'katex';
+import { htmlGrafikReklamasi, type BarisReklamasi } from './grafik-memo';
+import { daftarJudul, uraiBlok, uraiInline, hitungTugas, hakMemo, type Blok, type Inline } from './memo-blok';
 import { jamWita, selisihHari, tanggalIndonesia, tanggalWita } from './waktu';
-import { CSS_SAMPUL_WARNA, GALERI_SAMPUL, paletOpsi, posisiY, warnaTenggat } from './tampil-memo';
+import { BAHASA_KODE, CSS_SAMPUL_WARNA, GALERI_SAMPUL, WARNA_KODE, gayaWarna, paletOpsi, posisiY, sorotKode, warnaTenggat } from './tampil-memo';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -158,6 +160,19 @@ interface Konteks {
   h?: string;
   /** Halaman yang disebut di isi: judul terkini; `anak` = sub-halaman yang ikut dibagikan. */
   halaman: Map<string, InfoHalaman>;
+  /** Judul-judul memo untuk blok daftar isi. */
+  judul?: { indeks: number; tingkat: number; teks: string }[];
+  /** Data realisasi revegetasi (hanya dimuat bila memo memuat blok grafik). */
+  revegetasi?: BarisReklamasi[];
+}
+
+/** Rumus LaTeX → MathML (tanpa CSS/huruf tambahan; aman: KaTeX meng-escape masukannya). */
+function htmlRumus(tex: string, blok: boolean): string {
+  try {
+    return katex.renderToString(tex, { output: 'mathml', throwOnError: false, displayMode: blok, strict: 'ignore' });
+  } catch {
+    return `<code>${esc(tex)}</code>`;
+  }
 }
 
 // Ikon garis (lucide, sama dengan aplikasi), digambar sebaris tanpa berkas luar.
@@ -189,9 +204,21 @@ const tglPendek = (t: string) => {
 
 /** Isi satu baris, sama dengan TeksInline di aplikasi (MemoMarkup.tsx). */
 function inline(teks: string, k: Konteks, selesai = false): string {
-  return uraiInline(teks).map((x) => {
+  return inlineDaftar(uraiInline(teks), k, selesai);
+}
+
+function inlineDaftar(daftar: Inline[], k: Konteks, selesai: boolean): string {
+  return daftar.map((x) => {
     switch (x.t) {
       case 'teks': return esc(x.v);
+      case 'baris': return '<br>';
+      case 'garisbawah': return `<u>${esc(x.v)}</u>`;
+      case 'warna': {
+        const w = gayaWarna(x.jenis, x.warna, true);
+        const gaya = `${w.color ? `color:${w.color};` : ''}${w.background ? `background:${w.background};padding:0 2px;` : ''}`;
+        return `<span style="${gaya}">${inlineDaftar(x.isi, k, selesai)}</span>`;
+      }
+      case 'rumus': return `<span class="rumus">${htmlRumus(x.v, false)}</span>`;
       case 'tebal': return `<b>${esc(x.v)}</b>`;
       case 'miring': return `<i>${esc(x.v)}</i>`;
       case 'coret': return `<s>${esc(x.v)}</s>`;
@@ -219,14 +246,14 @@ function inline(teks: string, k: Konteks, selesai = false): string {
   }).join('');
 }
 
-/** Blok beserta anak-anaknya (pohon tampilan, seperti "content" di Notion). */
-interface Simpul { b: Blok; anak: Simpul[] }
+/** Blok beserta anak-anaknya (pohon tampilan, seperti "content" di Notion); `i` = nomor blok (jangkar daftar isi). */
+interface Simpul { b: Blok; anak: Simpul[]; i: number }
 
 function pohonBlok(daftar: Blok[]): Simpul[] {
   const akar: Simpul[] = [];
   const tumpuk: Simpul[] = [];
-  for (const b of daftar) {
-    const simpul: Simpul = { b, anak: [] };
+  for (const [i, b] of daftar.entries()) {
+    const simpul: Simpul = { b, anak: [], i };
     while (tumpuk.length && tumpuk[tumpuk.length - 1].b.kedalaman >= b.kedalaman) tumpuk.pop();
     (tumpuk.length ? tumpuk[tumpuk.length - 1].anak : akar).push(simpul);
     tumpuk.push(simpul);
@@ -236,13 +263,29 @@ function pohonBlok(daftar: Blok[]): Simpul[] {
 
 /** Blok seperti IsiMemo (mode baca) di aplikasi: anak digeser 1,5em, toggle tertutup secara bawaan. */
 function htmlSimpul(simpul: Simpul[], k: Konteks): string {
-  return simpul.map(({ b, anak }) => {
+  const keluar: string[] = [];
+  for (let i = 0; i < simpul.length; i += 1) {
+    // Kolom bersebelahan = satu baris kolom (di HP bertumpuk), isi tiap kolom = anaknya.
+    if (simpul[i].b.jenis === 'kolom') {
+      const kolom: string[] = [];
+      while (i < simpul.length && simpul[i].b.jenis === 'kolom') { kolom.push(`<div class="kolom">${htmlSimpul(simpul[i].anak, k)}</div>`); i += 1; }
+      i -= 1;
+      keluar.push(`<div class="kolom-baris">${kolom.join('')}</div>`);
+      continue;
+    }
+    keluar.push(htmlSatu(simpul[i], k));
+  }
+  return keluar.join('\n');
+}
+
+function htmlSatu({ b, anak, i }: Simpul, k: Konteks): string {
+  {
     const isiAnak = anak.length ? `<div class="anak">${htmlSimpul(anak, k)}</div>` : '';
     switch (b.jenis) {
       // <details> bawaan peramban: bisa dibuka/dilipat tanpa skrip.
       case 'toggle':
         return `<details class="toggle"><summary><span class="panah" aria-hidden="true">▸</span><span>${inline(b.teks, k)}</span></summary>${isiAnak || '<div class="anak redup">Toggle kosong</div>'}</details>`;
-      case 'judul': return `<h${b.tingkat + 1} class="j${b.tingkat}">${inline(b.teks, k)}</h${b.tingkat + 1}>${isiAnak}`;
+      case 'judul': return `<h${b.tingkat + 1} class="j${b.tingkat}" id="b${i}">${inline(b.teks, k)}</h${b.tingkat + 1}>${isiAnak}`;
       case 'ceklis':
         return `<div class="ceklis${b.selesai ? ' selesai' : ''}"><span class="kotak" aria-hidden="true">${b.selesai ? '✓' : ''}</span><span>${inline(b.teks, k, b.selesai)}</span></div>${isiAnak}`;
       case 'butir': return `<div class="butir"><span class="titik" aria-hidden="true"></span><span>${inline(b.teks, k)}</span></div>${isiAnak}`;
@@ -250,8 +293,24 @@ function htmlSimpul(simpul: Simpul[], k: Konteks): string {
       case 'kutipan': return `<blockquote>${inline(b.teks, k)}</blockquote>${isiAnak}`;
       case 'penting': return `<aside class="penting">${ikon('info', 15)}<div>${inline(b.teks, k)}</div></aside>${isiAnak}`;
       case 'garis': return `<hr>${isiAnak}`;
-      case 'gambar':
-        return `<figure><img src="${esc(jalurBerkas(k.token, b.kunci, k.h))}" alt="${esc(b.nama)}" loading="lazy">${b.nama && b.nama !== 'foto' ? `<figcaption>${esc(b.nama)}</figcaption>` : ''}</figure>${isiAnak}`;
+      case 'gambar': {
+        // Lebar & perataan sama dengan halaman memo.
+        const gaya = `${b.lebar ? `width:${b.lebar}%;` : ''}${b.rata === 'tengah' ? 'margin-left:auto;margin-right:auto;text-align:center;' : b.rata === 'kanan' ? 'margin-left:auto;text-align:right;' : ''}`;
+        return `<figure${gaya ? ` style="${gaya}"` : ''}><img src="${esc(jalurBerkas(k.token, b.kunci, k.h))}" alt="${esc(b.nama)}" loading="lazy"${b.lebar ? ' style="width:100%;max-height:none"' : ''}>${b.nama && b.nama !== 'foto' ? `<figcaption>${esc(b.nama)}</figcaption>` : ''}</figure>${isiAnak}`;
+      }
+      case 'kode': {
+        const label = BAHASA_KODE.find((x) => x.id === b.bahasa)?.label ?? b.bahasa;
+        const isi = sorotKode(b.isi, b.bahasa).map((x) => `<span style="color:${WARNA_KODE[x.t].gelap}">${esc(x.v)}</span>`).join('');
+        return `<div class="kode"><div class="kode-kepala">${esc(label)}</div><pre><code>${isi}</code></pre></div>${isiAnak}`;
+      }
+      case 'rumus': return `<div class="rumus-blok">${htmlRumus(b.isi, true)}</div>${isiAnak}`;
+      case 'grafik': return `${htmlGrafikReklamasi(b, k.revegetasi ?? [])}${isiAnak}`;
+      case 'daftarisi': {
+        const judul = k.judul ?? [];
+        return `<nav class="daftar-isi" aria-label="Daftar isi">${judul.length ? judul.map((j) => `<a href="#b${j.indeks}" style="padding-left:${(j.tingkat - 1) * 1.25}em">${esc(j.teks || 'Tanpa judul')}</a>`).join('') : '<span class="redup">Daftar isi kosong</span>'}</nav>${isiAnak}`;
+      }
+      case 'penanda':
+        return `<a class="penanda" href="${esc(b.url)}" target="_blank" rel="noopener noreferrer nofollow"><b>${esc(b.judul || b.url)}</b>${b.ket ? `<span>${esc(b.ket)}</span>` : ''}<small>${ikon('luar', 11)} ${esc(b.situs || b.url)}</small></a>${isiAnak}`;
       case 'berkas': return `<p><a class="berkas blok" href="${esc(jalurBerkas(k.token, b.kunci, k.h))}" download="${esc(b.nama)}">${ikon('berkas', 13)}${esc(b.nama)}</a></p>${isiAnak}`;
       case 'video': {
         let situs = b.url;
@@ -266,7 +325,7 @@ function htmlSimpul(simpul: Simpul[], k: Konteks): string {
       case 'teks': return `<p>${inline(b.teks, k)}</p>${isiAnak}`;
       default: return isiAnak;
     }
-  }).join('\n');
+  }
 }
 
 const isiHtml = (isi: string, k: Konteks): string => htmlSimpul(pohonBlok(uraiBlok(isi)), k);
@@ -325,7 +384,12 @@ export async function halamanLihatMemo(token: string, env: Env, url?: URL): Prom
     if (h.lingkup === 'pribadi' && memo.lingkup === 'tim') continue;
     halamanPeta.set(h.id, { judul: h.judul.trim() || 'Tanpa judul', ikon: ikonDari(h), anak: h.induk_id === memo.id });
   }
-  const k: Konteks = { token, nama, hariIni: tanggalWita(), h: memo.id === akar.id ? undefined : memo.id, halaman: halamanPeta };
+  const k: Konteks = { token, nama, hariIni: tanggalWita(), h: memo.id === akar.id ? undefined : memo.id, halaman: halamanPeta, judul: daftarJudul(memo.isi) };
+  if (memo.isi.includes('!grafik{')) {
+    const { results } = await env.DB.prepare('SELECT tahun, apl, hutan, ipd, opd, timbunan_soil, fasilitas, blok FROM revegetasi ORDER BY tahun')
+      .all<Omit<BarisReklamasi, 'blok'> & { blok: string | null }>();
+    k.revegetasi = results.map((r) => { let blok: Record<string, number> = {}; try { blok = JSON.parse(r.blok || '{}'); } catch { /* biarkan */ } return { ...r, blok }; });
+  }
   const props = bacaPropsMemo(memo);
 
   // ---- Baris properti, sama dengan halaman memo (memo tim teratas saja; sub-halaman & catatan pribadi tanpa properti)
@@ -425,7 +489,7 @@ function halaman(judul: string, isi: string, status = 200): Response {
 <meta property="og:description" content="Memo POKEMONKEY (hanya-baca)">
 <title>${esc(judul)} · POKEMONKEY</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;700&family=Press+Start+2P&display=swap">
 <style>
   * { box-sizing: border-box; }
   html { background: #09090b; }
@@ -513,6 +577,20 @@ function halaman(judul: string, isi: string, status = 200): Response {
   .tabel { overflow-x: auto; margin: 6px 0; }
   .tabel table { border-collapse: collapse; font-size: .9375em; }
   .tabel th, .tabel td { border: 2px solid rgba(255,255,255,.2); padding: 4px 8px; text-align: left; vertical-align: top; min-width: 90px; color: #f4f4f5; }
+  u { text-decoration: underline; }
+  .kode { margin: 6px 0; border: 2px solid rgba(255,255,255,.2); background: rgba(0,0,0,.6); }
+  .kode-kepala { padding: 2px 8px; font-size: 11px; color: #a1a1aa; border-bottom: 1px solid rgba(255,255,255,.1); }
+  .kode pre { margin: 0; padding: 8px 12px; overflow-x: auto; font: .85em/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .kode code { background: none; border: none; padding: 0; color: #e4e4e7; font-size: 1em; }
+  .rumus-blok { margin: 8px 0; padding: 4px 0; overflow-x: auto; overflow-y: hidden; text-align: center; font-size: 1.2em; }
+  .daftar-isi { margin: 6px 0; padding-left: 8px; border-left: 2px solid rgba(255,255,255,.15); }
+  .daftar-isi a { display: block; padding: 2px 0; color: #d4d4d8; text-decoration: underline; text-decoration-color: rgba(255,255,255,.2); }
+  .kolom-baris { display: grid; gap: 8px 24px; margin: 4px 0; }
+  .kolom { min-width: 0; }
+  .penanda { display: flex; flex-direction: column; gap: 2px; max-width: 640px; margin: 6px 0; padding: 8px 12px; border: 2px solid rgba(255,255,255,.25); background: rgba(255,255,255,.03); text-decoration: none; color: #f4f4f5; }
+  .penanda:hover { border-color: #a3e635; }
+  .penanda span { font-size: 12px; color: #a1a1aa; }
+  .penanda small { font-size: 11px; color: #71717a; display: inline-flex; align-items: center; gap: 4px; }
   .tabel th { border-color: rgba(255,255,255,.25); background: rgba(255,255,255,.07); color: #fff; }
   .jarak { height: 8px; }
   .redup { color: #71717a; }
@@ -520,6 +598,7 @@ function halaman(judul: string, isi: string, status = 200): Response {
   .pesan p { color: #a1a1aa; }
   footer { color: #71717a; font-size: 12px; text-align: center; padding: 0 16px 24px; line-height: 1.5; }
   @media (min-width: 640px) {
+    .kolom-baris { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
     .bilah { padding: 0 24px; }
     .sampul { height: 180px; }
     .badan { padding: 0 48px 112px; }

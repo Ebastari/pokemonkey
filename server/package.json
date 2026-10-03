@@ -14,7 +14,8 @@
     "tipe": "wrangler types"
   },
   "dependencies": {
-    "@block65/webcrypto-web-push": "*"
+    "@block65/webcrypto-web-push": "*",
+    "katex": "^0.16.47"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260918.1",

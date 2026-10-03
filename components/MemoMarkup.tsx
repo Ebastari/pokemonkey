@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
-import { CalendarClock, ChevronRight, ExternalLink, FileText, ImageOff, Info, Loader2, Play, Video } from 'lucide-react';
-import { uraiBlok, uraiInline, toggleBaris, type Blok } from '../server/src/memo-blok';
+import React, { useId, useState } from 'react';
+import { CalendarClock, Check, ChevronRight, Copy, ExternalLink, FileText, ImageOff, Info, Link2, Loader2, Play, Video } from 'lucide-react';
+import { daftarJudul, uraiBlok, uraiInline, toggleBaris, type Blok, type Inline, type RataGambar } from '../server/src/memo-blok';
+import { BAHASA_KODE, WARNA_KODE, sorotKode } from '../server/src/tampil-memo';
+import { rumusHtml, useKatex } from '../lib/rumus';
+import { GrafikReklamasi } from './GrafikReklamasi';
 import type { AnggotaRingkas } from '../lib/tipe-api';
 import { useFotoProfil } from '../lib/foto';
 import { unduhBerkasMemo } from '../lib/memo-gambar';
@@ -79,7 +82,13 @@ export const ChipTenggat: React.FC<{ tanggal: string; jam: string | null; selesa
 };
 
 /** Gambar di dalam memo; ketuk untuk memperbesar. */
-const GambarMemo: React.FC<{ kunci: string; nama: string }> = ({ kunci, nama }) => {
+/** Lebar (%) & perataan gambar, sama di mode baca dan penyunting. */
+export const gayaGambar = (lebar?: number, rata?: RataGambar): React.CSSProperties => ({
+  ...(lebar ? { width: `${lebar}%` } : {}),
+  ...(rata === 'tengah' ? { marginLeft: 'auto', marginRight: 'auto' } : rata === 'kanan' ? { marginLeft: 'auto' } : {}),
+});
+
+const GambarMemo: React.FC<{ kunci: string; nama: string; lebar?: number; rata?: RataGambar }> = ({ kunci, nama, lebar, rata }) => {
   const url = useFotoProfil(kunci);
   const [besar, setBesar] = useState(false);
   if (!url) {
@@ -91,9 +100,9 @@ const GambarMemo: React.FC<{ kunci: string; nama: string }> = ({ kunci, nama }) 
   }
   return (
     <>
-      <button type="button" onClick={() => setBesar(true)} className="block my-1.5 max-w-full" title="Ketuk untuk memperbesar">
-        <img src={url} alt={nama} className="max-w-full max-h-[420px] border-2 border-white/25" />
-        {nama && nama !== 'foto' && <span className="block text-[11px] text-zinc-500 mt-0.5 text-left">{nama}</span>}
+      <button type="button" onClick={() => setBesar(true)} className="block my-1.5 max-w-full" style={gayaGambar(lebar, rata)} title="Ketuk untuk memperbesar">
+        <img src={url} alt={nama} className={`${lebar ? 'w-full' : 'max-w-full max-h-[420px]'} border-2 border-white/25`} />
+        {nama && nama !== 'foto' && <span className={`block text-[12px] text-zinc-400 mt-0.5 ${rata === 'tengah' ? 'text-center' : rata === 'kanan' ? 'text-right' : 'text-left'}`}>{nama}</span>}
       </button>
       {besar && (
         <div className="fixed inset-0 z-[300] bg-black/90 flex items-center justify-center p-3 cursor-zoom-out" onClick={() => setBesar(false)} role="dialog" aria-label={`Gambar ${nama}`}>
@@ -119,12 +128,80 @@ const BerkasMemo: React.FC<{ kunci: string; nama: string; blok?: boolean }> = ({
   );
 };
 
+/** Blok kode: pewarna sintaks ringan + tombol salin. */
+export const BlokKode: React.FC<{ bahasa: string; isi: string; kepala?: React.ReactNode }> = ({ bahasa, isi, kepala }) => {
+  const [disalin, setDisalin] = useState(false);
+  const salin = async () => {
+    try { await navigator.clipboard.writeText(isi); setDisalin(true); setTimeout(() => setDisalin(false), 1500); } catch { /* papan klip ditolak */ }
+  };
+  return (
+    <div className="my-1.5 border-2 border-white/20 bg-black/60">
+      <div className="flex items-center gap-2 px-2 h-7 border-b border-white/10 text-[11px] text-zinc-400">
+        {kepala ?? <span>{BAHASA_KODE.find((b) => b.id === bahasa)?.label ?? bahasa}</span>}
+        <button type="button" onClick={salin} className="ml-auto flex items-center gap-1 hover:text-white" title="Salin kode">
+          {disalin ? <Check size={12} /> : <Copy size={12} />}{disalin ? 'Tersalin' : 'Salin'}
+        </button>
+      </div>
+      <pre className="m-0 px-3 py-2 overflow-x-auto custom-scrollbar text-[0.85em] leading-[1.55] font-mono whitespace-pre">
+        <code>{sorotKode(isi, bahasa).map((p, i) => <span key={i} style={{ color: WARNA_KODE[p.t].gelap }}>{p.v}</span>)}{!isi && <span className="text-zinc-600">Kode kosong</span>}</code>
+      </pre>
+    </div>
+  );
+};
+
+/** Rumus satu blok (LaTeX → MathML). */
+export const BlokRumus: React.FC<{ isi: string }> = ({ isi }) => {
+  const siap = useKatex(Boolean(isi));
+  const html = siap ? rumusHtml(isi, true) : null;
+  if (!isi.trim()) return <p className="my-1 text-zinc-500 text-[0.9em]">Rumus kosong</p>;
+  return html
+    ? <div className="rumus-blok my-2 overflow-x-auto custom-scrollbar text-center text-zinc-100" dangerouslySetInnerHTML={{ __html: html }} />
+    : <div className="my-2 text-center"><code className="text-lime-200">{isi}</code></div>;
+};
+
+const RumusSebaris: React.FC<{ tex: string }> = ({ tex }) => {
+  const siap = useKatex(true);
+  const html = siap ? rumusHtml(tex) : null;
+  return html ? <span className="inline-block align-baseline" dangerouslySetInnerHTML={{ __html: html }} /> : <code className="text-lime-200">{tex}</code>;
+};
+
+/** Kartu tautan web (bookmark): judul, keterangan, dan nama situs. */
+export const KartuPenanda: React.FC<{ url: string; judul: string; ket: string; situs: string }> = ({ url, judul, ket, situs }) => (
+  <a href={url} target="_blank" rel="noopener noreferrer" className="flex my-1.5 max-w-[640px] border-2 border-white/25 hover:border-lime-400 bg-white/[0.03]" title={url}>
+    <span className="flex-1 min-w-0 px-3 py-2">
+      <span className="block text-[14px] font-bold text-zinc-100 truncate">{judul || url}</span>
+      {ket && <span className="block text-[12px] text-zinc-400 mt-0.5 line-clamp-2">{ket}</span>}
+      <span className="flex items-center gap-1 mt-1 text-[11px] text-zinc-500"><Link2 size={11} />{situs || namaSitus(url)}<ExternalLink size={10} /></span>
+    </span>
+  </a>
+);
+
+/** Daftar isi dari judul-judul memo; ketuk untuk melompat. */
+export const DaftarIsi: React.FC<{ judul: { indeks: number; tingkat: number; teks: string }[]; onLompat?: (indeks: number) => void }> = ({ judul, onLompat }) => (
+  <nav className="my-1.5 py-1 border-l-2 border-white/15 pl-2" aria-label="Daftar isi">
+    {judul.length === 0 && <p className="text-zinc-500 text-[0.9em]">Tambahkan judul (#, ##, ###) agar daftar isi terisi.</p>}
+    {judul.map((j) => (
+      <button key={j.indeks} type="button" onClick={() => onLompat?.(j.indeks)} className="block w-full text-left text-[0.95em] text-zinc-300 underline decoration-white/20 hover:text-white py-0.5" style={{ paddingLeft: `${(j.tingkat - 1) * 1.25}em` }}>
+        {j.teks || 'Tanpa judul'}
+      </button>
+    ))}
+  </nav>
+);
+
 /** Isi satu baris: tanda format, tautan, tenggat, orang, PICA. */
-export const TeksInline: React.FC<{ teks: string; selesai?: boolean } & Konteks> = ({ teks, selesai, tim, onBukaPica, onBukaHalaman, halaman }) => (
+export const TeksInline: React.FC<{ teks: string; selesai?: boolean } & Konteks> = ({ teks, ...ctx }) => (
+  <PotonganInline daftar={uraiInline(teks)} {...ctx} />
+);
+
+const PotonganInline: React.FC<{ daftar: Inline[]; selesai?: boolean } & Konteks> = ({ daftar, selesai, tim, onBukaPica, onBukaHalaman, halaman }) => (
   <>
-    {uraiInline(teks).map((x, i) => {
+    {daftar.map((x, i) => {
       switch (x.t) {
         case 'teks': return <React.Fragment key={i}>{x.v}</React.Fragment>;
+        case 'baris': return <br key={i} />;
+        case 'garisbawah': return <u key={i}>{x.v}</u>;
+        case 'warna': return <span key={i} className={`m${x.jenis}-${x.warna}`}><PotonganInline daftar={x.isi} selesai={selesai} tim={tim} onBukaPica={onBukaPica} onBukaHalaman={onBukaHalaman} halaman={halaman} /></span>;
+        case 'rumus': return <RumusSebaris key={i} tex={x.v} />;
         case 'tebal': return <b key={i} className="text-white">{x.v}</b>;
         case 'miring': return <i key={i}>{x.v}</i>;
         case 'coret': return <s key={i} className="text-zinc-400">{x.v}</s>;
@@ -172,7 +249,11 @@ export const TabelBaca: React.FC<{ baris: string[][]; kepala: boolean } & Kontek
   </div>
 );
 
-const BlokMemo: React.FC<{ b: Blok; onToggle?: () => void; terbuka?: boolean; onLipat?: () => void } & Konteks> = ({ b, onToggle, terbuka, onLipat, tim, onBukaPica, onBukaHalaman, halaman }) => {
+const BlokMemo: React.FC<{
+  b: Blok; onToggle?: () => void; terbuka?: boolean; onLipat?: () => void;
+  /** Isi memo lengkap (daftar isi) dan cara melompat ke satu blok. */
+  isiPenuh?: string; onLompat?: (indeks: number) => void;
+} & Konteks> = ({ b, onToggle, terbuka, onLipat, tim, onBukaPica, onBukaHalaman, halaman, isiPenuh = '', onLompat }) => {
   const ctx = { tim, onBukaPica, onBukaHalaman, halaman };
   switch (b.jenis) {
     case 'toggle':
@@ -214,7 +295,13 @@ const BlokMemo: React.FC<{ b: Blok; onToggle?: () => void; terbuka?: boolean; on
         </div>
       );
     case 'garis': return <hr className="my-2 border-t-2 border-dashed border-white/20" />;
-    case 'gambar': return <GambarMemo kunci={b.kunci} nama={b.nama} />;
+    case 'gambar': return <GambarMemo kunci={b.kunci} nama={b.nama} lebar={b.lebar} rata={b.rata} />;
+    case 'kode': return <BlokKode bahasa={b.bahasa} isi={b.isi} />;
+    case 'rumus': return <BlokRumus isi={b.isi} />;
+    case 'daftarisi': return <DaftarIsi judul={daftarJudul(isiPenuh)} onLompat={onLompat} />;
+    case 'penanda': return <KartuPenanda url={b.url} judul={b.judul} ket={b.ket} situs={b.situs} />;
+    case 'kolom': return null;
+    case 'grafik': return <GrafikReklamasi blok={b} />;
     case 'video': return <KartuVideo url={b.url} judul={b.judul} />;
     case 'tabel': return <TabelBaca baris={b.baris} kepala={b.kepala} {...ctx} />;
     case 'data': return <KartuDataLapangan blok={b} />;
@@ -232,33 +319,57 @@ export const IsiMemo: React.FC<{
 } & Konteks> = ({ isi, onToggle, kosong = 'Kosong.', tim, onBukaPica, onBukaHalaman, halaman, bolehToggle }) => {
   // Saat dibaca, toggle terlipat seperti di Notion; nomor baris = indeks blok (untuk centang).
   const [terbuka, setTerbuka] = useState<ReadonlySet<number>>(() => new Set());
+  const wadahId = useId();
   const daftar = uraiBlok(isi);
-  const hasil: React.ReactNode[] = [];
-  let batas: number | null = null;
-  daftar.forEach((b, i) => {
-    if (batas !== null && b.kedalaman > batas) return;
-    batas = null;
-    const buka = terbuka.has(i);
-    if (b.jenis === 'toggle' && !buka) batas = b.kedalaman;
-    hasil.push(
-      <div key={i} style={b.kedalaman ? { paddingLeft: `${b.kedalaman * 1.5}em` } : undefined}>
-        <BlokMemo
-          b={b}
-          tim={tim}
-          onBukaPica={onBukaPica}
-          onBukaHalaman={onBukaHalaman}
-          halaman={halaman}
-          onToggle={onToggle && (!bolehToggle || bolehToggle(i)) ? () => onToggle(i) : undefined}
-          terbuka={buka}
-          onLipat={() => setTerbuka((t) => { const n = new Set(t); if (n.has(i)) n.delete(i); else n.add(i); return n; })}
-        />
-      </div>,
-    );
-  });
+  const lompat = (i: number) => {
+    document.getElementById(wadahId)?.querySelector(`[data-indeks="${i}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const geser = (n: number) => (n > 0 ? { paddingLeft: `${n * 1.5}em` } : undefined);
+  /** Blok [dari, sampai) relatif ke kedalaman `dasar`; kolom bersebelahan jadi satu baris kolom. */
+  const susun = (dari: number, sampai: number, dasar: number): React.ReactNode[] => {
+    const hasil: React.ReactNode[] = [];
+    const akhirAnak = (j: number) => { let k = j + 1; while (k < sampai && daftar[k].kedalaman > daftar[j].kedalaman) k += 1; return k; };
+    let i = dari;
+    while (i < sampai) {
+      const b = daftar[i];
+      if (b.jenis === 'kolom') {
+        const kolom: [number, number][] = [];
+        let j = i;
+        while (j < sampai && daftar[j].jenis === 'kolom' && daftar[j].kedalaman === b.kedalaman) { const k = akhirAnak(j); kolom.push([j + 1, k]); j = k; }
+        hasil.push(
+          <div key={`kolom-${i}`} style={geser(b.kedalaman - dasar)} className="grid gap-x-6 gap-y-2 my-1 sm:grid-flow-col sm:auto-cols-fr">
+            {kolom.map(([a, z], n) => <div key={n} className="min-w-0">{susun(a, z, b.kedalaman + 1)}</div>)}
+          </div>,
+        );
+        i = j;
+        continue;
+      }
+      const indeks = i;
+      const buka = terbuka.has(indeks);
+      hasil.push(
+        <div key={indeks} data-indeks={indeks} style={geser(b.kedalaman - dasar)}>
+          <BlokMemo
+            b={b}
+            tim={tim}
+            onBukaPica={onBukaPica}
+            onBukaHalaman={onBukaHalaman}
+            halaman={halaman}
+            isiPenuh={isi}
+            onLompat={lompat}
+            onToggle={onToggle && (!bolehToggle || bolehToggle(indeks)) ? () => onToggle(indeks) : undefined}
+            terbuka={buka}
+            onLipat={() => setTerbuka((t) => { const n = new Set(t); if (n.has(indeks)) n.delete(indeks); else n.add(indeks); return n; })}
+          />
+        </div>,
+      );
+      i = b.jenis === 'toggle' && !buka ? akhirAnak(i) : i + 1;
+    }
+    return hasil;
+  };
   return (
-    <>
-      {hasil}
+    <div id={wadahId}>
+      {susun(0, daftar.length, 0)}
       {!isi.trim() && <p className="text-zinc-500">{kosong}</p>}
-    </>
+    </div>
   );
 };

@@ -7,6 +7,7 @@
  */
 
 import type { Env, Pengguna } from './tipe';
+import { ruteAiMemo, rutePemakaianAi, ruteTanyaMemo } from './ai-memo';
 
 
 const CORS = {
@@ -88,6 +89,24 @@ export async function ruteAi(
 ): Promise<Response | null> {
   if (req.method === 'OPTIONS' && jalur.startsWith('/api/ai/')) {
     return new Response(null, { status: 204, headers: CORS });
+  }
+
+  // Hanya rute AI yang butuh kunci; rute lain (mis. data lapangan) diteruskan apa adanya.
+  if (!jalur.startsWith('/api/ai/')) return null;
+
+  // Asisten Menulis Memo: konteks, keluaran terstruktur, dan penyaring hasil ada di ai-memo.ts.
+  if (jalur === '/api/ai/memo/proses' && req.method === 'POST') {
+    if (!_pengguna) return galat('Perlu masuk terlebih dahulu.', 401);
+    return ruteAiMemo(req, env, _pengguna);
+  }
+  // Tanya semua memo & catatan pemakaian AI (lihat ai-memo.ts).
+  if (jalur === '/api/ai/memo/tanya' && req.method === 'POST') {
+    if (!_pengguna) return galat('Perlu masuk terlebih dahulu.', 401);
+    return ruteTanyaMemo(req, env, _pengguna);
+  }
+  if (jalur === '/api/ai/pemakaian' && req.method === 'GET') {
+    if (!_pengguna) return galat('Perlu masuk terlebih dahulu.', 401);
+    return rutePemakaianAi(env, _pengguna);
   }
 
   const apiKey = env.GEMINI_API_KEY;
@@ -249,77 +268,6 @@ Kembalikan HANYA format JSON valid:
       });
     } catch (e) {
       return galat(e instanceof Error ? e.message : 'Gagal menghasilkan resume AI', 500);
-    }
-  }
-
-  // 3. Asisten Menulis & Ringkasan Memo
-  if (jalur === '/api/ai/memo/proses' && req.method === 'POST') {
-    let body: {
-      mode?: 'kembangkan' | 'rapikan' | 'ringkas' | 'ekstrak_tugas';
-      judul?: string;
-      isi?: string;
-      kategori?: string;
-      instruksi_khusus?: string;
-    } = {};
-
-    try {
-      body = (await req.json()) as typeof body;
-    } catch {
-      return galat('Body JSON tidak valid');
-    }
-
-    const mode = body.mode || 'kembangkan';
-    const judul = (body.judul ?? '').trim();
-    const isi = (body.isi ?? '').trim();
-
-    if (!isi && !judul) {
-      return galat('Isi atau judul memo tidak boleh kosong.');
-    }
-
-    const instruksiMode: Record<string, string> = {
-      kembangkan: 'Kembangkan catatan/poin ini menjadi draf Internal Memo resmi yang komprehensif, terstruktur dengan heading Notion/Markdown (#, ##, ###), latar belakang, maksud & tujuan, detail pelaksanaan/teknis, dan penutup.',
-      rapikan: 'Perbaiki tata bahasa, profesionalisme, struktur heading (#, ##), dan daftar poin dari teks ini tanpa mengubah maksud aslinya.',
-      ringkas: 'Buat ringkasan eksekutif 2-4 kalimat yang padat dan jelas yang merangkum keseluruhan memo, serta usulan judul jika judul sekarang kurang tepat.',
-      ekstrak_tugas: 'Identifikasi semua tugas, komitmen, dan rencana tindak lanjut dari memo ini, lalu susun menjadi daftar ceklis tugas dengan format "- [ ] Nama Tugas".',
-    };
-
-    const prompt = `
-Anda adalah Asisten Eksekutif dan Spesialis Manajemen Dokumen Operasional Tambang & Kehutanan (Revegetasi / Nursery / K3).
-Tugas Anda: ${instruksiMode[mode] || instruksiMode.kembangkan}
-
-Data Memo Saat Ini:
-- Judul: "${judul || 'Tanpa judul'}"
-- Kategori: "${body.kategori || 'Operasional'}"
-- Isi Catatan:
-"""
-${isi}
-"""
-${body.instruksi_khusus ? `- Catatan Khusus Pengguna: "${body.instruksi_khusus}"` : ''}
-
-Ketentuan Format Output:
-- "judul": Usulan judul yang tajam, formal, dan mencerminkan isi (atau pertahankan jika sudah bagus).
-- "isi": Teks lengkap memo yang sudah diproses (menggunakan format teks baris/heading Notion yang bersih).
-- "ringkasan": Ringkasan eksekutif padat 2-3 kalimat.
-- "tugas": Array string daftar tugas (misal ["- [ ] Inspeksi bedeng A", "- [ ] Koordinasi pengadaan pupuk"]).
-- "catatan_ai": 1 kalimat saran dari AI mengenai perbaikan ini.
-
-Kembalikan HANYA format JSON valid tanpa kata pengantar:
-{
-  "judul": "...",
-  "isi": "...",
-  "ringkasan": "...",
-  "tugas": ["..."],
-  "catatan_ai": "..."
-}
-`.trim();
-
-    try {
-      const jawaban = await panggilGemini(apiKey, prompt);
-      const jsonStr = ekstrakJson(jawaban);
-      const hasil = JSON.parse(jsonStr);
-      return json({ sukses: true, hasil });
-    } catch (e) {
-      return galat(e instanceof Error ? e.message : 'Gagal memproses memo dengan AI', 500);
     }
   }
 

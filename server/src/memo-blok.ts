@@ -10,8 +10,16 @@
  *   !video[judul](https://…)    video (tautan, mis. YouTube)
  *   !tabel{"kepala":true,"baris":[["A","B"],["1","2"]]}   tabel (satu baris, isi sel teks biasa)
  *   [nama](memo/…)              berkas
+ *   ![nama](kunci){"lebar":60,"rata":"tengah"}   gambar berukuran (lebar % & perataan, opsional)
+ *   !kode{"bahasa":"js","isi":"…"}   blok kode (banyak baris di dalam JSON)
+ *   !rumus{"isi":"E = mc^2"}         rumus (LaTeX)
+ *   !daftarisi                      daftar isi otomatis dari judul
+ *   !kolom                          satu kolom; kolom bersebelahan = tata letak kolom (isinya = anak)
+ *   !penanda{"url":"…","judul":"…","ket":"…","situs":"…"}   kartu tautan web
+ *   !grafik{"sumber":"reklamasi","tampil":"tahun"}   grafik realisasi reklamasi (gaya Monkey Point; tampil: tahun|kegiatan|blok|lengkap)
  * Di dalam baris:
- *   **tebal**  *miring*  ~~coret~~  `kode`  [teks](https://…)
+ *   **tebal**  *miring*  ~~coret~~  ++garis bawah++  `kode`  [teks](https://…)
+ *   {w:merah|teks}  warna teks   {l:kuning|teks}  stabilo/latar   $$x^2$$  rumus sebaris   <br>  baris baru di dalam blok
  *   @2026-10-05  atau  @2026-10-05 14:00   tenggat
  *   @id                                    orang (id anggota tim; tanda hubung boleh di tengah)
  *   #PICA-26W36-07                         tautan ke PICA
@@ -26,6 +34,8 @@
  *     - [ ] Ganti oli @2026-10-02
  *       Catatan untuk tugas di atas
  */
+
+import { adaWarna } from './tampil-memo';
 
 export interface InfoBekuData {
   pada: string;
@@ -50,13 +60,26 @@ type BlokDasar =
   | { jenis: 'kutipan'; teks: string }
   | { jenis: 'penting'; teks: string }
   | { jenis: 'garis' }
-  | { jenis: 'gambar'; nama: string; kunci: string }
+  | { jenis: 'gambar'; nama: string; kunci: string; lebar?: number; rata?: RataGambar }
   | { jenis: 'video'; judul: string; url: string }
   | { jenis: 'tabel'; baris: string[][]; kepala: boolean }
   | { jenis: 'berkas'; nama: string; kunci: string }
   | BlokData
+  | { jenis: 'kode'; bahasa: string; isi: string }
+  | { jenis: 'rumus'; isi: string }
+  | { jenis: 'daftarisi' }
+  | { jenis: 'kolom' }
+  | BlokPenanda
+  | BlokGrafik
   | { jenis: 'kosong' }
   | { jenis: 'teks'; teks: string };
+
+export type RataGambar = 'kiri' | 'tengah' | 'kanan';
+export interface BlokPenanda { jenis: 'penanda'; url: string; judul: string; ket: string; situs: string }
+
+/** Grafik data realisasi (sumber: tabel revegetasi). `dari`/`sampai` = rentang tahun (opsional). */
+export type TampilGrafik = 'tahun' | 'kegiatan' | 'blok' | 'lengkap';
+export interface BlokGrafik { jenis: 'grafik'; sumber: 'reklamasi'; tampil: TampilGrafik; dari?: number; sampai?: number }
 
 /** Satu blok beserta kedalamannya (0 = paling luar; n = anak tingkat ke-n). */
 export type Blok = BlokDasar & { kedalaman: number };
@@ -72,7 +95,13 @@ export type Inline =
   | { t: 'tenggat'; tanggal: string; jam: string | null }
   | { t: 'orang'; id: string }
   | { t: 'pica'; id: string }
-  | { t: 'halaman'; id: string; v: string };
+  | { t: 'halaman'; id: string; v: string }
+  | { t: 'garisbawah'; v: string }
+  /** Warna teks (w) atau stabilo/latar (l); isinya boleh berformat (tebal, tenggat, …). */
+  | { t: 'warna'; jenis: 'w' | 'l'; warna: string; isi: Inline[] }
+  | { t: 'rumus'; v: string }
+  /** Baris baru di dalam satu blok (Shift+Enter). */
+  | { t: 'baris' };
 
 /** Ceklis tanpa indentasi (setelah pisahIndent). */
 const POLA_CEKLIS = /^- \[([ xX])\] ?(.*)$/;
@@ -160,6 +189,62 @@ export const rakitData = (d: Omit<BlokData, 'jenis'>): string =>
     ...(d.beku ? { beku: d.beku } : {}),
   })}`;
 
+/** JSON setelah awalan (`!kode{…}`), atau null bila rusak. */
+function jsonSetelah(b: string, awalan: string): Record<string, unknown> | null {
+  if (!b.startsWith(`${awalan}{`)) return null;
+  try {
+    const d = JSON.parse(b.slice(awalan.length));
+    return d && typeof d === 'object' && !Array.isArray(d) ? d as Record<string, unknown> : null;
+  } catch { return null; }
+}
+const teksAman = (v: unknown, maks: number) => String(v ?? '').slice(0, maks);
+
+export const MAKS_KODE = 20_000;
+export const rakitKode = (bahasa: string, isi: string): string => `!kode${JSON.stringify({ bahasa: bahasa || 'teks', isi: isi.slice(0, MAKS_KODE) })}`;
+export const rakitGrafik = (g: Omit<BlokGrafik, 'jenis'>): string =>
+  `!grafik${JSON.stringify({ sumber: g.sumber, tampil: g.tampil, ...(g.dari ? { dari: g.dari } : {}), ...(g.sampai ? { sampai: g.sampai } : {}) })}`;
+export const rakitRumus = (isi: string): string => `!rumus${JSON.stringify({ isi: isi.replace(/\n/g, ' ').slice(0, 2000) })}`;
+export const rakitPenanda = (p: Omit<BlokPenanda, 'jenis'>): string =>
+  `!penanda${JSON.stringify({ url: p.url, judul: p.judul.slice(0, 200), ket: p.ket.slice(0, 400), situs: p.situs.slice(0, 100) })}`;
+/** Gambar dengan ukuran/perataan opsional (lebar 100 % dan rata kiri = bawaan, tidak ditulis). */
+export function rakitGambar(nama: string, kunci: string, lebar?: number, rata?: RataGambar): string {
+  const opsi: Record<string, unknown> = {};
+  if (lebar && lebar < 100) opsi.lebar = Math.max(20, Math.round(lebar));
+  if (rata && rata !== 'kiri') opsi.rata = rata;
+  return `![${nama.replace(/[\]\n]/g, ' ')}](${kunci})${Object.keys(opsi).length ? JSON.stringify(opsi) : ''}`;
+}
+
+/** Blok satu baris berawalan "!" selain tabel/data (kode, rumus, daftar isi, kolom, penanda, gambar). */
+function blokKhusus(b: string): BlokDasar | null {
+  if (b === '!daftarisi') return { jenis: 'daftarisi' };
+  if (b === '!kolom') return { jenis: 'kolom' };
+  let d: Record<string, unknown> | null;
+  if ((d = jsonSetelah(b, '!kode'))) return { jenis: 'kode', bahasa: teksAman(d.bahasa || 'teks', 20), isi: teksAman(d.isi, MAKS_KODE) };
+  if ((d = jsonSetelah(b, '!rumus'))) return { jenis: 'rumus', isi: teksAman(d.isi, 2000) };
+  if ((d = jsonSetelah(b, '!grafik')) && d.sumber === 'reklamasi') {
+    const tampil = (['tahun', 'kegiatan', 'blok', 'lengkap'] as const).find((x) => x === d!.tampil) ?? 'tahun';
+    const tahun = (v: unknown) => (Number.isInteger(v) && Number(v) >= 2000 && Number(v) <= 2100 ? Number(v) : undefined);
+    return { jenis: 'grafik', sumber: 'reklamasi', tampil, dari: tahun(d.dari), sampai: tahun(d.sampai) };
+  }
+  if ((d = jsonSetelah(b, '!penanda')) && /^https?:\/\//.test(String(d.url ?? ''))) {
+    return { jenis: 'penanda', url: teksAman(d.url, 2000), judul: teksAman(d.judul, 200), ket: teksAman(d.ket, 400), situs: teksAman(d.situs, 100) };
+  }
+  const m = b.match(/^!\[([^\]]*)\]\(([^)\s]+)\)(\{[^\n]*\})?\s*$/);
+  if (m) {
+    let opsi: Record<string, unknown> = {};
+    try { opsi = m[3] ? JSON.parse(m[3]) as Record<string, unknown> : {}; } catch { /* abaikan opsi rusak */ }
+    const lebar = Number(opsi.lebar);
+    const rata = opsi.rata === 'tengah' || opsi.rata === 'kanan' ? opsi.rata : undefined;
+    return { jenis: 'gambar', nama: m[1], kunci: m[2], ...(lebar >= 20 && lebar < 100 ? { lebar } : {}), ...(rata ? { rata } : {}) };
+  }
+  return null;
+}
+
+/** Judul-judul memo untuk daftar isi: nomor blok, tingkat, dan teks polosnya. */
+export function daftarJudul(isi: string): { indeks: number; tingkat: number; teks: string }[] {
+  return uraiBlok(isi).flatMap((b, indeks) => (b.jenis === 'judul' ? [{ indeks, tingkat: b.tingkat, teks: ringkasInline(b.teks) }] : []));
+}
+
 export function uraiBlok(isi: string): Blok[] {
   const hasil: Blok[] = [];
   // Nomor urut per kedalaman: daftar bernomor di dalam anak mulai lagi dari 1.
@@ -170,7 +255,10 @@ export function uraiBlok(isi: string): Blok[] {
     let m: RegExpMatchArray | null;
     let blokTabel: BlokDasar | null;
     let blokData: BlokDasar | null;
-    if ((m = b.match(/^(#{1,4}) (.*)$/))) {
+    let khusus: BlokDasar | null;
+    if (b.startsWith('!') && (khusus = blokKhusus(b))) {
+      blok = khusus;
+    } else if ((m = b.match(/^(#{1,4}) (.*)$/))) {
       blok = { jenis: 'judul', tingkat: m[1].length as 1 | 2 | 3 | 4, teks: m[2] };
     } else if ((m = b.match(POLA_CEKLIS))) {
       blok = { jenis: 'ceklis', selesai: m[1] !== ' ', teks: m[2] };
@@ -213,9 +301,14 @@ export function uraiBlok(isi: string): Blok[] {
 const POLA_INLINE = new RegExp(
   [
     '\\[\\[memo:(?<halId>[\\w-]+)\\|(?<halJudul>[^\\]\\n]*)\\]\\]',
+    // Warna dulu: isinya diurai lagi, jadi tebal/tenggat di dalam warna tetap terbaca.
+    '\\{(?<wJenis>[wl]):(?<wNama>[a-z]+)\\|(?<wIsi>[^{}\\n]+)\\}',
     '`(?<kode>[^`\\n]+)`',
+    '\\$\\$(?<rumus>[^$\\n]+)\\$\\$',
+    '(?<baris><br>)',
     '\\*\\*(?<tebal>[^*\\n]+)\\*\\*',
     '~~(?<coret>[^~\\n]+)~~',
+    '\\+\\+(?<garisbawah>[^+\\n]+)\\+\\+',
     '\\*(?=\\S)(?<miring>[^*\\n]*?\\S)\\*',
     '\\[(?<teksTaut>[^\\]\\n]+)\\]\\((?<url>https?:\\/\\/[^)\\s]+)\\)',
     '\\[(?<namaBerkas>[^\\]\\n]+)\\]\\((?<kunci>(?:memo|demo)\\/[^)\\s]+)\\)',
@@ -243,6 +336,13 @@ export function uraiInline(teks: string): Inline[] {
     akhir = i + m[0].length;
 
     if (g.halId !== undefined) hasil.push({ t: 'halaman', id: g.halId, v: g.halJudul || 'Tanpa judul' });
+    else if (g.wNama !== undefined) {
+      const jenis = g.wJenis === 'l' ? 'l' : 'w';
+      if (adaWarna(jenis, g.wNama)) hasil.push({ t: 'warna', jenis, warna: g.wNama, isi: uraiInline(g.wIsi) });
+      else tambahTeks(m[0]);
+    } else if (g.rumus !== undefined) hasil.push({ t: 'rumus', v: g.rumus });
+    else if (g.baris !== undefined) hasil.push({ t: 'baris' });
+    else if (g.garisbawah !== undefined) hasil.push({ t: 'garisbawah', v: g.garisbawah });
     else if (g.kode !== undefined) hasil.push({ t: 'kode', v: g.kode });
     else if (g.tebal !== undefined) hasil.push({ t: 'tebal', v: g.tebal });
     else if (g.coret !== undefined) hasil.push({ t: 'coret', v: g.coret });
@@ -293,12 +393,13 @@ export function ambilTugas(isi: string): Tugas[] {
     let jam: string | null = null;
     let pic: string | null = null;
     const potong: string[] = [];
-    for (const x of uraiInline(m[2])) {
+    for (const x of rataInline(uraiInline(m[2]))) {
       if (x.t === 'tenggat') { if (!tanggal) { tanggal = x.tanggal; jam = x.jam; } continue; }
       if (x.t === 'orang') { if (!pic) pic = x.id; continue; }
-      if (x.t === 'teks' || x.t === 'tebal' || x.t === 'miring' || x.t === 'coret' || x.t === 'kode') potong.push(x.v);
+      if (x.t === 'teks' || x.t === 'tebal' || x.t === 'miring' || x.t === 'coret' || x.t === 'kode' || x.t === 'garisbawah' || x.t === 'rumus') potong.push(x.v);
       else if (x.t === 'tautan' || x.t === 'berkas' || x.t === 'halaman') potong.push(x.v);
       else if (x.t === 'pica') potong.push(`#${x.id}`);
+      else if (x.t === 'baris') potong.push(' ');
     }
     hasil.push({ indeks, selesai: m[1] !== ' ', judul: potong.join('').replace(/\s+/g, ' ').trim(), tanggal, jam, pic });
   });
@@ -386,13 +487,20 @@ export function cuplikanMemo(isi: string): string {
   return '';
 }
 
+/** Potongan berwarna dibuka jadi isinya (untuk membaca tugas, tenggat, dan teks polos). */
+export function rataInline(daftar: Inline[]): Inline[] {
+  return daftar.flatMap((x) => (x.t === 'warna' ? rataInline(x.isi) : [x]));
+}
+
 /** Teks polos satu baris (tanda format dibuang). */
 export function ringkasInline(teks: string): string {
-  return uraiInline(teks)
+  return rataInline(uraiInline(teks))
     .map((x) => {
       if (x.t === 'tenggat') return `@${x.tanggal}${x.jam ? ` ${x.jam}` : ''}`;
       if (x.t === 'orang') return `@${x.id}`;
       if (x.t === 'pica') return `#${x.id}`;
+      if (x.t === 'baris') return ' ';
+      if (x.t === 'warna') return '';
       return x.v;
     })
     .join('')
