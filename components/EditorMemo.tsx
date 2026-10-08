@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  AlignCenter, AlignLeft, AlignRight, AtSign, Bold, CalendarClock, ChevronDown, ChevronRight, ChevronUp, Code, Columns2, Copy, FileText,
+  AlignCenter, AlignLeft, AlignRight, AtSign, Bold, CalendarClock, CheckSquare, ChevronDown, ChevronRight, ChevronUp, Code, Columns2, Copy, FileText,
   GripVertical, Highlighter, ImagePlus, ImageOff, Info, Italic, Link2, ListChecks, ListIndentDecrease, ListIndentIncrease, Loader2,
   Lock, MessageSquare, Palette, Paperclip, Plus, RefreshCw, Send, Sigma, SlidersHorizontal, Sparkles, Strikethrough, Trash2, Type, Underline, X,
 } from 'lucide-react';
@@ -28,8 +28,10 @@ import { DAFTAR_BLOK, UBAH_JADI, cocokKueri, skorKueri, type DefinisiBlok } from
 import { GrafikTabelMemo } from './GrafikTabelMemo';
 import { GrafikReklamasi } from './GrafikReklamasi';
 import { ModalPilihPica } from './ModalPilihPica';
+import { ModalImporTabel } from './ModalImporTabel';
 import { uraiClipboard, uraiTsvKeMatriks } from '../lib/memo-clipboard';
 import { sinkronkanTabelPica, capWaktuSekarang, capDitetapkanSekarang } from '../lib/pica-tabel';
+import { hitungRingkasanTabel, toggleStatusBarisTabel, cekNilaiSelesai, buatOpsiGrafikOtomatis } from '../lib/tabel-interaktif';
 
 /**
  * Penyunting memo gaya Notion: halaman berisi blok yang langsung jadi saat
@@ -238,8 +240,11 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = (
   if (!t) return null;
   const { baris, kepala, grafik, pica } = t;
   const [modalPicaBuka, setModalPicaBuka] = useState(false);
+  const [modalImporBuka, setModalImporBuka] = useState(false);
+  const [kolomLebar, setKolomLebar] = useState(false);
   const [memuatSync, setMemuatSync] = useState(false);
 
+  const infoProgres = useMemo(() => hitungRingkasanTabel(baris), [baris]);
   const kirim = (b: string[][], k = kepala, g = grafik, p = pica) => onUbah(rakitTabel(b, k, g, p));
 
   // Selalu update otomatis jika tabel dalam mode Live Sync PICA
@@ -449,26 +454,112 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = (
         </div>
       )}
 
+      {/* Ringkasan Progres & KPI jika tabel memiliki kolom status / ceklis */}
+      {infoProgres && infoProgres.idxStatus !== -1 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 mb-2 bg-gradient-to-r from-zinc-900 to-zinc-950 border border-lime-500/40 rounded-xs text-[12px]">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded-xs font-bold text-zinc-300">
+              Total: {infoProgres.total}
+            </span>
+            <span className="px-2 py-0.5 bg-emerald-950/70 border border-emerald-500/50 rounded-xs font-bold text-emerald-300">
+              ✓ Selesai: {infoProgres.selesai}
+            </span>
+            <span className="px-2 py-0.5 bg-amber-950/70 border border-amber-500/50 rounded-xs font-bold text-amber-300">
+              Sisa: {infoProgres.sisa}
+            </span>
+            <span className="px-2 py-0.5 bg-lime-950/70 border border-lime-500/50 rounded-xs font-mono font-bold text-lime-400">
+              Progres: {infoProgres.persen}%
+            </span>
+          </div>
+          <div className="w-28 sm:w-40 h-2 bg-zinc-800 rounded-full overflow-hidden border border-white/10">
+            <div
+              className="h-full bg-lime-500 transition-all duration-300"
+              style={{ width: `${infoProgres.persen}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Tabel Grid */}
       <div className="overflow-x-auto custom-scrollbar pb-1">
         <table className="border-collapse text-[0.9375em]">
           <tbody>
             {baris.map((r, i) => (
               <tr key={i} className="group/baris">
-                {r.map((c, j) => (
-                  <td key={j} className={`border-2 border-white/20 p-0 align-top ${kepala && i === 0 ? 'bg-white/[0.07]' : ''}`}>
-                    <input
-                      value={c}
-                      onChange={(e) => isiSel(i, j, e.target.value)}
-                      onKeyDown={(e) => pindahSel(e, i, j)}
-                      onPaste={(e) => tempelSel(e, i, j)}
-                      data-sel={`${i}-${j}`}
-                      className={`w-full min-w-[110px] bg-transparent px-2 py-1 outline-none focus:bg-lime-500/10 break-words ${kepala && i === 0 ? 'font-bold text-white' : 'text-zinc-100'}`}
-                      placeholder={kepala && i === 0 ? `Kolom ${j + 1}` : ''}
-                      aria-label={`Baris ${i + 1}, kolom ${j + 1}`}
-                    />
-                  </td>
-                ))}
+                {r.map((c, j) => {
+                  // Sel Ceklis Interaktif (pada kolom status)
+                  if (i > 0 && infoProgres && j === infoProgres.idxStatus) {
+                    const selesai = cekNilaiSelesai(c);
+                    return (
+                      <td key={j} className="border-2 border-white/20 p-1 align-middle text-center bg-white/[0.02]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const baru = toggleStatusBarisTabel(baris, i);
+                            kirim(baru);
+                          }}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xs font-bold text-[11px] transition-all cursor-pointer ${
+                            selesai
+                              ? 'bg-emerald-950/80 border border-emerald-400 text-emerald-200 hover:bg-emerald-900 shadow-xs'
+                              : 'bg-zinc-800/80 border border-white/20 text-zinc-400 hover:text-white hover:border-amber-400'
+                          }`}
+                          title="Klik untuk mengubah status penyelesaian (grafik otomatis terupdate)"
+                        >
+                          <CheckSquare size={13} className={selesai ? 'text-emerald-400' : 'text-zinc-500'} />
+                          <span>{c || (selesai ? '✓ Selesai' : 'Belum')}</span>
+                        </button>
+                      </td>
+                    );
+                  }
+
+                  // Sel Kumulatif Angka (highlight rapi)
+                  if (i > 0 && infoProgres && j === infoProgres.idxKumulatif) {
+                    return (
+                      <td key={j} className="border-2 border-white/20 px-2 py-1 align-middle text-center font-mono font-bold text-lime-300 bg-white/[0.02]">
+                        {c}
+                      </td>
+                    );
+                  }
+
+                  const isKolomTeksPanjang = c.length > 25 || (i === 0 && (c.toLowerCase().includes('topik') || c.toLowerCase().includes('materi') || c.toLowerCase().includes('masalah')));
+                  const minW = kolomLebar
+                    ? (isKolomTeksPanjang ? 'min-w-[280px]' : 'min-w-[180px]')
+                    : (isKolomTeksPanjang ? 'min-w-[180px]' : 'min-w-[110px]');
+
+                  return (
+                    <td key={j} className={`border-2 border-white/20 p-0 align-top ${kepala && i === 0 ? 'bg-white/[0.07]' : ''}`}>
+                      {kolomLebar && c.length > 20 ? (
+                        <textarea
+                          value={c}
+                          onChange={(e) => isiSel(i, j, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              pindahSel(e, i, j);
+                            }
+                          }}
+                          onPaste={(e) => tempelSel(e, i, j)}
+                          data-sel={`${i}-${j}`}
+                          rows={Math.min(4, Math.max(1, Math.ceil(c.length / 30)))}
+                          className={`w-full ${minW} bg-transparent px-2 py-1 outline-none focus:bg-lime-500/10 whitespace-pre-wrap break-words resize-none text-[12px] ${kepala && i === 0 ? 'font-bold text-white' : 'text-zinc-100'}`}
+                          placeholder={kepala && i === 0 ? `Kolom ${j + 1}` : ''}
+                          aria-label={`Baris ${i + 1}, kolom ${j + 1}`}
+                        />
+                      ) : (
+                        <input
+                          value={c}
+                          onChange={(e) => isiSel(i, j, e.target.value)}
+                          onKeyDown={(e) => pindahSel(e, i, j)}
+                          onPaste={(e) => tempelSel(e, i, j)}
+                          data-sel={`${i}-${j}`}
+                          className={`w-full ${minW} bg-transparent px-2 py-1 outline-none focus:bg-lime-500/10 break-words ${kepala && i === 0 ? 'font-bold text-white' : 'text-zinc-100'}`}
+                          placeholder={kepala && i === 0 ? `Kolom ${j + 1}` : ''}
+                          aria-label={`Baris ${i + 1}, kolom ${j + 1}`}
+                        />
+                      )}
+                    </td>
+                  );
+                })}
                 <td className="pl-1 align-middle">
                   <button type="button" tabIndex={-1} disabled={baris.length <= 1} onClick={() => kirim(baris.filter((_, a) => a !== i))} className="w-5 h-5 text-zinc-500 hover:text-red-300 opacity-60 sm:opacity-0 sm:group-hover/baris:opacity-100 disabled:hidden" title="Hapus baris" aria-label={`Hapus baris ${i + 1}`}><X size={12} /></button>
                 </td>
@@ -491,15 +582,31 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = (
         <button type="button" disabled={baris[0].length >= MAKS_KOLOM_TABEL} onClick={() => kirim(baris.map((r) => [...r, '']))} className={tombol}>+ Kolom</button>
         <button
           type="button"
+          onClick={() => setKolomLebar(!kolomLebar)}
+          className={`${tombol} ${kolomLebar ? 'border-sky-400 text-sky-300 bg-sky-950/40 font-bold' : ''}`}
+          title={kolomLebar ? 'Kembalikan ke ukuran kolom normal' : 'Lebarkan kolom dan bungkus teks agar kalimat panjang tidak terpotong'}
+        >
+          ↔️ {kolomLebar ? 'Kolom Kompak' : 'Lebarkan Kolom'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setModalImporBuka(true)}
+          className={`${tombol} border-emerald-500/50 text-emerald-300 bg-emerald-950/30 hover:border-emerald-400`}
+          title="Impor berkas Excel (.xlsx/.xls) atau CSV (.csv) ke tabel ini"
+        >
+          📥 Impor Excel/CSV
+        </button>
+        <button
+          type="button"
           onClick={() => {
             if (grafik?.aktif) {
               kirim(baris, kepala, undefined);
             } else {
-              kirim(baris, kepala, { aktif: true, tipe: 'batang' });
+              kirim(baris, kepala, buatOpsiGrafikOtomatis(baris));
             }
           }}
           className={`${tombol} ${grafik?.aktif ? 'border-lime-400 text-lime-300 bg-lime-600/20' : ''}`}
-          title={grafik?.aktif ? 'Sembunyikan grafik' : 'Buat grafik visual interaktif dari tabel ini'}
+          title={grafik?.aktif ? 'Sembunyikan grafik' : 'Buat grafik visual interaktif yang langsung terhubung ke tabel ini'}
         >
           📊 {grafik?.aktif ? 'Grafik Aktif' : 'Buat Grafik'}
         </button>
@@ -538,6 +645,17 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = (
             setModalPicaBuka(false);
           }}
           onTutup={() => setModalPicaBuka(false)}
+        />
+      )}
+
+      {/* Modal Impor Excel / CSV untuk mengganti atau mengisi tabel */}
+      {modalImporBuka && (
+        <ModalImporTabel
+          onTutup={() => setModalImporBuka(false)}
+          onSisipkan={(barisBaru, kBaru, dgGrafik) => {
+            kirim(barisBaru, kBaru, dgGrafik ? buatOpsiGrafikOtomatis(barisBaru) : undefined);
+            setModalImporBuka(false);
+          }}
         />
       )}
     </div>
@@ -839,6 +957,7 @@ const EditorBlok: React.FC<Props> = ({
   const [jam, setJam] = useState('');
   const [sibuk, setSibuk] = useState(0);
   const [modalPica, setModalPica] = useState<{ id: string; pos: number } | null>(null);
+  const [modalImpor, setModalImpor] = useState<{ id: string; pos: number } | null>(null);
   const [seret, setSeret] = useState<{ id: string; ke: number; atas: number; kiri?: number; lebar?: number; dalam?: number } | null>(null);
   const [pilihan, setPilihan] = useState<{ x: number; y: number } | null>(null);
   /** Bilah format mengambang: digeser agar tidak terpotong tepi layar (teks terpilih di dekat tepi). */
@@ -1398,6 +1517,7 @@ const EditorBlok: React.FC<Props> = ({
     }
     if (pid === 'tautan_halaman') { setCariHalaman(''); setPanel({ jenis: 'halaman', id, pos }); }
     if (pid === 'pica') { setModalPica({ id, pos }); return; }
+    if (pid === 'impor_tabel') { setModalImpor({ id, pos }); return; }
     if (pid === 'halaman') void buatSubHalaman(id);
     if (pid.startsWith('emoji:')) { sisipTeks(id, pos, pid.slice(6)); return; }
     if (pid.startsWith('warna:')) { warnaiBlok(id, pid.slice(6, 7) as 'w' | 'l', pid.slice(8)); return; }
@@ -2637,6 +2757,21 @@ const EditorBlok: React.FC<Props> = ({
             setModalPica(null);
           }}
           onTutup={() => setModalPica(null)}
+        />
+      )}
+
+      {modalImpor && (
+        <ModalImporTabel
+          onTutup={() => setModalImpor(null)}
+          onSisipkan={(barisBaru, kBaru, dgGrafik) => {
+            const rawTabel = rakitTabel(
+              barisBaru,
+              kBaru,
+              dgGrafik ? buatOpsiGrafikOtomatis(barisBaru) : undefined
+            );
+            sisipBlokKhusus(modalImpor.id, rawTabel);
+            setModalImpor(null);
+          }}
         />
       )}
 

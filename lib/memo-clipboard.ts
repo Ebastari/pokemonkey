@@ -11,6 +11,7 @@
  */
 
 import { MAKS_BARIS_TABEL, MAKS_KOLOM_TABEL, rakitTabel } from '../server/src/memo-blok';
+import { uraiCsvKeMatriks } from './impor-tabel';
 
 export interface HasilTempel {
   /** Apakah tempelan ini menghasilkan satu atau banyak baris terstruktur */
@@ -266,6 +267,69 @@ function bersihSelTsv(s: string): string {
 }
 
 /**
+ * Deteksi apakah teks berformat Markdown Table (| Kolom 1 | Kolom 2 | ... |)
+ */
+function prosesMarkdownTabel(teks: string): string | null {
+  const baris = teks.split(/\r?\n/).map((b) => b.trim()).filter(Boolean);
+  if (baris.length < 2) return null;
+
+  const barisPipa = baris.filter((b) => b.includes('|'));
+  if (barisPipa.length < 2) return null;
+
+  const matriks: string[][] = [];
+  for (const b of barisPipa) {
+    // Abaikan baris pembatas markdown seperti |:---:|---|---| atau :--- | ---
+    if (/^[|\s:-]+$/.test(b)) continue;
+
+    let bersih = b;
+    if (bersih.startsWith('|')) bersih = bersih.slice(1);
+    if (bersih.endsWith('|')) bersih = bersih.slice(0, -1);
+
+    const sel = bersih.split('|').map((s) => s.trim().slice(0, 2000));
+    if (sel.length >= 2) {
+      matriks.push(sel);
+    }
+  }
+
+  if (matriks.length < 2) return null;
+
+  const lebar = Math.min(MAKS_KOLOM_TABEL, Math.max(1, ...matriks.map((r) => r.length)));
+  const normal = matriks.slice(0, MAKS_BARIS_TABEL).map((r) => {
+    const row = r.slice(0, lebar);
+    while (row.length < lebar) row.push('');
+    return row;
+  });
+
+  return rakitTabel(normal, true);
+}
+
+/**
+ * Deteksi apakah teks berformat CSV (pemisah koma atau titik koma) multi-baris
+ */
+function prosesCsvTeks(teks: string): string | null {
+  const baris = teks.split(/\r?\n/).map((b) => b.trim()).filter(Boolean);
+  if (baris.length < 2) return null;
+
+  // Cek konsistensi pemisah koma atau titik koma
+  const countComma = baris.map((b) => (b.match(/,/g) || []).length);
+  const countSemi = baris.map((b) => (b.match(/;/g) || []).length);
+
+  const delimiter =
+    countComma[0] >= 1 && countComma.slice(0, 5).every((c) => c === countComma[0] && c > 0)
+      ? ','
+      : countSemi[0] >= 1 && countSemi.slice(0, 5).every((s) => s === countSemi[0] && s > 0)
+      ? ';'
+      : null;
+
+  if (!delimiter) return null;
+
+  const matriks = uraiCsvKeMatriks(teks);
+  if (matriks.length < 2 || matriks[0].length < 2) return null;
+
+  return rakitTabel(matriks, true);
+}
+
+/**
  * Normalisasi satu baris teks biasa:
  * mengenali simbol ceklis Unicode, nomor, butir, dan heading.
  */
@@ -327,7 +391,23 @@ export function uraiClipboard(clipboardData: DataTransfer): HasilTempel {
     }
   }
 
-  // 3. Normalisasi teks baris per baris (ceklis simbol, butir, nomor)
+  // 3. Jika teks biasa berupa tabel Markdown (| Kolom 1 | Kolom 2 | ...)
+  if (teksPolos && teksPolos.includes('|')) {
+    const tabelMd = prosesMarkdownTabel(teksPolos);
+    if (tabelMd) {
+      return { baris: [tabelMd], tabel: true };
+    }
+  }
+
+  // 4. Jika teks biasa berupa CSV terstruktur (koma / titik koma)
+  if (teksPolos && (teksPolos.includes(',') || teksPolos.includes(';'))) {
+    const tabelCsv = prosesCsvTeks(teksPolos);
+    if (tabelCsv) {
+      return { baris: [tabelCsv], tabel: true };
+    }
+  }
+
+  // 5. Normalisasi teks baris per baris (ceklis simbol, butir, nomor)
   const barisMentah = teksPolos ? teksPolos.split('\n') : [''];
   const baris = barisMentah.map(normalisasiBarisTeks);
 
@@ -342,13 +422,34 @@ export function uraiTsvKeMatriks(clipboardData: DataTransfer): string[][] | null
   const teks = clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
   if (!teks) return null;
 
-  // Jika hanya teks 1 baris tanpa tab, biarkan input default yang menangani
-  if (!teks.includes('\t') && !teks.includes('\n')) {
-    return null;
+  // 1. Cek Markdown Table jika memuat tanda pipa
+  if (teks.includes('|')) {
+    const baris = teks.split('\n').map((b) => b.trim()).filter(Boolean);
+    const barisPipa = baris.filter((b) => b.includes('|') && !/^[|\s:-]+$/.test(b));
+    if (barisPipa.length >= 1) {
+      const matriks = barisPipa.map((b) => {
+        let bersih = b;
+        if (bersih.startsWith('|')) bersih = bersih.slice(1);
+        if (bersih.endsWith('|')) bersih = bersih.slice(0, -1);
+        return bersih.split('|').map((s) => s.trim().slice(0, 2000));
+      });
+      if (matriks.length > 0 && matriks[0].length >= 2) return matriks;
+    }
   }
 
-  const baris = teks.split('\n').filter((b, idx, arr) => idx < arr.length - 1 || b.trim().length > 0);
-  if (baris.length === 0) return null;
+  // 2. Cek TSV (Excel/Sheets)
+  if (teks.includes('\t')) {
+    const baris = teks.split('\n').filter((b, idx, arr) => idx < arr.length - 1 || b.trim().length > 0);
+    if (baris.length > 0) {
+      return baris.map((b) => b.split('\t').map((c) => bersihSelTsv(c)));
+    }
+  }
 
-  return baris.map((b) => b.split('\t').map((c) => bersihSelTsv(c)));
+  // 3. Cek CSV jika ada koma/titik koma multi-kolom
+  if (teks.includes(',') || teks.includes(';')) {
+    const csv = uraiCsvKeMatriks(teks);
+    if (csv.length > 0 && csv[0].length >= 2) return csv;
+  }
+
+  return null;
 }

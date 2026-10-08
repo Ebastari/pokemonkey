@@ -1,0 +1,21 @@
+{
+  "name": "kebunku-engine",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Kebunku: engine isometrik 2.5D (PixiJS v8 + GSAP). Proyek mandiri, terpisah dari aplikasi POKEMONKEY.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "cek": "tsc --noEmit"
+  },
+  "dependencies": {
+    "gsap": "^3.15.0",
+    "pixi.js": "^8.22.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.8",
+    "vite": "^6.4.4"
+  }
+}

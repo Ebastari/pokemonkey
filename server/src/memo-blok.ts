@@ -143,6 +143,10 @@ export interface OpsiGrafikTabel {
   sumbuX?: number;
   seriY?: number[];
   judul?: string;
+  /** Mode hitung: 'nilai' (angka sel langsung) atau 'hitung' (hitung frekuensi / jumlah data / pivot rekap) */
+  mode?: 'nilai' | 'hitung';
+  /** Kolom kedua untuk pengelompokan (breakdown) pada mode hitung (misal: kolom Status saat sumbuX = PIC) */
+  kolomPecah?: number;
 }
 
 /** Pengaturan sinkronisasi tabel dinamis PICA di memo. */

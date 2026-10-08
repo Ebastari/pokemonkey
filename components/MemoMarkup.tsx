@@ -1,5 +1,5 @@
-import React, { useEffect, useId, useState } from 'react';
-import { CalendarClock, Check, ChevronRight, Copy, ExternalLink, FileText, ImageOff, Info, Link2, Loader2, Lock, Play, Video } from 'lucide-react';
+import React, { useEffect, useId, useMemo, useState } from 'react';
+import { CalendarClock, Check, CheckSquare, ChevronRight, Copy, ExternalLink, FileText, ImageOff, Info, Link2, Loader2, Lock, Play, Video } from 'lucide-react';
 import { daftarJudul, uraiBlok, uraiInline, toggleBaris, type Blok, type Inline, type RataGambar, type InfoPicaLive, type OpsiGrafikTabel } from '../server/src/memo-blok';
 import { BAHASA_KODE, WARNA_KODE, sorotKode } from '../server/src/tampil-memo';
 import { rumusHtml, useKatex } from '../lib/rumus';
@@ -12,6 +12,7 @@ import { infoHalaman, type PetaHalaman } from '../lib/memo-dom';
 import { KartuDataLapangan } from './KartuDataLapangan';
 import { GrafikTabelMemo } from './GrafikTabelMemo';
 import { sinkronkanTabelPica } from '../lib/pica-tabel';
+import { hitungRingkasanTabel, toggleStatusBarisTabel, cekNilaiSelesai } from '../lib/tabel-interaktif';
 
 /**
  * Penampil memo. Teks memo tetap teks biasa (lihat server/src/memo-blok.ts untuk
@@ -243,6 +244,8 @@ export const TabelBaca: React.FC<{
 } & Konteks> = ({ baris, kepala, pica, grafik, ...ctx }) => {
   const [dataBaris, setDataBaris] = useState(baris);
 
+  const infoProgres = useMemo(() => hitungRingkasanTabel(dataBaris), [dataBaris]);
+
   useEffect(() => {
     setDataBaris(baris);
     if (!pica?.aktif) return;
@@ -297,29 +300,93 @@ export const TabelBaca: React.FC<{
         </div>
       )}
 
+      {/* Ringkasan Progres & KPI jika tabel memiliki kolom status / ceklis */}
+      {infoProgres && infoProgres.idxStatus !== -1 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 mb-2 bg-gradient-to-r from-zinc-900 to-zinc-950 border border-lime-500/40 rounded-xs text-[12px]">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded-xs font-bold text-zinc-300">
+              Total: {infoProgres.total}
+            </span>
+            <span className="px-2 py-0.5 bg-emerald-950/70 border border-emerald-500/50 rounded-xs font-bold text-emerald-300">
+              ✓ Selesai: {infoProgres.selesai}
+            </span>
+            <span className="px-2 py-0.5 bg-amber-950/70 border border-amber-500/50 rounded-xs font-bold text-amber-300">
+              Sisa: {infoProgres.sisa}
+            </span>
+            <span className="px-2 py-0.5 bg-lime-950/70 border border-lime-500/50 rounded-xs font-mono font-bold text-lime-400">
+              Progres: {infoProgres.persen}%
+            </span>
+          </div>
+          <div className="w-28 sm:w-40 h-2 bg-zinc-800 rounded-full overflow-hidden border border-white/10">
+            <div
+              className="h-full bg-lime-500 transition-all duration-300"
+              style={{ width: `${infoProgres.persen}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Grid Tabel */}
       <div className="overflow-x-auto custom-scrollbar pb-1">
         <table className="border-collapse text-[0.9375em]">
           <tbody>
             {dataBaris.map((r, i) => (
               <tr key={i} className={kepala && i === 0 ? 'bg-white/[0.07]' : ''}>
-                {r.map((c, j) =>
-                  kepala && i === 0 ? (
-                    <th
-                      key={j}
-                      className="border-2 border-white/25 px-2 py-1 text-left align-top min-w-[90px] font-bold text-white break-words"
-                    >
-                      <TeksInline teks={c} {...ctx} />
-                    </th>
-                  ) : (
+                {r.map((c, j) => {
+                  if (kepala && i === 0) {
+                    return (
+                      <th
+                        key={j}
+                        className="border-2 border-white/25 px-2 py-1 text-left align-top min-w-[90px] font-bold text-white break-words"
+                      >
+                        <TeksInline teks={c} {...ctx} />
+                      </th>
+                    );
+                  }
+
+                  // Sel Ceklis Interaktif (pada kolom status)
+                  if (i > 0 && infoProgres && j === infoProgres.idxStatus) {
+                    const selesai = cekNilaiSelesai(c);
+                    return (
+                      <td key={j} className="border-2 border-white/20 p-1 align-middle text-center bg-white/[0.02]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const baru = toggleStatusBarisTabel(dataBaris, i);
+                            setDataBaris(baru);
+                          }}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xs font-bold text-[11px] transition-all cursor-pointer ${
+                            selesai
+                              ? 'bg-emerald-950/80 border border-emerald-400 text-emerald-200 hover:bg-emerald-900 shadow-xs'
+                              : 'bg-zinc-800/80 border border-white/20 text-zinc-400 hover:text-white hover:border-amber-400'
+                          }`}
+                          title="Klik untuk mengubah status penyelesaian (grafik otomatis terupdate)"
+                        >
+                          <CheckSquare size={13} className={selesai ? 'text-emerald-400' : 'text-zinc-500'} />
+                          <span>{c || (selesai ? '✓ Selesai' : 'Belum')}</span>
+                        </button>
+                      </td>
+                    );
+                  }
+
+                  // Sel Kumulatif Angka (highlight rapi)
+                  if (i > 0 && infoProgres && j === infoProgres.idxKumulatif) {
+                    return (
+                      <td key={j} className="border-2 border-white/20 px-2 py-1 align-middle text-center font-mono font-bold text-lime-300 bg-white/[0.02]">
+                        {c}
+                      </td>
+                    );
+                  }
+
+                  return (
                     <td
                       key={j}
-                      className="border-2 border-white/20 px-2 py-1 align-top min-w-[90px] text-zinc-100 break-words"
+                      className={`border-2 border-white/20 px-2.5 py-1.5 align-top text-zinc-100 break-words whitespace-pre-wrap leading-relaxed ${c.length > 25 ? 'min-w-[180px]' : 'min-w-[90px]'}`}
                     >
                       <TeksInline teks={c} {...ctx} />
                     </td>
-                  )
-                )}
+                  );
+                })}
               </tr>
             ))}
           </tbody>

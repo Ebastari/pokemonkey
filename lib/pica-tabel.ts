@@ -164,8 +164,9 @@ export function rakitBlokTabelPica(
       ? {
           aktif: true,
           tipe: 'pie',
+          mode: 'hitung',
           sumbuX: 4, // Kolom Status
-          seriY: [0],
+          kolomPecah: -1,
           judul: `Rekap Status PICA (${items.length} Data)`,
         }
       : undefined;

@@ -1,0 +1,2506 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Kebunku - Township & Hay Day Realistic Isometric Edition</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Outfit:wght@600;800&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+    body {
+      background-color: #0b1320;
+      font-family: 'Fredoka', sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      color: #ffffff;
+    }
+    #game-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+    }
+    #game-canvas:active {
+      cursor: grabbing;
+    }
+
+    /* TOP HUD TOWNSHIP */
+    #hud-top {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      right: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+      z-index: 100;
+      gap: 12px;
+    }
+    .hud-card {
+      pointer-events: auto;
+      background: linear-gradient(180deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);
+      border: 2px solid #475569;
+      border-radius: 18px;
+      padding: 6px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5), inset 0 1px 2px rgba(255,255,255,0.2);
+      backdrop-filter: blur(8px);
+    }
+    .level-badge {
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      border: 2px solid #93c5fd;
+      border-radius: 14px;
+      padding: 4px 10px;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+      font-size: 15px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+    .stat-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .pill-gold { color: #fde047; }
+    .pill-xp { color: #d8b4fe; }
+    .pill-eco { color: #34d399; }
+
+    /* ACTION BAR / TOOLBAR BAWAH */
+    #hud-bottom {
+      position: absolute;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.94) 0%, rgba(2, 6, 23, 0.98) 100%);
+      border: 3px solid #38bdf8;
+      border-radius: 28px;
+      padding: 8px 18px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.7);
+      backdrop-filter: blur(10px);
+      z-index: 100;
+      max-width: 96vw;
+      overflow-x: auto;
+    }
+    .tool-btn {
+      background: linear-gradient(180deg, #334155 0%, #1e293b 100%);
+      border: 2px solid #64748b;
+      border-radius: 20px;
+      padding: 8px 14px;
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+    .tool-btn:hover {
+      transform: translateY(-3px);
+      border-color: #38bdf8;
+      background: linear-gradient(180deg, #0284c7 0%, #0369a1 100%);
+    }
+    .tool-btn.active {
+      border-color: #facc15;
+      background: linear-gradient(180deg, #eab308 0%, #ca8a04 100%);
+      color: #000;
+      transform: scale(1.05);
+    }
+
+    /* INSTRUCTION BANNER */
+    #banner-guide {
+      position: absolute;
+      top: 76px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.88);
+      border: 2px solid #34d399;
+      border-radius: 20px;
+      padding: 6px 18px;
+      font-size: 12px;
+      color: #6ee7b7;
+      font-weight: 700;
+      pointer-events: none;
+      z-index: 90;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    /* MODAL POPUPS */
+    .game-modal {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      border: 3px solid #f59e0b;
+      border-radius: 24px;
+      padding: 24px;
+      z-index: 200;
+      width: 92%;
+      max-width: 500px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 20px rgba(245, 158, 11, 0.3);
+      backdrop-filter: blur(12px);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      border-bottom: 2px solid #334155;
+      padding-bottom: 10px;
+    }
+    .modal-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 20px;
+      font-weight: 800;
+      color: #fde047;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .modal-close {
+      background: #dc2626;
+      border: none;
+      color: white;
+      font-weight: 800;
+      font-size: 16px;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .recipe-card, .order-card, .mission-card {
+      background: #334155;
+      border: 2px solid #475569;
+      border-radius: 16px;
+      padding: 12px 16px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .craft-btn, .order-btn, .mission-btn {
+      background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%);
+      border: 2px solid #86efac;
+      border-radius: 14px;
+      padding: 8px 16px;
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .craft-btn:hover, .order-btn:hover, .mission-btn:hover {
+      transform: scale(1.05);
+      background: linear-gradient(180deg, #16a34a 0%, #15803d 100%);
+    }
+    .craft-btn:disabled, .order-btn:disabled, .mission-btn:disabled {
+      background: #64748b;
+      border-color: #94a3b8;
+      cursor: not-allowed;
+      transform: none;
+      opacity: 0.7;
+    }
+
+    /* FLOATING SWIPE TOOL GHOST */
+    #swipe-tool-ghost {
+      display: none;
+      position: absolute;
+      pointer-events: none;
+      z-index: 150;
+      transform: translate(-50%, -50%);
+      width: 64px;
+      height: 64px;
+      background: radial-gradient(circle, rgba(254, 240, 138, 0.95) 0%, rgba(234, 179, 8, 0.7) 70%, transparent 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 34px;
+      filter: drop-shadow(0 6px 12px rgba(0,0,0,0.5));
+      animation: pulseTool 1s infinite alternate;
+    }
+    @keyframes pulseTool {
+      0% { transform: translate(-50%, -50%) scale(1); }
+      100% { transform: translate(-50%, -50%) scale(1.15); }
+    }
+  </style>
+</head>
+<body>
+
+  <canvas id="game-canvas"></canvas>
+
+  <div id="swipe-tool-ghost" style="display:none;">🌾</div>
+
+  <!-- TOP STATUS HUD -->
+  <div id="hud-top">
+    <div class="hud-card">
+      <div class="level-badge">LVL <span id="ui-level">3</span></div>
+      <div style="display:flex; flex-direction:column; gap:2px; min-width:90px;">
+        <div style="font-size:11px; color:#94a3b8; font-weight:700;">PROGRES XP</div>
+        <div style="background:#0f172a; border-radius:6px; height:8px; border:1px solid #475569; overflow:hidden;">
+          <div id="ui-xp-bar" style="background:#a855f7; height:100%; width:65%; transition:width 0.3s;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud-card">
+      <div class="stat-pill pill-gold">
+        <span style="font-size:18px;">🪙</span> <span id="ui-koin">520</span>
+      </div>
+      <div style="width:1px; height:18px; background:#475569;"></div>
+      <div class="stat-pill pill-xp">
+        <span style="font-size:18px;">⭐</span> <span id="ui-xp">1.450</span>
+      </div>
+      <div style="width:1px; height:18px; background:#475569;"></div>
+      <div class="stat-pill pill-eco" title="Serapan Karbon Pohon">
+        <span style="font-size:18px;">🌲</span> <span id="ui-karbon">45</span> kg CO₂
+      </div>
+      <div style="width:1px; height:18px; background:#475569;"></div>
+      <div class="stat-pill" style="color:#fde047;" title="Pakan Sapi">
+        <span style="font-size:18px;">🌾</span> <span id="ui-pakan">12</span>
+      </div>
+      <div style="width:1px; height:18px; background:#475569;"></div>
+      <div class="stat-pill" style="color:#fbcfe8;" title="Pakan Ayam">
+        <span style="font-size:18px;">🥣</span> <span id="ui-pakan-ayam">15</span>
+      </div>
+      <div style="width:1px; height:18px; background:#475569;"></div>
+      <div class="stat-pill" style="color:#bae6fd;" title="Susu Segar">
+        <span style="font-size:18px;">🥛</span> <span id="ui-susu">6</span>
+      </div>
+      <div style="width:1px; height:18px; background:#475569;"></div>
+      <div class="stat-pill" style="color:#fed7aa;" title="Telur Ayam">
+        <span style="font-size:18px;">🥚</span> <span id="ui-telur">4</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="banner-guide">
+    🌾 <b>Township Controls:</b> Seret mouse untuk memutar kamera • Usap (swipe) alat ke hewan & ladang • Coba tombol Cuaca & Misi Lapangan!
+  </div>
+
+  <!-- HUD TOOLBAR BAWAH -->
+  <div id="hud-bottom">
+    <button class="tool-btn active" id="btn-hand" onclick="setMode('tangan')">
+      ✋ Jelajah & Elus
+    </button>
+    <button class="tool-btn" id="btn-feed" onclick="setMode('pakan')">
+      🌾 Pakan Sapi (-1)
+    </button>
+    <button class="tool-btn" id="btn-feed-chick" onclick="setMode('pakan_ayam')">
+      🥣 Pakan Ayam (-1)
+    </button>
+    <button class="tool-btn" id="btn-scythe" onclick="setMode('panen')">
+      🪓 Sabit Panen
+    </button>
+    <button class="tool-btn" style="border-color:#f59e0b;" onclick="openFeedMillModal()">
+      🏭 Pabrik Pakan
+    </button>
+    <button class="tool-btn" style="border-color:#38bdf8;" onclick="openOrderModal()">
+      📋 Papan Pesanan
+    </button>
+    <button class="tool-btn" style="border-color:#10b981;" onclick="openMissionModal()">
+      🎯 Misi Lapangan POKEMONKEY
+    </button>
+    <button class="tool-btn" style="border-color:#eab308;" onclick="toggleLightingTime()">
+      <span id="ui-time-icon">☀️</span> <span id="ui-time-label">Siang</span>
+    </button>
+    <button class="tool-btn" style="border-color:#a855f7;" onclick="beliSapiBaru()">
+      🐮 Beli Sapi (-500 XP)
+    </button>
+    <button class="tool-btn" style="border-color:#f472b6;" onclick="beliAyamBaru()">
+      🐔 Beli Ayam (-250 XP)
+    </button>
+    <button class="tool-btn" style="border-color:#34d399;" onclick="beliKambingBaru()">
+      🐐 Beli Kambing (-350 XP)
+    </button>
+  </div>
+
+  <!-- MODAL PABRIK PAKAN (FEED MILL) -->
+  <div class="game-modal" id="modal-feedmill">
+    <div class="modal-header">
+      <div class="modal-title">🏭 Pabrik Pakan Ternak</div>
+      <button class="modal-close" onclick="closeModals()">✕</button>
+    </div>
+    <div style="font-size:13px; color:#94a3b8; margin-bottom:14px;">
+      Olah hasil panen jagung dan rumput gajah menjadi pakan bernutrisi tinggi untuk ternak kebun.
+    </div>
+    <div class="recipe-card">
+      <div>
+        <div style="font-weight:700; color:#fde047; font-size:15px;">🌾 Pakan Sapi Jumbo (+2)</div>
+        <div style="font-size:12px; color:#cbd5e1;">Bahan: 1x 🌽 Jagung + 1x 🌿 Rumput</div>
+      </div>
+      <button class="craft-btn" onclick="craftPakan('sapi')">Giling Pakan</button>
+    </div>
+    <div class="recipe-card">
+      <div>
+        <div style="font-weight:700; color:#fed7aa; font-size:15px;">🥣 Pakan Butir Ayam (+3)</div>
+        <div style="font-size:12px; color:#cbd5e1;">Bahan: 1x 🌽 Jagung</div>
+      </div>
+      <button class="craft-btn" onclick="craftPakan('ayam')">Giling Pakan</button>
+    </div>
+  </div>
+
+  <!-- MODAL PAPAN PESANAN (TOWNSHIP ORDER BOARD) -->
+  <div class="game-modal" id="modal-orders">
+    <div class="modal-header">
+      <div class="modal-title">📋 Pesanan Dapur & Logistik Camp</div>
+      <button class="modal-close" onclick="closeModals()">✕</button>
+    </div>
+    <div style="font-size:13px; color:#94a3b8; margin-bottom:14px;">
+      Penuhi kebutuhan ransum gizi mandor dan staf lapangan POKEMONKEY untuk memperoleh Koin & XP berlimpah!
+    </div>
+    <div id="orders-container"></div>
+  </div>
+
+  <!-- MODAL MISI OPERASIONAL LAPANGAN POKEMONKEY -->
+  <div class="game-modal" id="modal-missions">
+    <div class="modal-header">
+      <div class="modal-title">🎯 Posko Misi Lapangan POKEMONKEY</div>
+      <button class="modal-close" onclick="closeModals()">✕</button>
+    </div>
+    <div style="font-size:13px; color:#94a3b8; margin-bottom:14px;">
+      Hubungkan kinerja nyata operasional Anda (Memo, Monitoring Api, Tiket PICA) untuk mengklaim pasokan ransum kebun!
+    </div>
+    <div id="missions-container"></div>
+  </div>
+
+  <script>
+    /**
+     * =========================================================================
+     * ENGINE KEBUN ISOMETRIK 2.5D REALISTIS (POKEMONKEY TOWNSHIP & HAY DAY EDITION)
+     * =========================================================================
+     * Fitur Teknis Utama:
+     * 1. Transformasi Isometrik Diamond Ratio (2:1):
+     *    screenX = (x - y) * (TILE_W / 2) * zoom + camX
+     *    screenY = (x + y) * (TILE_H / 2) * zoom + camY
+     * 2. Tiga Spesies Hewan Ternak Berkinematika Hidup:
+     *    - Sapi (Holstein & Limousin): 4 kaki melangkah, kepala menunduk, lonceng, ambing.
+     *    - Ayam Petelur: Paruh mematuk, sayap mengepak, menghasilkan telur.
+     *    - Kambing Etawa: Telinga menjuntai, melompat ceria (hopping), menghasilkan susu/wol.
+     * 3. Sektor Agroforestry & Konservasi DAS:
+     *    - Pohon Sengon & Kayu Ulin Kalimantan dengan counter serapan Karbon kg CO2.
+     * 4. Gestur Interaktif Cepat (Swipe-to-Feed & Swipe-to-Harvest) ala Township / Hay Day.
+     * 5. Siklus Pencahayaan Suasana (Siang -> Senja Keemasan -> Malam Berbintang dengan Lentera).
+     * 6. Rantai Produksi: Pabrik Pakan, Papan Pesanan Truk Logistik, Misi Operasional Nyata POKEMONKEY.
+     * =========================================================================
+     */
+
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const swipeGhost = document.getElementById('swipe-tool-ghost');
+
+    // KONSTANTA ISOMETRIK GRID
+    const TILE_W = 100;
+    const TILE_H = 50;
+    const GRID_SIZE = 16;
+
+    // STATE GAME
+    const game = {
+      koin: 520,
+      xp: 1450,
+      level: 3,
+      karbon: 45,
+      pakan: 12,
+      pakanAyam: 15,
+      susu: 6,
+      telur: 4,
+      jagung: 14,
+      rumput: 10,
+      kayu: 8,
+      mode: 'tangan',
+      camX: 0,
+      camY: 0,
+      zoom: 1.0,
+      timeOfDay: 'siang', // 'siang' | 'senja' | 'malam'
+      isDragging: false,
+      isSwiping: false,
+      swipeToolType: null,
+      dragStartX: 0,
+      dragStartY: 0,
+      floatingTexts: [],
+      particles: [],
+      windmillAngle: 0,
+      gearAngle: 0,
+      time: 0,
+      truck: {
+        active: false,
+        gx: 8,
+        gy: 15,
+        progress: 0,
+        rewardText: ''
+      }
+    };
+
+    // DAFTAR PESANAN LOGISTIK CAMP
+    const campOrders = [
+      { id: 1, title: 'Ransum Sarapan Mess A', req: { susu: 3, jagung: 2 }, reward: { koin: 90, xp: 80 } },
+      { id: 2, title: 'Gizi Tim Patroli Karhutla', req: { telur: 4, susu: 2 }, reward: { koin: 140, xp: 120 } },
+      { id: 3, title: 'Pasokan Katering Kebun Inti', req: { jagung: 5, rumput: 4 }, reward: { koin: 110, xp: 95 } }
+    ];
+
+    // DAFTAR MISI OPERASIONAL LAPANGAN POKEMONKEY
+    const dailyMissions = [
+      { id: 'm1', title: 'Baca Memo Dinas & SOP Kerja Lapangan', desc: 'Buka dan tinjau edaran memo divisi hari ini.', reward: '+15 🌾 Pakan Sapi & Ayam', done: false },
+      { id: 'm2', title: 'Monitoring Peta Titik Api Karhutla', desc: 'Verifikasi status sensor hotspot di area konsesi.', reward: '+120 ⭐ XP & Siram Pohon Konservasi', done: false },
+      { id: 'm3', title: 'Tuntaskan Tiket Tindakan Korektif PICA', desc: 'Tutup 1 temuan audit lapangan dengan rekomendasi perbaikan.', reward: '+200 ⭐ XP & +150 🪙 Koin', done: false }
+    ];
+
+    function updateHUD() {
+      document.getElementById('ui-koin').innerText = game.koin.toLocaleString('id-ID');
+      document.getElementById('ui-xp').innerText = game.xp.toLocaleString('id-ID');
+      document.getElementById('ui-level').innerText = Math.floor(game.xp / 400) + 1;
+      document.getElementById('ui-karbon').innerText = game.karbon;
+      document.getElementById('ui-pakan').innerText = game.pakan;
+      document.getElementById('ui-pakan-ayam').innerText = game.pakanAyam;
+      document.getElementById('ui-susu').innerText = game.susu;
+      document.getElementById('ui-telur').innerText = game.telur;
+
+      const progresXp = ((game.xp % 400) / 400) * 100;
+      document.getElementById('ui-xp-bar').style.width = progresXp + '%';
+    }
+
+    function setMode(m) {
+      game.mode = m;
+      document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+      if (m === 'tangan') document.getElementById('btn-hand')?.classList.add('active');
+      if (m === 'pakan') document.getElementById('btn-feed')?.classList.add('active');
+      if (m === 'pakan_ayam') document.getElementById('btn-feed-chick')?.classList.add('active');
+      if (m === 'panen') document.getElementById('btn-scythe')?.classList.add('active');
+      sfx('klik');
+    }
+
+    function toggleLightingTime() {
+      if (game.timeOfDay === 'siang') {
+        game.timeOfDay = 'senja';
+        document.getElementById('ui-time-icon').innerText = '🌅';
+        document.getElementById('ui-time-label').innerText = 'Senja';
+      } else if (game.timeOfDay === 'senja') {
+        game.timeOfDay = 'malam';
+        document.getElementById('ui-time-icon').innerText = '🌙';
+        document.getElementById('ui-time-label').innerText = 'Malam';
+      } else {
+        game.timeOfDay = 'siang';
+        document.getElementById('ui-time-icon').innerText = '☀️';
+        document.getElementById('ui-time-label').innerText = 'Siang';
+      }
+      sfx('klik');
+    }
+
+    // AUDIO SYNTHESIZER
+    let audioCtx = null;
+    function getAudioCtx() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      return audioCtx;
+    }
+
+    function sfx(tipe) {
+      try {
+        const actx = getAudioCtx();
+        const t = actx.currentTime;
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.connect(gain);
+        gain.connect(actx.destination);
+
+        if (tipe === 'moo') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(130, t);
+          osc.frequency.linearRampToValueAtTime(100, t + 0.4);
+          osc.frequency.linearRampToValueAtTime(75, t + 0.9);
+          gain.gain.setValueAtTime(0.18, t);
+          gain.gain.linearRampToValueAtTime(0.01, t + 0.95);
+          osc.start(t); osc.stop(t + 0.95);
+        } else if (tipe === 'cluck') {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(450, t);
+          osc.frequency.exponentialRampToValueAtTime(250, t + 0.12);
+          gain.gain.setValueAtTime(0.2, t);
+          gain.gain.linearRampToValueAtTime(0.01, t + 0.12);
+          osc.start(t); osc.stop(t + 0.12);
+        } else if (tipe === 'goat') {
+          // Suara kambing bergetar "mbee"
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(220, t);
+          osc.frequency.linearRampToValueAtTime(190, t + 0.4);
+          gain.gain.setValueAtTime(0.15, t);
+          gain.gain.linearRampToValueAtTime(0.01, t + 0.6);
+          osc.start(t); osc.stop(t + 0.6);
+        } else if (tipe === 'panen') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(587.33, t);
+          osc.frequency.setValueAtTime(783.99, t + 0.08);
+          osc.frequency.setValueAtTime(987.77, t + 0.16);
+          gain.gain.setValueAtTime(0.2, t);
+          gain.gain.linearRampToValueAtTime(0.01, t + 0.3);
+          osc.start(t); osc.stop(t + 0.3);
+        } else if (tipe === 'truk') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(180, t);
+          osc.frequency.setValueAtTime(220, t + 0.15);
+          gain.gain.setValueAtTime(0.15, t);
+          gain.gain.linearRampToValueAtTime(0.01, t + 0.5);
+          osc.start(t); osc.stop(t + 0.5);
+        } else if (tipe === 'klik') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(650, t);
+          osc.frequency.exponentialRampToValueAtTime(320, t + 0.05);
+          gain.gain.setValueAtTime(0.12, t);
+          gain.gain.linearRampToValueAtTime(0.01, t + 0.05);
+          osc.start(t); osc.stop(t + 0.05);
+        }
+      } catch (e) {}
+    }
+
+    // RESIZE CANVAS
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (game.camX === 0 && game.camY === 0) {
+        game.camX = canvas.width / 2;
+        game.camY = canvas.height / 4;
+      }
+    }
+    window.addEventListener('resize', resize);
+
+    // ==========================================
+    // ENTITAS 1: SAPI REALISTIS (COW)
+    // ==========================================
+    class RealisticCow {
+      constructor(id, name, gx, gy, breed = 'holstein', stage = 3) {
+        this.id = id;
+        this.name = name;
+        this.gx = gx;
+        this.gy = gy;
+        this.targetGx = gx;
+        this.targetGy = gy;
+        this.breed = breed;
+        this.stage = stage;
+        this.kenyang = 75;
+        this.makanCount = stage === 1 ? 1 : stage === 2 ? 3 : 6;
+        this.siapSusu = stage >= 3;
+        this.state = 'IDLE';
+        this.timer = Math.random() * 3 + 2;
+        this.facing = 1;
+        this.walkPhase = 0;
+        this.chewPhase = 0;
+        this.bellAngle = 0;
+        this.tailAngle = 0;
+        this.squash = 1;
+      }
+
+      update(dt) {
+        this.timer -= dt;
+
+        if (this.state === 'IDLE') {
+          this.chewPhase = Math.sin(game.time * 4) * 0.1;
+          this.bellAngle = Math.sin(game.time * 2) * 0.05;
+          this.tailAngle = Math.sin(game.time * 3) * 0.2;
+
+          if (this.timer <= 0) {
+            this.targetGx = 2.5 + Math.random() * 4.0;
+            this.targetGy = 2.5 + Math.random() * 4.0;
+            this.state = 'WALK';
+            this.timer = 5 + Math.random() * 4;
+          }
+        } else if (this.state === 'WALK') {
+          const dx = this.targetGx - this.gx;
+          const dy = this.targetGy - this.gy;
+          const dist = Math.hypot(dx, dy);
+
+          this.facing = dx >= 0 ? 1 : -1;
+
+          if (dist > 0.08) {
+            const speed = 0.55 * dt;
+            this.gx += (dx / dist) * speed;
+            this.gy += (dy / dist) * speed;
+
+            this.walkPhase += dt * 8;
+            this.bellAngle = Math.sin(this.walkPhase) * 0.25;
+            this.tailAngle = Math.sin(this.walkPhase * 1.5) * 0.4;
+          } else {
+            this.state = Math.random() < 0.6 ? 'GRAZE' : 'IDLE';
+            this.timer = 4 + Math.random() * 4;
+            this.walkPhase = 0;
+          }
+        } else if (this.state === 'GRAZE') {
+          this.chewPhase = Math.sin(game.time * 6) * 0.35 + 0.4;
+          this.bellAngle = Math.sin(game.time * 5) * 0.15;
+          this.tailAngle = Math.sin(game.time * 2) * 0.3;
+
+          if (this.timer <= 0) {
+            this.chewPhase = 0;
+            this.state = 'IDLE';
+            this.timer = 3 + Math.random() * 3;
+          }
+        }
+
+        this.squash += (1 - this.squash) * 0.15;
+      }
+
+      draw(ctx) {
+        const scrX = (this.gx - this.gy) * (TILE_W / 2) * game.zoom + game.camX;
+        const scrY = (this.gx + this.gy) * (TILE_H / 2) * game.zoom + game.camY;
+
+        ctx.save();
+        ctx.translate(scrX, scrY);
+        ctx.scale(this.facing * game.zoom, game.zoom * this.squash);
+
+        const scale = (this.stage === 1 ? 0.65 : this.stage === 2 ? 0.85 : 1.15);
+        ctx.scale(scale, scale);
+
+        // Bayangan
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+        ctx.beginPath();
+        ctx.ellipse(0, 8, 38, 16, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Kaki Belakang
+        this.drawLeg(ctx, -14, -8, Math.sin(this.walkPhase) * 0.3);
+        this.drawLeg(ctx, 16, -4, -Math.sin(this.walkPhase) * 0.3);
+
+        // Ambing Susu
+        if (this.stage >= 3) {
+          ctx.fillStyle = this.siapSusu ? '#fbcfe8' : '#f472b6';
+          ctx.beginPath();
+          const udderBounce = this.siapSusu ? Math.sin(game.time * 4) * 2 : 0;
+          ctx.ellipse(2, 4 + udderBounce, this.siapSusu ? 14 : 9, this.siapSusu ? 12 : 7, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#db2777';
+          ctx.fillRect(-4, 12, 3, 4);
+          ctx.fillRect(4, 12, 3, 4);
+        }
+
+        // Tubuh Torso Sapi
+        const bodyGrad = ctx.createLinearGradient(-35, -35, 35, 15);
+        if (this.breed === 'limousin') {
+          bodyGrad.addColorStop(0, '#b45309');
+          bodyGrad.addColorStop(1, '#78350f');
+        } else {
+          bodyGrad.addColorStop(0, '#f8fafc');
+          bodyGrad.addColorStop(1, '#cbd5e1');
+        }
+
+        ctx.fillStyle = bodyGrad;
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.roundRect(-34, -26, 68, 38, [18, 14, 12, 16]);
+        ctx.fill();
+        ctx.stroke();
+
+        if (this.breed === 'holstein') {
+          ctx.fillStyle = '#0f172a';
+          ctx.beginPath();
+          ctx.ellipse(-12, -14, 14, 10, 0.4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.ellipse(16, -6, 12, 12, -0.3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Kaki Depan
+        this.drawLeg(ctx, -20, 2, -Math.sin(this.walkPhase) * 0.3);
+        this.drawLeg(ctx, 10, 6, Math.sin(this.walkPhase) * 0.3);
+
+        // Ekor Sapi
+        ctx.save();
+        ctx.translate(32, -18);
+        ctx.rotate(this.tailAngle);
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(8, 12, 6, 24);
+        ctx.stroke();
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.ellipse(6, 24, 4, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Kepala Sapi
+        ctx.save();
+        ctx.translate(-30, -18 + this.chewPhase * 12);
+
+        ctx.fillStyle = this.breed === 'limousin' ? '#d97706' : '#e2e8f0';
+        ctx.beginPath();
+        ctx.ellipse(8, -8, 8, 4, -0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = this.breed === 'limousin' ? '#b45309' : '#f8fafc';
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(-16, -14, 26, 28, 8);
+        ctx.fill();
+        ctx.stroke();
+
+        // Tanduk Emas
+        ctx.fillStyle = '#fef08a';
+        ctx.strokeStyle = '#ca8a04';
+        ctx.beginPath();
+        ctx.moveTo(-6, -14);
+        ctx.lineTo(-2, -24);
+        ctx.lineTo(4, -14);
+        ctx.fill();
+        ctx.stroke();
+
+        // Moncong Pink
+        ctx.fillStyle = '#fbcfe8';
+        ctx.strokeStyle = '#db2777';
+        ctx.beginPath();
+        ctx.roundRect(-22, -2, 18, 16, 6);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#831843';
+        ctx.beginPath();
+        ctx.arc(-16, 6, 2, 0, Math.PI * 2);
+        ctx.arc(-10, 6, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.arc(-4, -4, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Kalung & Lonceng
+        ctx.save();
+        ctx.translate(2, 10);
+        ctx.rotate(this.bellAngle);
+        ctx.strokeStyle = '#b45309';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(-4, -2, 8, 4);
+        ctx.fillStyle = '#facc15';
+        ctx.strokeStyle = '#854d0e';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(-5, 2);
+        ctx.lineTo(5, 2);
+        ctx.lineTo(7, 12);
+        ctx.lineTo(-7, 12);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+
+        ctx.restore();
+        ctx.restore();
+
+        // Bubble Status
+        this.drawBubble(ctx, scrX, scrY - 55 * game.zoom * scale);
+      }
+
+      drawLeg(ctx, x, y, rot) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rot);
+        ctx.fillStyle = this.breed === 'limousin' ? '#92400e' : '#e2e8f0';
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(-4, 0, 8, 22, 3);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(-4, 18, 8, 4);
+        ctx.restore();
+      }
+
+      drawBubble(ctx, sx, sy) {
+        let text = '❤️';
+        let bg = '#ffffff';
+        let stroke = '#38bdf8';
+        let textCol = '#0f172a';
+
+        if (this.siapSusu) {
+          text = '🥛 PERAH!';
+          bg = '#fef08a';
+          stroke = '#ca8a04';
+          textCol = '#854d0e';
+        } else if (this.kenyang < 40) {
+          text = '🌾 LAPAR!';
+          bg = '#fee2e2';
+          stroke = '#dc2626';
+          textCol = '#b91c1c';
+        }
+
+        ctx.save();
+        ctx.translate(sx, sy + Math.sin(game.time * 4) * 3);
+        ctx.fillStyle = bg;
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.roundRect(-34, -13, 68, 24, 12);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = textCol;
+        ctx.font = 'bold 12px Fredoka, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, 0, 0);
+
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.beginPath();
+        ctx.roundRect(-30, 16, 60, 16, 6);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 10px Fredoka, sans-serif';
+        ctx.fillText(this.name, 0, 24);
+
+        ctx.restore();
+      }
+
+      interact(mode) {
+        this.squash = 0.75;
+
+        if (mode === 'perah' || this.siapSusu) {
+          if (!this.siapSusu) {
+            spawnText(this.gx, this.gy, 'Susu belum matang!', '#f87171');
+            return;
+          }
+          sfx('moo');
+          sfx('panen');
+          this.siapSusu = false;
+          this.kenyang = 30;
+          game.susu += 3;
+          game.xp += 60;
+          game.koin += 45;
+          spawnText(this.gx, this.gy, '+3 🥛 Susu & +60 ⭐ XP!', '#fef08a');
+          spawnParticles(this.gx, this.gy, '#ffffff', 20);
+          updateHUD();
+        } else if (mode === 'pakan' || this.kenyang < 60) {
+          if (game.pakan <= 0) {
+            spawnText(this.gx, this.gy, 'Pakan Sapi Habis! Giling di Pabrik!', '#f87171');
+            return;
+          }
+          sfx('moo');
+          game.pakan -= 1;
+          this.kenyang = 100;
+          this.makanCount += 1;
+          game.xp += 15;
+          spawnParticles(this.gx, this.gy, '#f43f5e', 14);
+
+          if (this.makanCount >= 3 && this.stage === 1) {
+            this.stage = 2;
+            spawnText(this.gx, this.gy, `${this.name} Tumbuh Jadi Sapi Remaja! ✨`, '#38bdf8');
+          } else if (this.makanCount >= 6 && this.stage === 2) {
+            this.stage = 3;
+            this.siapSusu = true;
+            spawnText(this.gx, this.gy, `${this.name} Menjadi Sapi Perah Jumbo! 🍼`, '#fde047');
+          } else {
+            spawnText(this.gx, this.gy, 'Nyam! Kenyang (+15 XP)', '#86efac');
+            if (this.stage >= 3 && Math.random() < 0.6) this.siapSusu = true;
+          }
+          updateHUD();
+        } else {
+          sfx('moo');
+          spawnParticles(this.gx, this.gy, '#f43f5e', 6);
+          spawnText(this.gx, this.gy, `Moo! ${this.name} Senang! ❤️`, '#fbcfe8');
+        }
+      }
+    }
+
+    // ==========================================
+    // ENTITAS 2: AYAM PETELUR (CHICKEN)
+    // ==========================================
+    class RealisticChicken {
+      constructor(id, name, gx, gy) {
+        this.id = id;
+        this.name = name;
+        this.gx = gx;
+        this.gy = gy;
+        this.targetGx = gx;
+        this.targetGy = gy;
+        this.kenyang = 70;
+        this.siapTelur = true;
+        this.state = 'PECK';
+        this.timer = Math.random() * 2 + 1;
+        this.facing = 1;
+        this.peckPhase = 0;
+        this.wingFlap = 0;
+      }
+
+      update(dt) {
+        this.timer -= dt;
+
+        if (this.state === 'PECK') {
+          this.peckPhase = Math.sin(game.time * 8) * 0.4;
+          if (this.timer <= 0) {
+            this.targetGx = 11.5 + Math.random() * 3.0;
+            this.targetGy = 2.5 + Math.random() * 3.0;
+            this.state = 'WALK';
+            this.timer = 4 + Math.random() * 3;
+          }
+        } else if (this.state === 'WALK') {
+          const dx = this.targetGx - this.gx;
+          const dy = this.targetGy - this.gy;
+          const dist = Math.hypot(dx, dy);
+
+          this.facing = dx >= 0 ? 1 : -1;
+
+          if (dist > 0.08) {
+            const speed = 0.7 * dt;
+            this.gx += (dx / dist) * speed;
+            this.gy += (dy / dist) * speed;
+            this.wingFlap = Math.sin(game.time * 14) * 0.3;
+          } else {
+            this.state = 'PECK';
+            this.timer = 3 + Math.random() * 3;
+            this.wingFlap = 0;
+          }
+        }
+      }
+
+      draw(ctx) {
+        const scrX = (this.gx - this.gy) * (TILE_W / 2) * game.zoom + game.camX;
+        const scrY = (this.gx + this.gy) * (TILE_H / 2) * game.zoom + game.camY;
+
+        ctx.save();
+        ctx.translate(scrX, scrY);
+        ctx.scale(this.facing * game.zoom, game.zoom);
+
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(0, 4, 14, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-4, 0); ctx.lineTo(-4, 8);
+        ctx.moveTo(4, 0); ctx.lineTo(4, 8);
+        ctx.stroke();
+
+        ctx.fillStyle = '#fef08a';
+        ctx.strokeStyle = '#ca8a04';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(0, -6, 12, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(-2, -6);
+        ctx.rotate(this.wingFlap);
+        ctx.fillStyle = '#fef9c3';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 7, 5, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(8, -12 + this.peckPhase * 4);
+
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(0, -7, 3, 0, Math.PI * 2);
+        ctx.arc(-3, -6, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(0, 0, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath();
+        ctx.moveTo(4, -1);
+        ctx.lineTo(9, 2);
+        ctx.lineTo(4, 4);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.arc(1, -1, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+        ctx.restore();
+
+        if (this.siapTelur) {
+          this.drawEggBubble(ctx, scrX, scrY - 32 * game.zoom);
+        } else if (this.kenyang < 40) {
+          this.drawHungryBubble(ctx, scrX, scrY - 32 * game.zoom);
+        }
+      }
+
+      drawEggBubble(ctx, sx, sy) {
+        ctx.save();
+        ctx.translate(sx, sy + Math.sin(game.time * 4) * 2);
+        ctx.fillStyle = '#fef08a';
+        ctx.strokeStyle = '#ca8a04';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(-24, -10, 48, 20, 10);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#78350f';
+        ctx.font = 'bold 10px Fredoka, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🥚 TELUR!', 0, 0);
+        ctx.restore();
+      }
+
+      drawHungryBubble(ctx, sx, sy) {
+        ctx.save();
+        ctx.translate(sx, sy + Math.sin(game.time * 4) * 2);
+        ctx.fillStyle = '#fee2e2';
+        ctx.strokeStyle = '#dc2626';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(-24, -10, 48, 20, 10);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#991b1b';
+        ctx.font = 'bold 10px Fredoka, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🥣 LAPAR!', 0, 0);
+        ctx.restore();
+      }
+
+      interact(mode) {
+        if (this.siapTelur) {
+          sfx('cluck');
+          sfx('panen');
+          this.siapTelur = false;
+          this.kenyang = 30;
+          game.telur += 2;
+          game.xp += 25;
+          game.koin += 20;
+          spawnText(this.gx, this.gy, '+2 🥚 Telur & +25 XP!', '#fef08a');
+          spawnParticles(this.gx, this.gy, '#facc15', 12);
+          updateHUD();
+        } else if (mode === 'pakan_ayam' || this.kenyang < 60) {
+          if (game.pakanAyam <= 0) {
+            spawnText(this.gx, this.gy, 'Pakan Ayam Habis! Giling Jagung!', '#f87171');
+            return;
+          }
+          sfx('cluck');
+          game.pakanAyam -= 1;
+          this.kenyang = 100;
+          game.xp += 10;
+          spawnParticles(this.gx, this.gy, '#fed7aa', 10);
+          spawnText(this.gx, this.gy, 'Petok! Kenyang (+10 XP)', '#86efac');
+          setTimeout(() => { this.siapTelur = true; }, 4000);
+          updateHUD();
+        } else {
+          sfx('cluck');
+          spawnText(this.gx, this.gy, `Petok! ${this.name} Senang! ❤️`, '#fbcfe8');
+        }
+      }
+    }
+
+    // ==========================================
+    // ENTITAS 3: KAMBING ETAWA (GOAT)
+    // ==========================================
+    class RealisticGoat {
+      constructor(id, name, gx, gy) {
+        this.id = id;
+        this.name = name;
+        this.gx = gx;
+        this.gy = gy;
+        this.targetGx = gx;
+        this.targetGy = gy;
+        this.kenyang = 80;
+        this.siapSusu = true;
+        this.state = 'IDLE'; // 'IDLE' | 'HOP' | 'GRAZE'
+        this.timer = Math.random() * 3 + 1;
+        this.facing = 1;
+        this.hopY = 0;
+        this.earFlap = 0;
+      }
+
+      update(dt) {
+        this.timer -= dt;
+
+        if (this.state === 'IDLE') {
+          this.hopY = 0;
+          this.earFlap = Math.sin(game.time * 5) * 0.2;
+          if (this.timer <= 0) {
+            this.targetGx = 2.8 + Math.random() * 2.8;
+            this.targetGy = 7.2 + Math.random() * 2.2;
+            this.state = 'HOP';
+            this.timer = 4 + Math.random() * 3;
+          }
+        } else if (this.state === 'HOP') {
+          const dx = this.targetGx - this.gx;
+          const dy = this.targetGy - this.gy;
+          const dist = Math.hypot(dx, dy);
+
+          this.facing = dx >= 0 ? 1 : -1;
+
+          if (dist > 0.08) {
+            const speed = 0.8 * dt;
+            this.gx += (dx / dist) * speed;
+            this.gy += (dy / dist) * speed;
+            this.hopY = Math.abs(Math.sin(game.time * 10)) * -8;
+            this.earFlap = Math.sin(game.time * 12) * 0.4;
+          } else {
+            this.state = 'IDLE';
+            this.timer = 3 + Math.random() * 3;
+            this.hopY = 0;
+          }
+        }
+      }
+
+      draw(ctx) {
+        const scrX = (this.gx - this.gy) * (TILE_W / 2) * game.zoom + game.camX;
+        const scrY = (this.gx + this.gy) * (TILE_H / 2) * game.zoom + game.camY;
+
+        ctx.save();
+        ctx.translate(scrX, scrY + this.hopY * game.zoom);
+        ctx.scale(this.facing * game.zoom * 0.9, game.zoom * 0.9);
+
+        // Bayangan
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(0, 6, 26, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 4 Kaki Kambing
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillRect(-12, -4, 4, 18);
+        ctx.fillRect(8, -4, 4, 18);
+        ctx.fillRect(-16, 2, 4, 18);
+        ctx.fillRect(4, 2, 4, 18);
+
+        // Tubuh Kambing Cokelat-Putih Etawa
+        ctx.fillStyle = '#f8fafc';
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(-22, -18, 44, 26, [10, 10, 8, 8]);
+        ctx.fill();
+        ctx.stroke();
+
+        // Belang Cokelat Kepala Etawa
+        ctx.fillStyle = '#92400e';
+        ctx.beginPath();
+        ctx.ellipse(10, -12, 12, 10, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ekor Kambing Lucu Mencuat
+        ctx.strokeStyle = '#f8fafc';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-20, -12); ctx.lineTo(-26, -18);
+        ctx.stroke();
+
+        // Kepala & Moncong
+        ctx.save();
+        ctx.translate(-24, -16);
+
+        // Tanduk Kambing Melengkung
+        ctx.strokeStyle = '#ca8a04';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(4, -8);
+        ctx.quadraticCurveTo(8, -20, 16, -14);
+        ctx.stroke();
+
+        // Kepala
+        ctx.fillStyle = '#78350f';
+        ctx.beginPath();
+        ctx.roundRect(-10, -10, 18, 20, 6);
+        ctx.fill();
+
+        // Telinga Panjang Menjuntai Etawa
+        ctx.save();
+        ctx.translate(0, -2);
+        ctx.rotate(this.earFlap);
+        ctx.fillStyle = '#92400e';
+        ctx.beginPath();
+        ctx.ellipse(2, 10, 4, 12, 0.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Mata & Janggut
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.arc(-2, -4, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Janggut Putih (Beard)
+        ctx.strokeStyle = '#f8fafc';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-6, 8); ctx.lineTo(-8, 14);
+        ctx.stroke();
+
+        ctx.restore();
+        ctx.restore();
+
+        // Bubble
+        if (this.siapSusu) {
+          this.drawBubble(ctx, scrX, scrY - 45 * game.zoom, '🥛 SUSU!', '#fef08a', '#854d0e');
+        } else if (this.kenyang < 40) {
+          this.drawBubble(ctx, scrX, scrY - 45 * game.zoom, '🌿 LAPAR!', '#fee2e2', '#991b1b');
+        }
+      }
+
+      drawBubble(ctx, sx, sy, text, bg, color) {
+        ctx.save();
+        ctx.translate(sx, sy + Math.sin(game.time * 4) * 2);
+        ctx.fillStyle = bg;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(-26, -10, 52, 20, 10);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = color;
+        ctx.font = 'bold 10px Fredoka, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, 0, 0);
+        ctx.restore();
+      }
+
+      interact(mode) {
+        if (this.siapSusu) {
+          sfx('goat');
+          sfx('panen');
+          this.siapSusu = false;
+          this.kenyang = 35;
+          game.susu += 2;
+          game.koin += 35;
+          game.xp += 40;
+          spawnText(this.gx, this.gy, '+2 🥛 Susu Kambing & +40 XP!', '#fef08a');
+          spawnParticles(this.gx, this.gy, '#ffffff', 14);
+          updateHUD();
+        } else if (mode === 'pakan' || this.kenyang < 60) {
+          if (game.rumput <= 0) {
+            spawnText(this.gx, this.gy, 'Rumput Habis! Panen Rumput Gajah!', '#f87171');
+            return;
+          }
+          sfx('goat');
+          game.rumput -= 1;
+          this.kenyang = 100;
+          game.xp += 15;
+          spawnParticles(this.gx, this.gy, '#86efac', 10);
+          spawnText(this.gx, this.gy, 'Mbee! Kenyang (+15 XP)', '#86efac');
+          setTimeout(() => { this.siapSusu = true; }, 5000);
+          updateHUD();
+        } else {
+          sfx('goat');
+          spawnText(this.gx, this.gy, `Mbee! ${this.name} Senang! ❤️`, '#fbcfe8');
+        }
+      }
+    }
+
+    // ==========================================
+    // ENTITAS 4: BLOK POHON KONSERVASI AGROFORESTRY
+    // ==========================================
+    class ForestTree {
+      constructor(id, species, gx, gy, stage = 3) {
+        this.id = id;
+        this.species = species; // 'sengon' | 'ulin'
+        this.gx = gx;
+        this.gy = gy;
+        this.stage = stage; // 1: Bibit Polybag | 2: Pohon Muda | 3: Rimbun Lestari
+        this.readyHarvest = true;
+      }
+
+      draw(ctx) {
+        const scrX = (this.gx - this.gy) * (TILE_W / 2) * game.zoom + game.camX;
+        const scrY = (this.gx + this.gy) * (TILE_H / 2) * game.zoom + game.camY;
+
+        ctx.save();
+        ctx.translate(scrX, scrY);
+        ctx.scale(game.zoom, game.zoom);
+
+        // Bayangan pohon jatuh
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.beginPath();
+        ctx.ellipse(0, 4, 30, 14, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        const sway = Math.sin(game.time * 2.5 + this.gx) * 3;
+
+        if (this.species === 'sengon') {
+          // Sengon Batang Ramping Putih
+          ctx.fillStyle = '#cbd5e1';
+          ctx.fillRect(-3, -35, 6, 35);
+
+          // Tajuk Daun Rimbun Bertingkat
+          ctx.fillStyle = '#22c55e';
+          ctx.beginPath();
+          ctx.ellipse(0 + sway, -45, 26, 16, 0, 0, Math.PI * 2);
+          ctx.ellipse(-12 + sway, -35, 18, 12, 0, 0, Math.PI * 2);
+          ctx.ellipse(12 + sway, -35, 18, 12, 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Kayu Ulin Kalimantan Kokoh Gelap
+          ctx.fillStyle = '#78350f';
+          ctx.fillRect(-5, -45, 10, 45);
+
+          // Tajuk Daun Hijau Tua Pekat
+          ctx.fillStyle = '#15803d';
+          ctx.beginPath();
+          ctx.arc(0 + sway, -52, 28, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.restore();
+      }
+
+      interact() {
+        if (!this.readyHarvest) return;
+        sfx('panen');
+        this.readyHarvest = false;
+        game.karbon += 5;
+        game.kayu += 2;
+        game.xp += 30;
+        spawnText(this.gx, this.gy, `+5 kg CO₂ Diserap & +2 🪵 Kayu Lestari!`, '#34d399');
+        spawnParticles(this.gx, this.gy, '#34d399', 16);
+        updateHUD();
+        setTimeout(() => { this.readyHarvest = true; }, 7000);
+      }
+    }
+
+    // ==========================================
+    // DATA SEMUA ENTITAS DUNIA
+    // ==========================================
+    const worldCows = [
+      new RealisticCow(1, 'Bessie', 3.8, 3.8, 'holstein', 3),
+      new RealisticCow(2, 'Daisy', 5.2, 4.2, 'limousin', 2),
+      new RealisticCow(3, 'Calfy', 3.4, 5.5, 'holstein', 1)
+    ];
+
+    const worldChickens = [
+      new RealisticChicken(101, 'Bitty', 12.2, 3.2),
+      new RealisticChicken(102, 'Clucky', 13.5, 4.0),
+      new RealisticChicken(103, 'Penny', 12.8, 4.8)
+    ];
+
+    const worldGoats = [
+      new RealisticGoat(201, 'Billy', 3.8, 7.8),
+      new RealisticGoat(202, 'Mimi', 4.8, 8.5)
+    ];
+
+    const forestTrees = [
+      new ForestTree(301, 'sengon', 1.8, 11.2),
+      new ForestTree(302, 'ulin', 3.2, 11.8),
+      new ForestTree(303, 'sengon', 2.0, 13.2),
+      new ForestTree(304, 'ulin', 3.6, 13.5)
+    ];
+
+    const cropPlots = [
+      { gx: 7, gy: 8, crop: 'jagung', ready: true },
+      { gx: 8, gy: 8, crop: 'jagung', ready: true },
+      { gx: 9, gy: 8, crop: 'jagung', ready: false },
+      { gx: 7, gy: 9, crop: 'rumput', ready: true },
+      { gx: 8, gy: 9, crop: 'rumput', ready: true },
+      { gx: 9, gy: 9, crop: 'jagung', ready: true }
+    ];
+
+    function spawnText(gx, gy, text, color = '#fde047') {
+      const scrX = (gx - gy) * (TILE_W / 2) * game.zoom + game.camX;
+      const scrY = (gx + gy) * (TILE_H / 2) * game.zoom + game.camY;
+      game.floatingTexts.push({ x: scrX, y: scrY - 40, text, color, life: 1.0 });
+    }
+
+    function spawnParticles(gx, gy, color, count = 12) {
+      const scrX = (gx - gy) * (TILE_W / 2) * game.zoom + game.camX;
+      const scrY = (gx + gy) * (TILE_H / 2) * game.zoom + game.camY;
+      for (let i = 0; i < count; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = Math.random() * 80 + 30;
+        game.particles.push({
+          x: scrX,
+          y: scrY - 20,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd - 30,
+          color,
+          life: 0.8
+        });
+      }
+    }
+
+    // ==========================================
+    // RENDERING PIPELINE UTAMA (60 FPS)
+    // ==========================================
+    function render(dt) {
+      game.time += dt;
+      game.windmillAngle += dt * 1.5;
+      game.gearAngle += dt * 2.2;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 1. SKY GRADIENT BERDASARKAN WAKTU
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      if (game.timeOfDay === 'senja') {
+        skyGrad.addColorStop(0, '#4c1d95');
+        skyGrad.addColorStop(0.5, '#b45309');
+        skyGrad.addColorStop(1, '#78350f');
+      } else if (game.timeOfDay === 'malam') {
+        skyGrad.addColorStop(0, '#020617');
+        skyGrad.addColorStop(1, '#0f172a');
+      } else {
+        skyGrad.addColorStop(0, '#0f172a');
+        skyGrad.addColorStop(1, '#1e293b');
+      }
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Bintang di malam hari
+      if (game.timeOfDay === 'malam') {
+        drawStars(ctx);
+      }
+
+      // 2. GRID TANAH & JALAN ISOMETRIK
+      for (let x = 0; x < GRID_SIZE; x++) {
+        for (let y = 0; y < GRID_SIZE; y++) {
+          drawIsoTile(ctx, x, y);
+        }
+      }
+
+      // 3. KOLAM IKAN GELOMBANG AIR
+      drawWaterPond(ctx, 11, 8);
+
+      // 4. STRUKTUR BANGUNAN ISOMETRIK
+      drawFencePen(ctx, 2.5, 2.5, 6.5, 6.5);   // Kandang Sapi
+      drawFencePen(ctx, 2.5, 7.0, 5.5, 9.5);   // Kandang Kambing
+      drawChickenCoop(ctx, 12.5, 2.5);         // Kandang Ayam
+      drawWindmill(ctx, 1.8, 1.8);             // Kincir Angin
+      drawRedBarn(ctx, 5.5, 1.0);              // Lumbung Merah
+      drawFeedMill(ctx, 9.2, 1.5);             // Pabrik Pakan
+      drawOrderBoard(ctx, 6.5, 12.0);          // Papan Pesanan Truk
+
+      // 5. TANAMAN LADANG BERGELOMBANG
+      cropPlots.forEach(p => drawCropPlot(ctx, p));
+
+      // 6. POHON AGROFORESTRY
+      forestTrees.forEach(t => t.draw(ctx));
+
+      // 7. UPDATE & DRAW SEMUA ENTITAS (Z-SORTING KEDALAMAN)
+      const allEntities = [...worldCows, ...worldChickens, ...worldGoats];
+      allEntities.sort((a, b) => (a.gx + a.gy) - (b.gx + b.gy));
+      allEntities.forEach(ent => {
+        ent.update(dt);
+        ent.draw(ctx);
+      });
+
+      // 8. TRUK PICKUP LOGISTIK
+      if (game.truck.active) {
+        updateAndDrawTruck(ctx, dt);
+      }
+
+      // 9. ATMOSFER & CAHAYA AMBIENT
+      drawAtmosphere(ctx);
+
+      // Filter warna suasana waktu
+      if (game.timeOfDay === 'senja') {
+        ctx.fillStyle = 'rgba(251, 146, 60, 0.15)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      } else if (game.timeOfDay === 'malam') {
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.35)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      // 10. PARTIKEL SISTEM
+      for (let i = game.particles.length - 1; i >= 0; i--) {
+        const p = game.particles[i];
+        p.life -= dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += 70 * dt;
+        if (p.life <= 0) {
+          game.particles.splice(i, 1);
+        } else {
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = p.life;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // 11. TEKS MELAYANG REWARD
+      for (let i = game.floatingTexts.length - 1; i >= 0; i--) {
+        const t = game.floatingTexts[i];
+        t.life -= dt * 0.9;
+        t.y -= dt * 35;
+        if (t.life <= 0) {
+          game.floatingTexts.splice(i, 1);
+        } else {
+          ctx.save();
+          ctx.globalAlpha = t.life;
+          ctx.fillStyle = t.color;
+          ctx.font = '800 16px Outfit, sans-serif';
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 3;
+          ctx.strokeText(t.text, t.x, t.y);
+          ctx.fillText(t.text, t.x, t.y);
+          ctx.restore();
+        }
+      }
+    }
+
+    // DRAW BINTANG MALAM HARI
+    function drawStars(ctx) {
+      ctx.fillStyle = '#ffffff';
+      for (let i = 0; i < 35; i++) {
+        const x = (i * 123) % canvas.width;
+        const y = (i * 77) % (canvas.height * 0.4);
+        const blink = Math.sin(game.time * 3 + i) * 0.5 + 0.5;
+        ctx.globalAlpha = blink * 0.8;
+        ctx.beginPath();
+        ctx.arc(x, y, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // DRAW TILE ISOMETRIK MULTI-TEXTURE
+    function drawIsoTile(ctx, gx, gy) {
+      const scrX = (gx - gy) * (TILE_W / 2) * game.zoom + game.camX;
+      const scrY = (gx + gy) * (TILE_H / 2) * game.zoom + game.camY;
+      const hw = (TILE_W / 2) * game.zoom;
+      const hh = (TILE_H / 2) * game.zoom;
+
+      const diKandangSapi = gx >= 2.5 && gx <= 6.5 && gy >= 2.5 && gy <= 6.5;
+      const diKandangKambing = gx >= 2.5 && gx <= 5.5 && gy >= 7.0 && gy <= 9.5;
+      const diKandangAyam = gx >= 11 && gx <= 15 && gy >= 2 && gy <= 6;
+      const diJalan = (gx === 7 || gy === 7 || gx === 6 && gy > 10);
+      const diKolam = (gx >= 11 && gx <= 13 && gy >= 8 && gy <= 10);
+      const diHutan = (gx >= 1 && gx <= 4 && gy >= 11 && gy <= 14);
+
+      if (diKolam) return;
+
+      let colTop = '#65a30d';
+      let colEdge = '#4d7c0f';
+
+      if (diKandangSapi) {
+        colTop = '#4ade80';
+        colEdge = '#22c55e';
+      } else if (diKandangKambing) {
+        colTop = '#a7f3d0';
+        colEdge = '#059669';
+      } else if (diKandangAyam) {
+        colTop = '#fef08a';
+        colEdge = '#ca8a04';
+      } else if (diJalan) {
+        colTop = '#b45309';
+        colEdge = '#78350f';
+      } else if (diHutan) {
+        colTop = '#15803d';
+        colEdge = '#166534';
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(scrX, scrY - hh);
+      ctx.lineTo(scrX + hw, scrY);
+      ctx.lineTo(scrX + hh, scrY + hh);
+      ctx.lineTo(scrX - hw, scrY);
+      ctx.closePath();
+
+      ctx.fillStyle = colTop;
+      ctx.fill();
+      ctx.strokeStyle = colEdge;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      if (!diKandangSapi && !diKandangAyam && !diKandangKambing && !diJalan && ((gx * 7 + gy * 13) % 5 === 0)) {
+        ctx.fillStyle = '#fbcfe8';
+        ctx.beginPath();
+        ctx.arc(scrX + 4, scrY - 2, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // DRAW KOLAM AIR
+    function drawWaterPond(ctx, gx, gy) {
+      const scrX = (gx - gy) * (TILE_W / 2) * game.zoom + game.camX;
+      const scrY = (gx + gy) * (TILE_H / 2) * game.zoom + game.camY;
+
+      ctx.save();
+      ctx.translate(scrX, scrY);
+      ctx.scale(game.zoom, game.zoom);
+
+      ctx.fillStyle = '#475569';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 72, 38, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const waterGrad = ctx.createRadialGradient(0, 0, 10, 0, 0, 60);
+      waterGrad.addColorStop(0, '#38bdf8');
+      waterGrad.addColorStop(1, '#0284c7');
+      ctx.fillStyle = waterGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 64, 32, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const ripple = Math.sin(game.time * 3) * 6;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 36 + ripple, 18 + ripple * 0.5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#15803d';
+      ctx.beginPath();
+      ctx.ellipse(-20, -6, 10, 5, 0.3, 0, Math.PI * 2);
+      ctx.ellipse(18, 8, 12, 6, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#f472b6';
+      ctx.beginPath();
+      ctx.arc(-20, -8, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    // DRAW KANDANG AYAM
+    function drawChickenCoop(ctx, gx, gy) {
+      const scrX = (gx - gy) * (TILE_W / 2) * game.zoom + game.camX;
+      const scrY = (gx + gy) * (TILE_H / 2) * game.zoom + game.camY;
+
+      ctx.save();
+      ctx.translate(scrX, scrY);
+      ctx.scale(game.zoom, game.zoom);
+
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(0, 8, 42, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(-26, -30, 52, 34);
+
+      ctx.strokeStyle = '#ca8a04';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-10, 4); ctx.lineTo(-20, 16);
+      ctx.stroke();
+
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(-8, -16, 16, 20);
+
+      ctx.fillStyle = '#dc2626';
+      ctx.strokeStyle = '#991b1b';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-32, -30);
+      ctx.lineTo(0, -55);
+      ctx.lineTo(32, -30);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(-1, -66, 2, 12);
+      ctx.beginPath();
+      ctx.arc(0, -68, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Lentera menyala saat malam
+      if (game.timeOfDay === 'malam') {
+        ctx.fillStyle = 'rgba(254, 240, 138, 0.5)';
+        ctx.beginPath();
+        ctx.arc(0, -20, 20, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    // DRAW PABRIK PAKAN
+    function drawFeedMill(ctx, gx, gy) {
+      const scrX = (gx - gy) * (TILE_W / 2) * game.zoom + game.camX;
+      const scrY = (gx + gy) * (TILE_H / 2) * game.zoom + game.camY;
+
+      ctx.save();
+      ctx.translate(scrX, scrY);
+      ctx.scale(game.zoom, game.zoom);
+
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(0, 10, 44, 18, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#d97706';
+      ctx.strokeStyle = '#92400e';
+      ctx.lineWidth = 2;
+      ctx.fillRect(-32, -45, 64, 52);
+      ctx.strokeRect(-32, -45, 64, 52);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillRect(14, -60, 20, 65);
+      ctx.beginPath();
+      ctx.arc(24, -60, 10, Math.PI, 0);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fill();
+
+      ctx.save();
+      ctx.translate(-12, -20);
+      ctx.rotate(game.gearAngle);
+      ctx.fillStyle = '#475569';
+      ctx.beginPath();
+      ctx.arc(0, 0, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#f59e0b';
+      for (let i = 0; i < 6; i++) {
+        ctx.rotate(Math.PI / 3);
+        ctx.fillRect(-3, -15, 6, 6);
+      }
+      ctx.restore();
+
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(-28, -75, 10, 32);
+
+      for (let i = 0; i < 3; i++) {
+        const smokeY = -75 - (game.time * 25 + i * 18) % 45;
+        const smokeX = -23 + Math.sin(game.time * 3 + i) * 6;
+        ctx.fillStyle = 'rgba(241, 245, 249, 0.45)';
+        ctx.beginPath();
+        ctx.arc(smokeX, smokeY, 6 + i * 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    // DRAW PAPAN PESANAN TRUK
+    function drawOrderBoard(ctx, gx, gy) {
+      const scrX = (gx - gy) * (TILE_W / 2) * game.zoom + game.camX;
+      const scrY = (gx + gy) * (TILE_H / 2) * game.zoom + game.camY;
+
+      ctx.save();
+      ctx.translate(scrX, scrY);
+      ctx.scale(game.zoom, game.zoom);
+
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(0, 6, 26, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(-14, -20, 5, 24);
+      ctx.fillRect(9, -20, 5, 24);
+
+      ctx.fillStyle = '#b45309';
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(-22, -45, 44, 30, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(-16, -40, 10, 12);
+      ctx.fillRect(-2, -40, 10, 12);
+      ctx.fillRect(8, -38, 8, 10);
+
+      ctx.font = '14px sans-serif';
+      ctx.fillText('🚚', -8, -50);
+
+      ctx.restore();
+    }
+
+    // UPDATE & DRAW TRUK PICKUP
+    function updateAndDrawTruck(ctx, dt) {
+      const t = game.truck;
+      t.progress += dt * 0.45;
+
+      if (t.progress >= 1.0) {
+        t.active = false;
+        t.progress = 0;
+        spawnText(t.gx, 10, t.rewardText, '#fde047');
+        sfx('panen');
+        updateHUD();
+        return;
+      }
+
+      const currentGy = 15 - t.progress * 14;
+      const scrX = (t.gx - currentGy) * (TILE_W / 2) * game.zoom + game.camX;
+      const scrY = (t.gx + currentGy) * (TILE_H / 2) * game.zoom + game.camY;
+
+      ctx.save();
+      ctx.translate(scrX, scrY);
+      ctx.scale(game.zoom, game.zoom);
+
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.beginPath();
+      ctx.ellipse(0, 6, 32, 14, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#0284c7';
+      ctx.strokeStyle = '#0369a1';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(-24, -20, 48, 22, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(8, -26, 16, 16);
+      ctx.fillStyle = '#e0f2fe';
+      ctx.fillRect(16, -24, 7, 10);
+
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(-14, 4, 6, 0, Math.PI * 2);
+      ctx.arc(14, 4, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(203, 213, 225, 0.5)';
+      ctx.beginPath();
+      ctx.arc(-26 - Math.random() * 4, 2, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    // DRAW PAGAR KAYU
+    function drawFencePen(ctx, x1, y1, x2, y2) {
+      for (let x = x1; x <= x2; x += 0.5) {
+        drawFencePost(ctx, x, y1);
+        drawFencePost(ctx, x, y2);
+      }
+      for (let y = y1; y <= y2; y += 0.5) {
+        drawFencePost(ctx, x1, y);
+        drawFencePost(ctx, x2, y);
+      }
+    }
+
+    function drawFencePost(ctx, gx, gy) {
+      const scrX = (gx - gy) * (TILE_W / 2) * game.zoom + game.camX;
+      const scrY = (gx + gy) * (TILE_H / 2) * game.zoom + game.camY;
+      ctx.save();
+      ctx.translate(scrX, scrY);
+      ctx.scale(game.zoom, game.zoom);
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(-3, -16, 6, 18);
+      ctx.fillStyle = '#a16207';
+      ctx.fillRect(-2, -15, 4, 16);
+      ctx.restore();
+    }
+
+    // DRAW KINCIR ANGIN
+    function drawWindmill(ctx, gx, gy) {
+      const scrX = (gx - gy) * (TILE_W / 2) * game.zoom + game.camX;
+      const scrY = (gx + gy) * (TILE_H / 2) * game.zoom + game.camY;
+
+      ctx.save();
+      ctx.translate(scrX, scrY);
+      ctx.scale(game.zoom, game.zoom);
+
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(0, 5, 24, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#64748b';
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-16, 0);
+      ctx.lineTo(-10, -60);
+      ctx.lineTo(10, -60);
+      ctx.lineTo(16, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#0284c7';
+      ctx.beginPath();
+      ctx.arc(0, -60, 12, Math.PI, 0);
+      ctx.fill();
+
+      ctx.save();
+      ctx.translate(0, -58);
+      ctx.rotate(game.windmillAngle);
+      for (let i = 0; i < 4; i++) {
+        ctx.rotate(Math.PI / 2);
+        ctx.fillStyle = '#f8fafc';
+        ctx.strokeStyle = '#92400e';
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(-3, 6, 6, 42);
+        ctx.strokeRect(-3, 6, 6, 42);
+      }
+      ctx.restore();
+
+      ctx.restore();
+    }
+
+    // DRAW LUMBUNG MERAH
+    function drawRedBarn(ctx, gx, gy) {
+      const scrX = (gx - gy) * (TILE_W / 2) * game.zoom + game.camX;
+      const scrY = (gx + gy) * (TILE_H / 2) * game.zoom + game.camY;
+
+      ctx.save();
+      ctx.translate(scrX, scrY);
+      ctx.scale(game.zoom, game.zoom);
+
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(0, 10, 48, 18, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#b91c1c';
+      ctx.strokeStyle = '#7f1d1d';
+      ctx.lineWidth = 2.5;
+      ctx.fillRect(-36, -50, 72, 54);
+      ctx.strokeRect(-36, -50, 72, 54);
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(-14, -26, 28, 30);
+      ctx.strokeStyle = '#b91c1c';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-14, -26, 28, 30);
+      ctx.beginPath();
+      ctx.moveTo(-14, -26); ctx.lineTo(14, 4);
+      ctx.moveTo(14, -26); ctx.lineTo(-14, 4);
+      ctx.stroke();
+
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.moveTo(-42, -50);
+      ctx.lineTo(-24, -76);
+      ctx.lineTo(24, -76);
+      ctx.lineTo(42, -50);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      if (game.timeOfDay === 'malam') {
+        ctx.fillStyle = 'rgba(254, 240, 138, 0.4)';
+        ctx.beginPath();
+        ctx.arc(0, -10, 30, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    // DRAW PETAK LADANG TANAMAN
+    function drawCropPlot(ctx, plot) {
+      const scrX = (plot.gx - plot.gy) * (TILE_W / 2) * game.zoom + game.camX;
+      const scrY = (plot.gx + plot.gy) * (TILE_H / 2) * game.zoom + game.camY;
+
+      ctx.save();
+      ctx.translate(scrX, scrY);
+      ctx.scale(game.zoom, game.zoom);
+
+      ctx.fillStyle = '#78350f';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 32, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const sway = Math.sin(game.time * 3 + plot.gx) * 4;
+
+      if (plot.crop === 'jagung') {
+        ctx.fillStyle = '#16a34a';
+        ctx.fillRect(-3 + sway, -28, 6, 28);
+        ctx.beginPath();
+        ctx.ellipse(-8 + sway, -14, 10, 4, -0.4, 0, Math.PI * 2);
+        ctx.ellipse(8 + sway, -18, 10, 4, 0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (plot.ready) {
+          ctx.fillStyle = '#facc15';
+          ctx.beginPath();
+          ctx.roundRect(-5 + sway, -26, 10, 18, 4);
+          ctx.fill();
+          ctx.fillStyle = '#ca8a04';
+          ctx.fillRect(-3 + sway, -30, 6, 4);
+        }
+      } else {
+        ctx.fillStyle = '#22c55e';
+        for (let i = -12; i <= 12; i += 6) {
+          ctx.beginPath();
+          ctx.moveTo(i, 0);
+          ctx.quadraticCurveTo(i + sway, -18, i + sway * 1.5, -24);
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#15803d';
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore();
+    }
+
+    // DRAW SERBUK SARI ATMOSFER MELAYANG
+    function drawAtmosphere(ctx) {
+      ctx.fillStyle = 'rgba(254, 240, 138, 0.4)';
+      for (let i = 0; i < 22; i++) {
+        const px = (Math.sin(game.time * 0.2 + i * 1.3) * 0.5 + 0.5) * canvas.width;
+        const py = ((game.time * 15 + i * 75) % canvas.height);
+        ctx.beginPath();
+        ctx.arc(px, py, (i % 3) + 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // ==========================================
+    // INTERAKSI POINTER & SWIPE TOOL ENGINE
+    // ==========================================
+    let pointerDown = false;
+    let pointerStartX = 0;
+    let pointerStartY = 0;
+
+    canvas.addEventListener('pointerdown', (e) => {
+      pointerDown = true;
+      pointerStartX = e.clientX;
+      pointerStartY = e.clientY;
+      game.dragStartX = e.clientX - game.camX;
+      game.dragStartY = e.clientY - game.camY;
+    });
+
+    window.addEventListener('pointermove', (e) => {
+      if (!pointerDown) return;
+
+      const distMoved = Math.hypot(e.clientX - pointerStartX, e.clientY - pointerStartY);
+
+      if (distMoved > 8 && !game.isSwiping) {
+        game.camX = e.clientX - game.dragStartX;
+        game.camY = e.clientY - game.dragStartY;
+      }
+
+      if (game.isSwiping && game.swipeToolType) {
+        swipeGhost.style.left = e.clientX + 'px';
+        swipeGhost.style.top = e.clientY + 'px';
+        checkSwipeIntersections(e.clientX, e.clientY);
+      }
+    });
+
+    window.addEventListener('pointerup', (e) => {
+      if (!pointerDown) return;
+      pointerDown = false;
+
+      const distMoved = Math.hypot(e.clientX - pointerStartX, e.clientY - pointerStartY);
+
+      if (game.isSwiping) {
+        game.isSwiping = false;
+        swipeGhost.style.display = 'none';
+      } else if (distMoved < 8) {
+        handleWorldClick(e.clientX, e.clientY);
+      }
+    });
+
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      game.zoom = Math.min(1.8, Math.max(0.6, game.zoom * delta));
+    }, { passive: false });
+
+    function triggerSwipeTool(toolType, clientX, clientY) {
+      game.isSwiping = true;
+      game.swipeToolType = toolType;
+      swipeGhost.style.display = 'flex';
+      swipeGhost.style.left = clientX + 'px';
+      swipeGhost.style.top = clientY + 'px';
+
+      if (toolType === 'panen') swipeGhost.innerText = '🪓';
+      else if (toolType === 'pakan') swipeGhost.innerText = '🌾';
+      else if (toolType === 'pakan_ayam') swipeGhost.innerText = '🥣';
+      else if (toolType === 'perah') swipeGhost.innerText = '🥛';
+      else if (toolType === 'telur') swipeGhost.innerText = '🥚';
+    }
+
+    function checkSwipeIntersections(clientX, clientY) {
+      if (game.swipeToolType === 'pakan' || game.swipeToolType === 'perah') {
+        for (const cow of worldCows) {
+          const scrX = (cow.gx - cow.gy) * (TILE_W / 2) * game.zoom + game.camX;
+          const scrY = (cow.gx + cow.gy) * (TILE_H / 2) * game.zoom + game.camY;
+          if (Math.hypot(clientX - scrX, clientY - scrY) < 40 * game.zoom) {
+            cow.interact(game.swipeToolType);
+          }
+        }
+        for (const goat of worldGoats) {
+          const scrX = (goat.gx - goat.gy) * (TILE_W / 2) * game.zoom + game.camX;
+          const scrY = (goat.gx + goat.gy) * (TILE_H / 2) * game.zoom + game.camY;
+          if (Math.hypot(clientX - scrX, clientY - scrY) < 35 * game.zoom) {
+            goat.interact(game.swipeToolType);
+          }
+        }
+      }
+
+      if (game.swipeToolType === 'pakan_ayam' || game.swipeToolType === 'telur') {
+        for (const chk of worldChickens) {
+          const scrX = (chk.gx - chk.gy) * (TILE_W / 2) * game.zoom + game.camX;
+          const scrY = (chk.gx + chk.gy) * (TILE_H / 2) * game.zoom + game.camY;
+          if (Math.hypot(clientX - scrX, clientY - scrY) < 30 * game.zoom) {
+            chk.interact(game.swipeToolType);
+          }
+        }
+      }
+
+      if (game.swipeToolType === 'panen') {
+        for (const plot of cropPlots) {
+          const scrX = (plot.gx - plot.gy) * (TILE_W / 2) * game.zoom + game.camX;
+          const scrY = (plot.gx + plot.gy) * (TILE_H / 2) * game.zoom + game.camY;
+          if (Math.hypot(clientX - scrX, clientY - scrY) < 32 * game.zoom) {
+            harvestPlot(plot);
+          }
+        }
+      }
+    }
+
+    function harvestPlot(plot) {
+      if (!plot.ready) return;
+      sfx('panen');
+      plot.ready = false;
+      if (plot.crop === 'jagung') {
+        game.jagung += 3;
+        game.koin += 25;
+        game.xp += 20;
+        spawnText(plot.gx, plot.gy, '+3 🌽 Jagung & +20 ⭐ XP!', '#fde047');
+      } else {
+        game.rumput += 4;
+        game.xp += 15;
+        spawnText(plot.gx, plot.gy, '+4 🌿 Rumput Segar!', '#86efac');
+      }
+      spawnParticles(plot.gx, plot.gy, '#facc15', 14);
+      updateHUD();
+      setTimeout(() => { plot.ready = true; }, 5000);
+    }
+
+    function handleWorldClick(clientX, clientY) {
+      // 1. Klik Pabrik Pakan
+      const feedMillScrX = (9.2 - 1.5) * (TILE_W / 2) * game.zoom + game.camX;
+      const feedMillScrY = (9.2 + 1.5) * (TILE_H / 2) * game.zoom + game.camY;
+      if (Math.hypot(clientX - feedMillScrX, clientY - feedMillScrY) < 55 * game.zoom) {
+        openFeedMillModal();
+        return;
+      }
+
+      // 2. Klik Papan Pesanan Truk
+      const orderScrX = (6.5 - 12.0) * (TILE_W / 2) * game.zoom + game.camX;
+      const orderScrY = (6.5 + 12.0) * (TILE_H / 2) * game.zoom + game.camY;
+      if (Math.hypot(clientX - orderScrX, clientY - orderScrY) < 45 * game.zoom) {
+        openOrderModal();
+        return;
+      }
+
+      // 3. Klik Sapi
+      for (const cow of worldCows) {
+        const scrX = (cow.gx - cow.gy) * (TILE_W / 2) * game.zoom + game.camX;
+        const scrY = (cow.gx + cow.gy) * (TILE_H / 2) * game.zoom + game.camY;
+        if (Math.hypot(clientX - scrX, clientY - scrY) < 45 * game.zoom) {
+          if (cow.siapSusu) {
+            triggerSwipeTool('perah', clientX, clientY);
+            cow.interact('perah');
+          } else if (cow.kenyang < 60) {
+            triggerSwipeTool('pakan', clientX, clientY);
+            cow.interact('pakan');
+          } else {
+            cow.interact(game.mode);
+          }
+          return;
+        }
+      }
+
+      // 4. Klik Kambing
+      for (const goat of worldGoats) {
+        const scrX = (goat.gx - goat.gy) * (TILE_W / 2) * game.zoom + game.camX;
+        const scrY = (goat.gx + goat.gy) * (TILE_H / 2) * game.zoom + game.camY;
+        if (Math.hypot(clientX - scrX, clientY - scrY) < 38 * game.zoom) {
+          if (goat.siapSusu) {
+            triggerSwipeTool('perah', clientX, clientY);
+            goat.interact('perah');
+          } else if (goat.kenyang < 60) {
+            triggerSwipeTool('pakan', clientX, clientY);
+            goat.interact('pakan');
+          } else {
+            goat.interact(game.mode);
+          }
+          return;
+        }
+      }
+
+      // 5. Klik Ayam
+      for (const chk of worldChickens) {
+        const scrX = (chk.gx - chk.gy) * (TILE_W / 2) * game.zoom + game.camX;
+        const scrY = (chk.gx + chk.gy) * (TILE_H / 2) * game.zoom + game.camY;
+        if (Math.hypot(clientX - scrX, clientY - scrY) < 32 * game.zoom) {
+          if (chk.siapTelur) {
+            triggerSwipeTool('telur', clientX, clientY);
+            chk.interact('telur');
+          } else if (chk.kenyang < 60) {
+            triggerSwipeTool('pakan_ayam', clientX, clientY);
+            chk.interact('pakan_ayam');
+          } else {
+            chk.interact(game.mode);
+          }
+          return;
+        }
+      }
+
+      // 6. Klik Pohon Konservasi
+      for (const tree of forestTrees) {
+        const scrX = (tree.gx - tree.gy) * (TILE_W / 2) * game.zoom + game.camX;
+        const scrY = (tree.gx + tree.gy) * (TILE_H / 2) * game.zoom + game.camY;
+        if (Math.hypot(clientX - scrX, clientY - scrY) < 40 * game.zoom) {
+          tree.interact();
+          return;
+        }
+      }
+
+      // 7. Klik Petak Ladang
+      for (const plot of cropPlots) {
+        const scrX = (plot.gx - plot.gy) * (TILE_W / 2) * game.zoom + game.camX;
+        const scrY = (plot.gx + plot.gy) * (TILE_H / 2) * game.zoom + game.camY;
+        if (Math.hypot(clientX - scrX, clientY - scrY) < 35 * game.zoom) {
+          if (plot.ready) {
+            triggerSwipeTool('panen', clientX, clientY);
+            harvestPlot(plot);
+          } else {
+            spawnText(plot.gx, plot.gy, 'Sedang Tumbuh...', '#cbd5e1');
+          }
+          return;
+        }
+      }
+    }
+
+    // ==========================================
+    // LOGIKA MODAL & TRANSAKSI
+    // ==========================================
+    function openFeedMillModal() {
+      sfx('klik');
+      document.getElementById('modal-feedmill').style.display = 'block';
+    }
+
+    function openOrderModal() {
+      sfx('klik');
+      renderOrders();
+      document.getElementById('modal-orders').style.display = 'block';
+    }
+
+    function openMissionModal() {
+      sfx('klik');
+      renderMissions();
+      document.getElementById('modal-missions').style.display = 'block';
+    }
+
+    function closeModals() {
+      sfx('klik');
+      document.getElementById('modal-feedmill').style.display = 'none';
+      document.getElementById('modal-orders').style.display = 'none';
+      document.getElementById('modal-missions').style.display = 'none';
+    }
+
+    function craftPakan(tipe) {
+      if (tipe === 'sapi') {
+        if (game.jagung < 1 || game.rumput < 1) {
+          alert('Bahan tidak cukup! Butuh 1x Jagung & 1x Rumput.');
+          return;
+        }
+        game.jagung -= 1;
+        game.rumput -= 1;
+        game.pakan += 2;
+        game.xp += 20;
+        sfx('panen');
+        spawnText(9.2, 1.5, '+2 🌾 Pakan Sapi Siap!', '#fde047');
+      } else if (tipe === 'ayam') {
+        if (game.jagung < 1) {
+          alert('Bahan tidak cukup! Butuh 1x Jagung.');
+          return;
+        }
+        game.jagung -= 1;
+        game.pakanAyam += 3;
+        game.xp += 15;
+        sfx('panen');
+        spawnText(9.2, 1.5, '+3 🥣 Pakan Ayam Siap!', '#fed7aa');
+      }
+      updateHUD();
+    }
+
+    function renderOrders() {
+      const cont = document.getElementById('orders-container');
+      cont.innerHTML = '';
+
+      campOrders.forEach(ord => {
+        const canFulfill = Object.entries(ord.req).every(([k, v]) => (game[k] || 0) >= v);
+
+        const reqText = Object.entries(ord.req)
+          .map(([k, v]) => `${v}x ${k === 'susu' ? '🥛 Susu' : k === 'jagung' ? '🌽 Jagung' : k === 'telur' ? '🥚 Telur' : '🌿 Rumput'}`)
+          .join(' + ');
+
+        const card = document.createElement('div');
+        card.className = 'order-card';
+        card.innerHTML = `
+          <div>
+            <div style="font-weight:700; color:#fde047; font-size:14px;">${ord.title}</div>
+            <div style="font-size:12px; color:#cbd5e1; margin-top:2px;">Syarat: ${reqText}</div>
+            <div style="font-size:12px; color:#a855f7; font-weight:700; margin-top:3px;">
+              Hadiah: +${ord.reward.koin} 🪙 Koin & +${ord.reward.xp} ⭐ XP
+            </div>
+          </div>
+          <button class="order-btn" ${canFulfill && !game.truck.active ? '' : 'disabled'} onclick="kirimPesanan(${ord.id})">
+            ${game.truck.active ? 'Truk di Jalan' : canFulfill ? 'Kirim Truk 🚚' : 'Belum Lengkap'}
+          </button>
+        `;
+        cont.appendChild(card);
+      });
+    }
+
+    function kirimPesanan(id) {
+      const ord = campOrders.find(o => o.id === id);
+      if (!ord || game.truck.active) return;
+
+      Object.entries(ord.req).forEach(([k, v]) => {
+        game[k] -= v;
+      });
+
+      game.koin += ord.reward.koin;
+      game.xp += ord.reward.xp;
+
+      closeModals();
+      sfx('truk');
+
+      game.truck.active = true;
+      game.truck.progress = 0;
+      game.truck.rewardText = `+${ord.reward.koin} 🪙 Koin & +${ord.reward.xp} ⭐ XP Sukses Dikirim!`;
+
+      updateHUD();
+    }
+
+    function renderMissions() {
+      const cont = document.getElementById('missions-container');
+      cont.innerHTML = '';
+
+      dailyMissions.forEach(m => {
+        const card = document.createElement('div');
+        card.className = 'mission-card';
+        card.innerHTML = `
+          <div>
+            <div style="font-weight:700; color:#fde047; font-size:14px;">${m.title}</div>
+            <div style="font-size:12px; color:#cbd5e1; margin-top:2px;">${m.desc}</div>
+            <div style="font-size:12px; color:#34d399; font-weight:700; margin-top:3px;">
+              Hadiah: ${m.reward}
+            </div>
+          </div>
+          <button class="mission-btn" ${m.done ? 'disabled' : ''} onclick="claimMission('${m.id}')">
+            ${m.done ? '✅ Selesai' : 'Selesaikan 🎯'}
+          </button>
+        `;
+        cont.appendChild(card);
+      });
+    }
+
+    function claimMission(id) {
+      const m = dailyMissions.find(x => x.id === id);
+      if (!m || m.done) return;
+
+      m.done = true;
+      sfx('panen');
+
+      if (id === 'm1') {
+        game.pakan += 10;
+        game.pakanAyam += 10;
+        spawnText(canvas.width / 2, canvas.height / 2, 'Klaim Memo: +10 Pakan Sapi & Ayam!', '#86efac');
+      } else if (id === 'm2') {
+        game.xp += 120;
+        game.karbon += 15;
+        forestTrees.forEach(t => { t.readyHarvest = true; });
+        spawnText(canvas.width / 2, canvas.height / 2, 'Klaim Karhutla: +120 XP & Pohon Subur!', '#34d399');
+      } else if (id === 'm3') {
+        game.xp += 200;
+        game.koin += 150;
+        spawnText(canvas.width / 2, canvas.height / 2, 'Klaim PICA: +200 XP & +150 Koin!', '#fde047');
+      }
+
+      spawnParticles(canvas.width / 2, canvas.height / 2, '#fde047', 24);
+      renderMissions();
+      updateHUD();
+    }
+
+    function beliSapiBaru() {
+      if (game.xp < 500) {
+        alert('XP tidak cukup! Anda butuh 500 XP.');
+        return;
+      }
+      sfx('panen');
+      game.xp -= 500;
+      const id = Date.now();
+      const nama = 'Sapi ' + (worldCows.length + 1);
+      const breed = worldCows.length % 2 === 0 ? 'limousin' : 'holstein';
+      worldCows.push(new RealisticCow(id, nama, 4.5, 4.5, breed, 1));
+      spawnText(4.5, 4.5, `Pedet ${breed === 'limousin' ? 'Limousin' : 'Holstein'} Hadir! 🐮`, '#fde047');
+      updateHUD();
+    }
+
+    function beliAyamBaru() {
+      if (game.xp < 250) {
+        alert('XP tidak cukup! Anda butuh 250 XP.');
+        return;
+      }
+      sfx('cluck');
+      game.xp -= 250;
+      const id = Date.now();
+      const nama = 'Ayam ' + (worldChickens.length + 1);
+      worldChickens.push(new RealisticChicken(id, nama, 12.5, 3.5));
+      spawnText(12.5, 3.5, 'Ayam Petelur Baru Hadir! 🐔', '#fed7aa');
+      updateHUD();
+    }
+
+    function beliKambingBaru() {
+      if (game.xp < 350) {
+        alert('XP tidak cukup! Anda butuh 350 XP.');
+        return;
+      }
+      sfx('goat');
+      game.xp -= 350;
+      const id = Date.now();
+      const nama = 'Kambing ' + (worldGoats.length + 1);
+      worldGoats.push(new RealisticGoat(id, nama, 4.0, 8.0));
+      spawnText(4.0, 8.0, 'Kambing Etawa Baru Hadir! 🐐', '#a7f3d0');
+      updateHUD();
+    }
+
+    // ==========================================
+    // GAME LOOP KONTINU (60 FPS DENGAN DELTA TIME)
+    // ==========================================
+    let lastTime = performance.now();
+    function loop(currentTime) {
+      const dt = Math.min(0.1, (currentTime - lastTime) / 1000);
+      lastTime = currentTime;
+
+      render(dt);
+      requestAnimationFrame(loop);
+    }
+
+    // INISIALISASI
+    resize();
+    updateHUD();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
