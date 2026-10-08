@@ -103,13 +103,19 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
   });
   const setTab = (t: Tab) => { setTabState(t); try { localStorage.setItem(KUNCI_TAB, t); } catch { /* abaikan */ } };
 
-  // State tema terang / gelap
+  // State tema gelap / putih bersih / terang (lapangan)
   const [temaAktif, setTemaAktif] = useState<Tema>(bacaTema);
   const toggleTema = () => {
-    const baru: Tema = temaAktif === 'gelap' ? 'terang' : 'gelap';
+    const baru: Tema = temaAktif === 'gelap' ? 'putih' : temaAktif === 'putih' ? 'terang' : 'gelap';
     setTemaAktif(baru);
     pasangTema(baru);
-    notify(baru === 'terang' ? 'MODE TERANG AKTIF — UNTUK DI LAPANGAN' : 'MODE GELAP AKTIF');
+    notify(
+      baru === 'putih'
+        ? 'MODE PUTIH BERSIH AKTIF'
+        : baru === 'terang'
+          ? 'MODE LAPANGAN AKTIF (REDUKSI SILAU)'
+          : 'MODE GELAP AKTIF',
+    );
   };
 
   const [memo, setMemo] = useState<Memo[]>([]);
@@ -538,11 +544,33 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
 
           <button
             onClick={toggleTema}
-            className="btn-retro btn-retro-sm !bg-zinc-800 hover:!bg-zinc-700 text-zinc-200 flex items-center gap-1.5 text-[11px] shadow-[2px_2px_0_#000]"
-            title={temaAktif === 'gelap' ? 'Ganti ke Mode Terang (Lapangan)' : 'Ganti ke Mode Gelap'}
+            className={`btn-retro btn-retro-sm flex items-center gap-1.5 text-[11px] shadow-[2px_2px_0_#000] ${
+              temaAktif === 'putih'
+                ? '!bg-white !text-zinc-900 !border-zinc-400'
+                : '!bg-zinc-800 hover:!bg-zinc-700 text-zinc-200'
+            }`}
+            title={
+              temaAktif === 'gelap'
+                ? 'Ganti ke Mode Putih Bersih'
+                : temaAktif === 'putih'
+                  ? 'Ganti ke Mode Lapangan'
+                  : 'Ganti ke Mode Gelap'
+            }
           >
-            {temaAktif === 'gelap' ? <Sun size={13} className="text-amber-300" /> : <Moon size={13} className="text-indigo-400" />}
-            <span className="hidden sm:inline font-mono font-bold">{temaAktif === 'gelap' ? 'Mode Terang' : 'Mode Gelap'}</span>
+            {temaAktif === 'gelap' ? (
+              <Moon size={13} className="text-indigo-400" />
+            ) : temaAktif === 'putih' ? (
+              <Sun size={13} className="text-amber-500 fill-amber-400" />
+            ) : (
+              <Sun size={13} className="text-emerald-400" />
+            )}
+            <span className="hidden sm:inline font-mono font-bold">
+              {temaAktif === 'putih'
+                ? 'Putih Bersih'
+                : temaAktif === 'terang'
+                  ? 'Mode Lapangan'
+                  : 'Mode Gelap'}
+            </span>
           </button>
         </div>
         {/* Baris 2: Tab Navigasi Utama (Tepat di bawah Judul). Di HP satu baris yang digeser, agar papan tidak terdesak. */}
@@ -1384,11 +1412,53 @@ function teksDiedit(iso: string | null | undefined): string {
 }
 
 const KUNCI_TAMPILAN = 'pokemonkey_memo_halaman';
+
+export type JenisFontMemo = 'sans' | 'serif' | 'mono' | 'retro';
+export type LatarMemo = 'putih' | 'gelap' | 'lapangan';
+
 /** Tampilan halaman per perangkat; `sidebar` = daftar halaman di kiri (laptop) tampil atau disembunyikan. */
-interface TampilanHalaman { lebar: boolean; kecil: boolean; sidebar: boolean; lipatProperti: boolean }
+interface TampilanHalaman {
+  lebar: boolean;
+  kecil: boolean;
+  sidebar: boolean;
+  lipatProperti: boolean;
+  font: JenisFontMemo;
+  latar: LatarMemo;
+}
+
+export const DAFTAR_FONT: { id: JenisFontMemo; label: string; contoh: string; ket: string; kelas: string }[] = [
+  { id: 'sans', label: 'Sans', contoh: 'Ag', ket: 'Bawaan Notion · Bersih & modern', kelas: 'memo-font-sans font-sans' },
+  { id: 'serif', label: 'Serif', contoh: 'Ag', ket: 'Elegan · Gaya buku & surat', kelas: 'memo-font-serif font-serif' },
+  { id: 'mono', label: 'Mono', contoh: 'Ag', ket: 'Monospace · Gaya kode & ketik', kelas: 'memo-font-mono font-mono' },
+  { id: 'retro', label: 'Retro', contoh: 'Ag', ket: 'Pixelify · Khas POKEMONKEY', kelas: 'memo-font-retro' },
+];
+
+export const DAFTAR_LATAR: { id: LatarMemo; label: string; ket: string; bgWarna: string }[] = [
+  { id: 'putih', label: 'Putih Bersih', ket: 'Latar putih bersih · kontras maksimal', bgWarna: 'bg-white border-zinc-400' },
+  { id: 'gelap', label: 'Gelap', ket: 'Mode gelap · santai di malam hari', bgWarna: 'bg-zinc-950 border-zinc-700' },
+  { id: 'lapangan', label: 'Lapangan', ket: 'Abu lapangan · reduksi silau', bgWarna: 'bg-[#e6eae3] border-zinc-500' },
+];
+
 const bacaTampilan = (): TampilanHalaman => {
-  const bawaan: TampilanHalaman = { lebar: false, kecil: false, sidebar: true, lipatProperti: false };
-  try { return { ...bawaan, ...JSON.parse(localStorage.getItem(KUNCI_TAMPILAN) || '{}') }; } catch { return bawaan; }
+  const bawaan: TampilanHalaman = {
+    lebar: false,
+    kecil: false,
+    sidebar: true,
+    lipatProperti: false,
+    font: 'sans',
+    latar: 'putih',
+  };
+  try {
+    const raw = JSON.parse(localStorage.getItem(KUNCI_TAMPILAN) || '{}');
+    return {
+      ...bawaan,
+      ...raw,
+      font: ['sans', 'serif', 'mono', 'retro'].includes(raw.font) ? raw.font : 'sans',
+      latar: ['putih', 'gelap', 'lapangan'].includes(raw.latar) ? raw.latar : 'putih',
+    };
+  } catch {
+    return bawaan;
+  }
 };
 const layarLebar = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches;
 
@@ -1745,8 +1815,22 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
   const diedit = teksDiedit(memo.diubah_pada ?? memo.dibuat_pada);
   const kotakMenu = 'absolute z-30 retro-box !bg-zinc-900 border-lime-500 !p-1';
 
+  const kelasLatar = tampilan.latar === 'putih'
+    ? 'memo-latar-putih bg-white text-zinc-900'
+    : tampilan.latar === 'lapangan'
+      ? 'memo-latar-lapangan bg-[#e6eae3] text-zinc-900'
+      : 'bg-zinc-950 text-white';
+
+  const kelasFont = tampilan.font === 'sans'
+    ? 'memo-font-sans font-sans'
+    : tampilan.font === 'serif'
+      ? 'memo-font-serif font-serif'
+      : tampilan.font === 'mono'
+        ? 'memo-font-mono font-mono'
+        : 'memo-font-retro';
+
   return (
-    <div className="fixed inset-0 z-[100] bg-zinc-950 flex" role="dialog" aria-modal="true" aria-label={judul || 'Tanpa judul'}>
+    <div className={`fixed inset-0 z-[100] flex ${kelasLatar} ${kelasFont}`} role="dialog" aria-modal="true" aria-label={judul || 'Tanpa judul'}>
       {/* ---------- Sidebar (laptop: selalu di kiri; HP: laci dari tombol menu) ---------- */}
       <SidebarMemo
         className={tampilan.sidebar ? 'hidden lg:flex' : 'hidden'}
@@ -1812,9 +1896,15 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
 
       <div className="flex-1 min-w-0 flex flex-col">
       {/* ---------- Bilah atas ---------- */}
-      <div className="h-12 shrink-0 flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 border-b-2 border-white/15 bg-zinc-950">
-        <button type="button" onClick={alihSidebar} className={`${tampilan.sidebar ? 'lg:hidden' : ''} btn-ikon !w-9 !h-9 bg-zinc-800 shrink-0`} title="Tampilkan daftar halaman (Ctrl+\)" aria-label="Tampilkan daftar halaman"><Menu size={17} /></button>
-        <button type="button" onClick={tutup} className="btn-ikon !w-9 !h-9 bg-zinc-800 shrink-0" title="Kembali ke papan memo" aria-label="Kembali"><ChevronLeft size={18} /></button>
+      <div className={`h-12 shrink-0 flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 border-b-2 ${
+        tampilan.latar === 'putih'
+          ? 'bg-white border-zinc-200'
+          : tampilan.latar === 'lapangan'
+            ? 'bg-[#e6eae3] border-zinc-400'
+            : 'bg-zinc-950 border-white/15'
+      }`}>
+        <button type="button" onClick={alihSidebar} className={`${tampilan.sidebar ? 'lg:hidden' : ''} btn-ikon !w-9 !h-9 ${tampilan.latar === 'putih' ? '!bg-zinc-100 hover:!bg-zinc-200 !text-zinc-800 !border-zinc-300' : 'bg-zinc-800'} shrink-0`} title="Tampilkan daftar halaman (Ctrl+\)" aria-label="Tampilkan daftar halaman"><Menu size={17} /></button>
+        <button type="button" onClick={tutup} className={`btn-ikon !w-9 !h-9 ${tampilan.latar === 'putih' ? '!bg-zinc-100 hover:!bg-zinc-200 !text-zinc-800 !border-zinc-300' : 'bg-zinc-800'} shrink-0`} title="Kembali ke papan memo" aria-label="Kembali"><ChevronLeft size={18} /></button>
         <nav className="flex items-center gap-1.5 min-w-0 text-[13px]" aria-label="Jalur halaman">
           {/* Induk → … → halaman ini; di HP hanya induk terdekat yang tampil. */}
           {leluhur.length > 1 && <span className="sm:hidden text-zinc-500">…/</span>}
@@ -1822,14 +1912,14 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
             const sembunyiHp = i < leluhur.length - 1 ? 'hidden sm:inline' : '';
             return (
               <React.Fragment key={m.id}>
-                <button type="button" onClick={() => { void pindahKe(m.id); }} className={`${sembunyiHp} min-w-0 max-w-[9rem] truncate text-zinc-400 hover:text-white`} title={m.judul || 'Tanpa judul'}>
+                <button type="button" onClick={() => { void pindahKe(m.id); }} className={`${sembunyiHp} min-w-0 max-w-[9rem] truncate ${tampilan.latar === 'putih' ? 'text-zinc-500 hover:text-zinc-950' : 'text-zinc-400 hover:text-white'}`} title={m.judul || 'Tanpa judul'}>
                   {ikonMemo(m) && <span className="mr-1">{ikonMemo(m)}</span>}{m.judul || 'Tanpa judul'}
                 </button>
                 <span className={`${sembunyiHp} text-zinc-600`}>/</span>
               </React.Fragment>
             );
           })}
-          <span className="text-white font-bold truncate">{ikon && <span className="mr-1">{ikon}</span>}{judul || 'Tanpa judul'}</span>
+          <span className={`font-bold truncate ${tampilan.latar === 'putih' ? 'text-zinc-950' : 'text-white'}`}>{ikon && <span className="mr-1">{ikon}</span>}{judul || 'Tanpa judul'}</span>
           <span className="hidden sm:inline-flex items-center gap-1 text-zinc-500 whitespace-nowrap">{pribadi ? <Lock size={12} /> : <Users size={12} />}{asal}</span>
         </nav>
         <span className="ml-auto hidden md:inline text-[11px] text-zinc-500 whitespace-nowrap">{diedit}</span>
@@ -1838,7 +1928,7 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
         <button
           type="button"
           onClick={() => setKomentarBuka((v) => !v)}
-          className={`relative btn-ikon !w-9 !h-9 shrink-0 ${komentarBuka ? 'bg-lime-600' : 'bg-zinc-800'}`}
+          className={`relative btn-ikon !w-9 !h-9 shrink-0 ${komentarBuka ? 'bg-lime-600' : tampilan.latar === 'putih' ? '!bg-zinc-100 hover:!bg-zinc-200 !text-zinc-800 !border-zinc-300' : 'bg-zinc-800'}`}
           title="Komentar"
           aria-label={`Komentar${jumlahKomentar ? ` (${jumlahKomentar})` : ''}`}
           aria-expanded={komentarBuka}
@@ -1867,23 +1957,87 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
             <span className="hidden sm:inline text-[11px] uppercase">Asisten AI</span>
           </button>
         )}
+        {/* Tombol cepat Latar Putih Bersih / Gelap */}
+        <button
+          type="button"
+          onClick={() => {
+            const baru: LatarMemo = tampilan.latar === 'putih' ? 'gelap' : 'putih';
+            setTampilan({ ...tampilan, latar: baru });
+            notify(baru === 'putih' ? 'LATAR PUTIH BERSIH DIAKTIFKAN' : 'LATAR GELAP DIAKTIFKAN');
+          }}
+          className={`btn-ikon !w-9 !h-9 shrink-0 ${
+            tampilan.latar === 'putih'
+              ? '!bg-amber-100 hover:!bg-amber-200 !text-amber-900 !border-amber-300'
+              : 'bg-zinc-800 text-zinc-300 hover:text-white'
+          }`}
+          title={tampilan.latar === 'putih' ? 'Ganti ke Latar Gelap' : 'Ganti ke Latar Putih Bersih'}
+          aria-label="Latar Belakang Memo"
+        >
+          {tampilan.latar === 'putih' ? <Sun size={15} className="text-amber-600" /> : <Moon size={15} className="text-indigo-400" />}
+        </button>
         <span className="relative">
-          <button type="button" onClick={() => setMenu(menu === 'titik' ? null : 'titik')} className={`btn-ikon !w-9 !h-9 ${menu === 'titik' ? 'bg-lime-600' : 'bg-zinc-800'}`} title="Lainnya" aria-label="Lainnya" aria-expanded={menu === 'titik'}><MoreHorizontal size={16} /></button>
+          <button type="button" onClick={() => setMenu(menu === 'titik' ? null : 'titik')} className={`btn-ikon !w-9 !h-9 ${menu === 'titik' ? 'bg-lime-600' : tampilan.latar === 'putih' ? '!bg-zinc-100 hover:!bg-zinc-200 !text-zinc-800 !border-zinc-300' : 'bg-zinc-800'}`} title="Lainnya" aria-label="Lainnya" aria-expanded={menu === 'titik'}><MoreHorizontal size={16} /></button>
           {menu === 'titik' && (
             <>
               <span className="fixed inset-0 z-20" onClick={() => setMenu(null)} aria-hidden="true" />
-              <div className={`${kotakMenu} right-0 top-full mt-1 w-60`}>
-                <p className="px-2 pt-1 pb-0.5 text-[11px] uppercase text-zinc-500">Tampilan halaman</p>
-                <button type="button" onClick={() => setTampilan({ ...tampilan, lebar: !tampilan.lebar })} className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[13px] hover:bg-white/10">
-                  <span className="flex items-center gap-2"><MoveHorizontal size={14} /> Lebar penuh</span><span className={`w-8 h-4 border-2 border-white/60 relative ${tampilan.lebar ? 'bg-lime-600' : ''}`}><span className={`absolute top-0 w-3 h-3 bg-white ${tampilan.lebar ? 'right-0' : 'left-0'}`} /></span>
+              <div className={`${kotakMenu} right-0 top-full mt-1 w-64 ${tampilan.latar === 'putih' ? '!bg-white !border-zinc-300 text-zinc-900 shadow-xl' : ''}`}>
+                <p className="px-2 pt-1 pb-1 text-[11px] uppercase text-zinc-500 font-bold">Gaya Huruf (Font)</p>
+                <div className="grid grid-cols-4 gap-1 px-1 pb-1.5">
+                  {DAFTAR_FONT.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setTampilan({ ...tampilan, font: f.id })}
+                      className={`flex flex-col items-center justify-center py-1.5 px-1 rounded border-2 transition-all ${
+                        tampilan.font === f.id
+                          ? 'border-lime-500 bg-lime-500/20 font-bold shadow'
+                          : tampilan.latar === 'putih'
+                            ? 'border-zinc-200 hover:border-zinc-400 text-zinc-700 hover:bg-zinc-100'
+                            : 'border-white/15 hover:border-white/40 text-zinc-300 hover:text-white'
+                      }`}
+                      title={f.ket}
+                    >
+                      <span className={`text-[17px] leading-tight ${f.kelas}`}>Ag</span>
+                      <span className="text-[10px] mt-0.5">{f.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className={`h-px my-1 ${tampilan.latar === 'putih' ? 'bg-zinc-200' : 'bg-white/15'}`} />
+                <p className="px-2 pt-1 pb-1 text-[11px] uppercase text-zinc-500 font-bold">Latar Belakang</p>
+                <div className="grid grid-cols-3 gap-1 px-1 pb-1.5">
+                  {DAFTAR_LATAR.map((l) => (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() => setTampilan({ ...tampilan, latar: l.id })}
+                      className={`flex flex-col items-center justify-center py-1.5 px-1 rounded border-2 transition-all ${
+                        tampilan.latar === l.id
+                          ? 'border-lime-500 font-bold shadow ring-2 ring-lime-400'
+                          : tampilan.latar === 'putih'
+                            ? 'border-zinc-200 hover:border-zinc-400 text-zinc-700 hover:bg-zinc-100'
+                            : 'border-white/15 hover:border-white/40 text-zinc-300 hover:text-white'
+                      }`}
+                      title={l.ket}
+                    >
+                      <span className={`w-3.5 h-3.5 rounded-full border mb-0.5 ${l.bgWarna}`} />
+                      <span className="text-[10px] leading-tight text-center">{l.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className={`h-px my-1 ${tampilan.latar === 'putih' ? 'bg-zinc-200' : 'bg-white/15'}`} />
+                <p className="px-2 pt-1 pb-0.5 text-[11px] uppercase text-zinc-500 font-bold">Tampilan Halaman</p>
+                <button type="button" onClick={() => setTampilan({ ...tampilan, lebar: !tampilan.lebar })} className={`flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[13px] ${tampilan.latar === 'putih' ? 'hover:bg-zinc-100 text-zinc-800' : 'hover:bg-white/10 text-white'}`}>
+                  <span className="flex items-center gap-2"><MoveHorizontal size={14} /> Lebar penuh</span><span className={`w-8 h-4 border-2 ${tampilan.latar === 'putih' ? 'border-zinc-400' : 'border-white/60'} relative ${tampilan.lebar ? 'bg-lime-600' : ''}`}><span className={`absolute top-0 w-3 h-3 ${tampilan.latar === 'putih' ? 'bg-zinc-900' : 'bg-white'} ${tampilan.lebar ? 'right-0' : 'left-0'}`} /></span>
                 </button>
-                <button type="button" onClick={() => setTampilan({ ...tampilan, kecil: !tampilan.kecil })} className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[13px] hover:bg-white/10">
-                  <span className="flex items-center gap-2"><Type size={14} /> Teks kecil</span><span className={`w-8 h-4 border-2 border-white/60 relative ${tampilan.kecil ? 'bg-lime-600' : ''}`}><span className={`absolute top-0 w-3 h-3 bg-white ${tampilan.kecil ? 'right-0' : 'left-0'}`} /></span>
+                <button type="button" onClick={() => setTampilan({ ...tampilan, kecil: !tampilan.kecil })} className={`flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[13px] ${tampilan.latar === 'putih' ? 'hover:bg-zinc-100 text-zinc-800' : 'hover:bg-white/10 text-white'}`}>
+                  <span className="flex items-center gap-2"><Type size={14} /> Teks kecil</span><span className={`w-8 h-4 border-2 ${tampilan.latar === 'putih' ? 'border-zinc-400' : 'border-white/60'} relative ${tampilan.kecil ? 'bg-lime-600' : ''}`}><span className={`absolute top-0 w-3 h-3 ${tampilan.latar === 'putih' ? 'bg-zinc-900' : 'bg-white'} ${tampilan.kecil ? 'right-0' : 'left-0'}`} /></span>
                 </button>
                 {pribadi && boleh && (
                   <>
-                    <div className="h-px bg-white/15 my-1" />
-                    <button type="button" onClick={() => { setMenu(null); onUbah({ disematkan: memo.disematkan ? 0 : 1 }); jadwalkan({ disematkan: memo.disematkan ? 0 : 1 }, true); }} className="flex w-full items-center gap-2 px-2 py-1.5 text-[13px] hover:bg-white/10">
+                    <div className={`h-px my-1 ${tampilan.latar === 'putih' ? 'bg-zinc-200' : 'bg-white/15'}`} />
+                    <button type="button" onClick={() => { setMenu(null); onUbah({ disematkan: memo.disematkan ? 0 : 1 }); jadwalkan({ disematkan: memo.disematkan ? 0 : 1 }, true); }} className={`flex w-full items-center gap-2 px-2 py-1.5 text-[13px] ${tampilan.latar === 'putih' ? 'hover:bg-zinc-100 text-zinc-800' : 'hover:bg-white/10'}`}>
                       {memo.disematkan ? <PinOff size={14} /> : <Pin size={14} />} {memo.disematkan ? 'Lepas sematan' : 'Sematkan di atas'}
                     </button>
                     <div className="flex items-center gap-1.5 px-2 py-1.5">
@@ -1895,13 +2049,13 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
                   </>
                 )}
                 <div className="sm:hidden">
-                  <div className="h-px bg-white/15 my-1" />
-                  <div className="px-2 py-1.5 flex items-center gap-2 text-[13px]"><TombolGambarMemo memo={{ ...memo, judul, ringkasan, isi }} kecil /> Unduh gambar</div>
+                  <div className={`h-px my-1 ${tampilan.latar === 'putih' ? 'bg-zinc-200' : 'bg-white/15'}`} />
+                  <div className={`px-2 py-1.5 flex items-center gap-2 text-[13px] ${tampilan.latar === 'putih' ? 'text-zinc-800' : ''}`}><TombolGambarMemo memo={{ ...memo, judul, ringkasan, isi }} kecil /> Unduh gambar</div>
                 </div>
                 {penuh && (
                   <>
-                    <div className="h-px bg-white/15 my-1" />
-                    <button type="button" onClick={hapus} className="flex w-full items-center gap-2 px-2 py-1.5 text-[13px] text-red-300 hover:bg-red-900/40"><Trash2 size={14} /> Pindahkan ke Sampah</button>
+                    <div className={`h-px my-1 ${tampilan.latar === 'putih' ? 'bg-zinc-200' : 'bg-white/15'}`} />
+                    <button type="button" onClick={hapus} className="flex w-full items-center gap-2 px-2 py-1.5 text-[13px] text-red-500 hover:bg-red-500/10"><Trash2 size={14} /> Pindahkan ke Sampah</button>
                   </>
                 )}
                 {diedit && <p className="px-2 pt-1 pb-0.5 text-[11px] text-zinc-500 md:hidden">{diedit}</p>}
@@ -1967,11 +2121,19 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
                 if (fokusJudulAwal.current && !memo.judul && !memo.isi) { fokusJudulAwal.current = false; t.focus({ preventScroll: true }); }
               }}
               placeholder="Tanpa judul"
-              className="w-full mt-2 bg-transparent text-[28px] sm:text-[38px] font-bold leading-tight text-white outline-none placeholder:text-zinc-700 resize-none overflow-hidden"
+              className={`w-full mt-2 bg-transparent text-[28px] sm:text-[38px] font-bold leading-tight outline-none resize-none overflow-hidden ${
+                tampilan.latar === 'putih'
+                  ? 'text-zinc-950 placeholder:text-zinc-400'
+                  : tampilan.latar === 'lapangan'
+                    ? 'text-zinc-900 placeholder:text-zinc-500'
+                    : 'text-white placeholder:text-zinc-700'
+              }`}
               aria-label="Judul"
             />
           ) : (
-            <h1 className="mt-2 text-[28px] sm:text-[38px] font-bold leading-tight text-white">{judul || 'Tanpa judul'}</h1>
+            <h1 className={`mt-2 text-[28px] sm:text-[38px] font-bold leading-tight ${
+              tampilan.latar === 'putih' ? 'text-zinc-950' : tampilan.latar === 'lapangan' ? 'text-zinc-900' : 'text-white'
+            }`}>{judul || 'Tanpa judul'}</h1>
           )}
 
           {/* Properti — pola Notion: nama abu-abu di kiri, nilai polos di kanan yang jadi isian saat diketuk.
@@ -2108,7 +2270,7 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
             </div>
           </div>
 
-          <div className={subHalaman ? 'mt-4' : 'border-t border-white/15 mt-3 pt-4'}>
+          <div className={subHalaman ? 'mt-4' : `border-t mt-3 pt-4 ${tampilan.latar === 'putih' ? 'border-zinc-200' : tampilan.latar === 'lapangan' ? 'border-zinc-300' : 'border-white/15'}`}>
             <EditorMemo
               memoId={memo.id}
               isi={isi}
@@ -2120,6 +2282,8 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
               onBukaPica={onBukaPica}
               tinggi={isi.trim() ? 360 : 120}
               kecil={tampilan.kecil}
+              font={tampilan.font}
+              latar={tampilan.latar}
               idSaya={idSaya}
               onCentangBaca={!boleh && !pribadi ? centangBaca : undefined}
               // "Tautan ke halaman": memo tim hanya menautkan memo tim, agar judul catatan pribadi tidak terbaca orang lain.

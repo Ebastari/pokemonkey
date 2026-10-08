@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   Hash, Plus, Search, FileSpreadsheet, Download, Paperclip, Copy, Check,
   Pencil, Trash2, ExternalLink, Calendar, User, MapPin, Filter, FileText,
-  Send, ClipboardList, Loader2, ArrowUpDown, ArrowDown, ArrowUp, RotateCcw,
+  Send, ClipboardList, Loader2, ArrowUpDown, ArrowDown, ArrowUp, RotateCcw, Lock,
 } from 'lucide-react';
 import {
   type ItemSurat,
@@ -675,6 +675,7 @@ export const TampilanNomorSurat: React.FC<Props> = ({
                     {/* 3. Nomor Surat & Tombol Copy */}
                     <td className="px-2 py-2 whitespace-nowrap">
                       <div className="flex items-center gap-1.5 font-mono font-bold text-amber-400">
+                        {item.terkunci && <span title="Dokumen Terkunci" className="inline-flex"><Lock size={12} className="text-amber-400 shrink-0" /></span>}
                         <span className="truncate">{item.nomorSurat}</span>
                         <button
                           onClick={(e) => handleSalinNomor(item.nomorSurat, item.id, e)}

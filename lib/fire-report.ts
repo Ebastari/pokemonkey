@@ -101,6 +101,7 @@ export interface LaporanKarhutla {
   isianForm?: IsianFormLaporan;
   dibuatPada: string;
   diubahPada: string;
+  terkunci?: boolean;
 }
 
 /** Pembuat laporan bawaan; nama & jabatan bisa diganti di form. */

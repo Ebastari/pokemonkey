@@ -5,8 +5,9 @@ import {
   Calendar, Layers, Filter, Search, Copy, Trash2, Edit3, Image as ImageIcon,
   Check, X, Clock, Send, AlertCircle, Trees, Mountain, Pickaxe,
   Upload, Camera, Save, ArrowUp, ArrowDown, Sparkles, Loader2, FolderPlus,
-  ZoomIn, ZoomOut, ChevronsUpDown, Table, Map, Scale, CheckSquare
+  ZoomIn, ZoomOut, ChevronsUpDown, Table, Map, Scale, CheckSquare, Lock, Unlock
 } from 'lucide-react';
+import { ModalBukaKunci } from './ModalBukaKunci';
 import { FireMap } from './FireMap';
 import {
   type TitikApiFireItem,
@@ -227,6 +228,8 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
   const [mengirimWa, setMengirimWa] = useState(false);
 
   const [modeEditLaporan, setModeEditLaporan] = useState<boolean>(false);
+  const [bukaModalKunci, setBukaModalKunci] = useState<boolean>(false);
+  const [aksiSetelahBukaKunci, setAksiSetelahBukaKunci] = useState<'editLangsung' | 'form' | null>(null);
   // Alur laporan: titik terpilih → form (langkah 1) → tinjau lembar (langkah 2) → export PDF.
   const [formLaporan, setFormLaporan] = useState<{ laporan: LaporanKarhutla; baru: boolean } | null>(null);
   const [mengeksporPdf, setMengeksporPdf] = useState(false);
@@ -333,12 +336,12 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
 
   /** Form selesai → laporan disimpan (draf) lalu ditampilkan untuk ditinjau. */
   const handleTinjauForm = (hasil: LaporanKarhutla) => {
-    const siap = anonimkanDalam(hasil);
+    const siap: LaporanKarhutla = { ...anonimkanDalam(hasil), terkunci: true };
     const baru = formLaporan?.baru;
     setDaftarLaporan((prev) => (baru ? [siap, ...prev] : prev.map((l) => (l.id === siap.id ? siap : l))));
     setFormLaporan(null);
     bukaDokumen(siap.id, baru ? null : arsipAktif, kembaliKe);
-    notify('TINJAU LAPORAN, LALU EXPORT PDF');
+    notify('LAPORAN DISIMPAN & TERKUNCI (PASSWORD: eblhasnurajadeh)');
   };
 
   /** Export PDF → unggah ke arsip server (R2) → siap dikirim ke WhatsApp. */
@@ -412,19 +415,34 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
   // ---------------------------------------------------------------------------
   const handleMulaiEdit = () => {
     if (!laporanAktif) return;
+    if (laporanAktif.terkunci) {
+      setAksiSetelahBukaKunci('editLangsung');
+      setBukaModalKunci(true);
+      return;
+    }
     setDraftLaporan(JSON.parse(JSON.stringify(laporanAktif)));
     setModeEditLaporan(true);
     notify('MODE EDIT DOKUMEN DIAKTIFKAN');
   };
 
+  const handleBukaFormEdit = () => {
+    if (!laporanAktif) return;
+    if (laporanAktif.terkunci) {
+      setAksiSetelahBukaKunci('form');
+      setBukaModalKunci(true);
+      return;
+    }
+    setFormLaporan({ laporan: laporanAktif, baru: false });
+  };
+
   const handleSimpanEdit = () => {
     if (!draftLaporan) return;
     const sekarang = new Date().toISOString();
-    const updated: LaporanKarhutla = { ...draftLaporan, diubahPada: sekarang };
+    const updated: LaporanKarhutla = { ...draftLaporan, terkunci: true, diubahPada: sekarang };
     setDaftarLaporan((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
     setModeEditLaporan(false);
     setDraftLaporan(null);
-    notify('PERUBAHAN DOKUMEN BERHASIL DISIMPAN');
+    notify('PERUBAHAN DOKUMEN BERHASIL DISIMPAN & TERKUNCI (PASSWORD: eblhasnurajadeh)');
   };
 
   const handleBatalEdit = () => {
@@ -917,6 +935,11 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
               >
                 {laporanDitampilkan.jenisIzin.toUpperCase()}
               </span>
+              {laporanDitampilkan?.terkunci && !modeEditLaporan && (
+                <span className="chip-retro !text-[9px] border-amber-400 bg-amber-950 text-amber-300 font-bold flex items-center gap-1 font-mono">
+                  <Lock size={10} /> TERKUNCI
+                </span>
+              )}
               {modeEditLaporan && (
                 <span className="chip-retro !text-[9px] border-yellow-400 bg-yellow-500 text-black font-black animate-pulse">
                   MODE EDIT AKTIF
@@ -956,7 +979,19 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
               </button>
 
               {/* Toggle / Simpan Suntingan */}
-              {!modeEditLaporan ? (
+              {laporanDitampilkan?.terkunci && !modeEditLaporan ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAksiSetelahBukaKunci('editLangsung');
+                    setBukaModalKunci(true);
+                  }}
+                  className="btn-retro bg-amber-600 hover:bg-amber-500 text-white font-bold flex items-center gap-1.5 !py-1 text-[11px]"
+                  title="Dokumen terkunci. Klik untuk membuka kunci dengan password."
+                >
+                  <Lock size={13} className="text-amber-200" /> Buka Kunci
+                </button>
+              ) : !modeEditLaporan ? (
                 <button
                   onClick={handleMulaiEdit}
                   className="btn-retro bg-amber-600 hover:bg-amber-500 text-white font-bold flex items-center gap-1.5 !py-1 text-[11px]"
@@ -982,7 +1017,7 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
 
               {/* Kembali ke form (langkah 1) */}
               <button
-                onClick={() => laporanAktif && setFormLaporan({ laporan: laporanAktif, baru: false })}
+                onClick={handleBukaFormEdit}
                 disabled={modeEditLaporan || !laporanAktif}
                 className="btn-retro bg-orange-700 hover:bg-orange-600 text-white font-bold flex items-center gap-1.5 !py-1 text-[11px] disabled:opacity-40"
                 title="Buka lagi form kronologi laporan ini"
@@ -1564,6 +1599,31 @@ export const FireMonkeyScreen: React.FC<Props> = ({ pengguna, notify }) => {
           #dokumen-karhutla-a4 img, #dokumen-karhutla-a4 table { break-inside: avoid; page-break-inside: avoid; }
         }
       `}</style>
+
+      {bukaModalKunci && (
+        <ModalBukaKunci
+          namaDokumen="Laporan Karhutla"
+          onSukses={() => {
+            setBukaModalKunci(false);
+            if (laporanAktif) {
+              const dibuka: LaporanKarhutla = { ...laporanAktif, terkunci: false };
+              setDaftarLaporan((prev) => prev.map((l) => (l.id === dibuka.id ? dibuka : l)));
+              if (aksiSetelahBukaKunci === 'editLangsung') {
+                setDraftLaporan(JSON.parse(JSON.stringify(dibuka)));
+                setModeEditLaporan(true);
+              } else if (aksiSetelahBukaKunci === 'form') {
+                setFormLaporan({ laporan: dibuka, baru: false });
+              }
+            }
+            setAksiSetelahBukaKunci(null);
+          }}
+          onBatal={() => {
+            setBukaModalKunci(false);
+            setAksiSetelahBukaKunci(null);
+          }}
+          notify={notify}
+        />
+      )}
     </div>
   );
 };

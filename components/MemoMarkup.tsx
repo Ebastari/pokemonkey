@@ -1,6 +1,6 @@
-import React, { useId, useState } from 'react';
-import { CalendarClock, Check, ChevronRight, Copy, ExternalLink, FileText, ImageOff, Info, Link2, Loader2, Play, Video } from 'lucide-react';
-import { daftarJudul, uraiBlok, uraiInline, toggleBaris, type Blok, type Inline, type RataGambar } from '../server/src/memo-blok';
+import React, { useEffect, useId, useState } from 'react';
+import { CalendarClock, Check, ChevronRight, Copy, ExternalLink, FileText, ImageOff, Info, Link2, Loader2, Lock, Play, Video } from 'lucide-react';
+import { daftarJudul, uraiBlok, uraiInline, toggleBaris, type Blok, type Inline, type RataGambar, type InfoPicaLive, type OpsiGrafikTabel } from '../server/src/memo-blok';
 import { BAHASA_KODE, WARNA_KODE, sorotKode } from '../server/src/tampil-memo';
 import { rumusHtml, useKatex } from '../lib/rumus';
 import { GrafikReklamasi } from './GrafikReklamasi';
@@ -10,6 +10,8 @@ import { unduhBerkasMemo } from '../lib/memo-gambar';
 import * as W from '../lib/waktu';
 import { infoHalaman, type PetaHalaman } from '../lib/memo-dom';
 import { KartuDataLapangan } from './KartuDataLapangan';
+import { GrafikTabelMemo } from './GrafikTabelMemo';
+import { sinkronkanTabelPica } from '../lib/pica-tabel';
 
 /**
  * Penampil memo. Teks memo tetap teks biasa (lihat server/src/memo-blok.ts untuk
@@ -233,21 +235,104 @@ const PotonganInline: React.FC<{ daftar: Inline[]; selesai?: boolean } & Konteks
 );
 
 /** Tabel baca-saja; baris pertama jadi judul kolom bila `kepala`. */
-export const TabelBaca: React.FC<{ baris: string[][]; kepala: boolean } & Konteks> = ({ baris, kepala, ...ctx }) => (
-  <div className="my-1.5 overflow-x-auto custom-scrollbar">
-    <table className="border-collapse text-[0.9375em]">
-      <tbody>
-        {baris.map((r, i) => (
-          <tr key={i} className={kepala && i === 0 ? 'bg-white/[0.07]' : ''}>
-            {r.map((c, j) => (kepala && i === 0
-              ? <th key={j} className="border-2 border-white/25 px-2 py-1 text-left align-top min-w-[90px] font-bold text-white"><TeksInline teks={c} {...ctx} /></th>
-              : <td key={j} className="border-2 border-white/20 px-2 py-1 align-top min-w-[90px] text-zinc-100"><TeksInline teks={c} {...ctx} /></td>))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-);
+export const TabelBaca: React.FC<{
+  baris: string[][];
+  kepala: boolean;
+  pica?: InfoPicaLive;
+  grafik?: OpsiGrafikTabel;
+} & Konteks> = ({ baris, kepala, pica, grafik, ...ctx }) => {
+  const [dataBaris, setDataBaris] = useState(baris);
+
+  useEffect(() => {
+    setDataBaris(baris);
+    if (!pica?.aktif) return;
+    let batal = false;
+    sinkronkanTabelPica(pica)
+      .then((hasil) => {
+        if (!batal && hasil) {
+          setDataBaris(hasil.baris);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      batal = true;
+    };
+  }, [baris, pica?.aktif, pica?.filterStatus, pica?.picaIds?.join(',')]);
+
+  return (
+    <div className="my-2">
+      {/* Badge Status PICA Live vs Statis */}
+      {pica && (
+        <div
+          className={`flex items-center justify-between gap-2 px-2.5 py-1 mb-1 border rounded-xs text-[11px] ${
+            pica.aktif
+              ? 'bg-lime-950/30 border-lime-500/30 text-lime-300'
+              : 'bg-zinc-900 border-amber-500/30 text-amber-200'
+          }`}
+        >
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {pica.aktif ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-lime-400 animate-pulse" />
+                <span className="font-bold text-lime-300">Live PICA</span>
+                <span className="text-zinc-300">
+                  ({pica.mode === 'pilihan'
+                    ? `${pica.picaIds?.length || dataBaris.length - 1} Item Terpilih`
+                    : `Status: ${(pica.filterStatus || 'semua').toUpperCase()}`})
+                </span>
+                {pica.terakhirUpdate && (
+                  <span className="text-zinc-500">• Update: {pica.terakhirUpdate}</span>
+                )}
+              </>
+            ) : (
+              <>
+                <Lock size={12} className="text-amber-400" />
+                <span className="font-bold text-amber-300">Tabel PICA Ditetapkan (Statis)</span>
+                {pica.ditetapkanPada && (
+                  <span className="text-zinc-400">• Ditetapkan pada {pica.ditetapkanPada}</span>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Grid Tabel */}
+      <div className="overflow-x-auto custom-scrollbar pb-1">
+        <table className="border-collapse text-[0.9375em]">
+          <tbody>
+            {dataBaris.map((r, i) => (
+              <tr key={i} className={kepala && i === 0 ? 'bg-white/[0.07]' : ''}>
+                {r.map((c, j) =>
+                  kepala && i === 0 ? (
+                    <th
+                      key={j}
+                      className="border-2 border-white/25 px-2 py-1 text-left align-top min-w-[90px] font-bold text-white break-words"
+                    >
+                      <TeksInline teks={c} {...ctx} />
+                    </th>
+                  ) : (
+                    <td
+                      key={j}
+                      className="border-2 border-white/20 px-2 py-1 align-top min-w-[90px] text-zinc-100 break-words"
+                    >
+                      <TeksInline teks={c} {...ctx} />
+                    </td>
+                  )
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Grafik yang terkoneksi langsung dengan baris tabel terkini */}
+      {grafik?.aktif && (
+        <GrafikTabelMemo baris={dataBaris} kepala={kepala} grafik={grafik} />
+      )}
+    </div>
+  );
+};
 
 const BlokMemo: React.FC<{
   b: Blok; onToggle?: () => void; terbuka?: boolean; onLipat?: () => void;
@@ -303,7 +388,15 @@ const BlokMemo: React.FC<{
     case 'kolom': return null;
     case 'grafik': return <GrafikReklamasi blok={b} />;
     case 'video': return <KartuVideo url={b.url} judul={b.judul} />;
-    case 'tabel': return <TabelBaca baris={b.baris} kepala={b.kepala} {...ctx} />;
+    case 'tabel': return (
+      <TabelBaca
+        baris={b.baris}
+        kepala={b.kepala}
+        pica={b.pica}
+        grafik={b.grafik}
+        {...ctx}
+      />
+    );
     case 'data': return <KartuDataLapangan blok={b} />;
     case 'berkas': return <BerkasMemo kunci={b.kunci} nama={b.nama} blok />;
     case 'kosong': return <div className="h-2" />;

@@ -40,6 +40,7 @@ export interface DataMOM {
   fotoList: FotoDokumentasiMOM[];
   orientasi?: 'landscape' | 'portrait';
   dibuatPada?: string;
+  terkunci?: boolean;
 }
 
 export const MOM_DEFAULT: DataMOM = {

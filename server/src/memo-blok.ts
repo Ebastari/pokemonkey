@@ -62,7 +62,7 @@ type BlokDasar =
   | { jenis: 'garis' }
   | { jenis: 'gambar'; nama: string; kunci: string; lebar?: number; rata?: RataGambar }
   | { jenis: 'video'; judul: string; url: string }
-  | { jenis: 'tabel'; baris: string[][]; kepala: boolean }
+  | { jenis: 'tabel'; baris: string[][]; kepala: boolean; grafik?: OpsiGrafikTabel; pica?: InfoPicaLive }
   | { jenis: 'berkas'; nama: string; kunci: string }
   | BlokData
   | { jenis: 'kode'; bahasa: string; isi: string }
@@ -132,17 +132,51 @@ export function jamSah(s: string | null | undefined): s is string {
 /** Kunci berkas milik memo: R2 (`memo/…`) atau penyimpanan mode demo (`demo/…`). */
 export const adaKunciBerkas = (k: string) => /^(memo|demo)\/[\w./-]+$/.test(k);
 
-/** Batas tabel agar satu memo tetap ringan. */
-export const MAKS_BARIS_TABEL = 60;
-export const MAKS_KOLOM_TABEL = 12;
+/** Batas tabel agar satu memo tetap ringan dan memuat tabel besar tanpa terpotong. */
+export const MAKS_BARIS_TABEL = 100;
+export const MAKS_KOLOM_TABEL = 25;
 
-/** Sel tabel: teks satu baris, tanpa ganti baris. */
-const bersihSel = (x: unknown) => String(x ?? '').replace(/[\r\n]+/g, ' ').slice(0, 500);
+/** Pengaturan grafik dinamis yang terkoneksi pada tabel memo. */
+export interface OpsiGrafikTabel {
+  aktif: boolean;
+  tipe: 'batang' | 'garis' | 'pie';
+  sumbuX?: number;
+  seriY?: number[];
+  judul?: string;
+}
+
+/** Pengaturan sinkronisasi tabel dinamis PICA di memo. */
+export interface InfoPicaLive {
+  /** Apakah mode live sync aktif (selalu update data terbaru) atau statis (ditetapkan) */
+  aktif: boolean;
+  /** Sumber filter: 'filter' (berdasarkan status PICA) atau 'pilihan' (daftar ID PICA tertentu) */
+  mode: 'filter' | 'pilihan';
+  filterStatus?: 'semua' | 'open' | 'continue' | 'selesai';
+  picaIds?: string[];
+  /** Label / catatan kapan ditetapkan (dibekukan sebagai statis) */
+  ditetapkanPada?: string;
+  /** Kapan terakhir disinkronkan dari database PICA */
+  terakhirUpdate?: string;
+}
+
+/** Sel tabel: teks satu baris, tanpa ganti baris (maks 2000 karakter agar tidak terpotong). */
+const bersihSel = (x: unknown) => String(x ?? '').replace(/[\r\n]+/g, ' ').slice(0, 2000);
 
 /** Baca baris `!tabel{…}`; null bila rusak (baris itu lalu tampil sebagai teks biasa). */
-export function bacaTabel(b: string): { jenis: 'tabel'; baris: string[][]; kepala: boolean } | null {
+export function bacaTabel(b: string): {
+  jenis: 'tabel';
+  baris: string[][];
+  kepala: boolean;
+  grafik?: OpsiGrafikTabel;
+  pica?: InfoPicaLive;
+} | null {
   try {
-    const d = JSON.parse(b.slice('!tabel'.length)) as { baris?: unknown; kepala?: unknown };
+    const d = JSON.parse(b.slice('!tabel'.length)) as {
+      baris?: unknown;
+      kepala?: unknown;
+      grafik?: unknown;
+      pica?: unknown;
+    };
     if (!Array.isArray(d.baris) || d.baris.length === 0) return null;
     const lebar = Math.min(MAKS_KOLOM_TABEL, Math.max(1, ...d.baris.map((r) => (Array.isArray(r) ? r.length : 0))));
     const baris = d.baris.slice(0, MAKS_BARIS_TABEL).map((r) => {
@@ -150,15 +184,27 @@ export function bacaTabel(b: string): { jenis: 'tabel'; baris: string[][]; kepal
       while (sel.length < lebar) sel.push('');
       return sel;
     });
-    return { jenis: 'tabel', baris, kepala: d.kepala !== false };
+    const grafik = d.grafik && typeof d.grafik === 'object' && (d.grafik as OpsiGrafikTabel).aktif ? (d.grafik as OpsiGrafikTabel) : undefined;
+    const pica = d.pica && typeof d.pica === 'object' ? (d.pica as InfoPicaLive) : undefined;
+    return { jenis: 'tabel', baris, kepala: d.kepala !== false, grafik, pica };
   } catch {
     return null;
   }
 }
 
 /** Tulis tabel sebagai satu baris memo. */
-export const rakitTabel = (baris: string[][], kepala: boolean): string =>
-  `!tabel${JSON.stringify({ kepala, baris: baris.map((r) => r.map(bersihSel)) })}`;
+export const rakitTabel = (
+  baris: string[][],
+  kepala: boolean,
+  grafik?: OpsiGrafikTabel,
+  pica?: InfoPicaLive
+): string =>
+  `!tabel${JSON.stringify({
+    kepala,
+    baris: baris.map((r) => r.map(bersihSel)),
+    ...(grafik?.aktif ? { grafik } : {}),
+    ...(pica ? { pica } : {}),
+  })}`;
 
 /** Baca baris `!data{…}`; null bila rusak. */
 export function bacaData(b: string): BlokData | null {

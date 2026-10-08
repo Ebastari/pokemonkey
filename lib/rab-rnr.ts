@@ -136,6 +136,7 @@ export interface RabRnr {
   pemohonJabatan?: string;
   dibuatPada: string;
   diubahPada: string;
+  terkunci?: boolean;
 }
 
 /** Di atas batas ini (lebih dari Rp 25 juta) RAB juga harus disetujui Operation & HCA Director. */

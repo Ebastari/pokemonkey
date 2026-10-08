@@ -8,6 +8,7 @@ import type { AnggotaRingkas, Properti } from '../lib/tipe-api';
 import type { PicaItem } from '../lib/tipe-api';
 import type { Memo } from '../types';
 import * as W from '../lib/waktu';
+import { ModalPilihPica } from './ModalPilihPica';
 
 /**
  * Properti kustom memo (kolom tambahan ala database Notion) dan tautan memo ke PICA.
@@ -461,26 +462,14 @@ export const TambahPropertiMemo: React.FC<{
   );
 };
 
-/** Pemilih PICA tertaut. Daftar PICA diambil sekali, saat pilihan dibuka. */
+/** Pemilih PICA tertaut dengan antarmuka modal berfilter status (Open, Continue, Selesai, Semua). */
 export const PilihPicaMemo: React.FC<{
   memo: Pick<Memo, 'pica_id' | 'pica_no' | 'pica_judul'>; boleh: boolean;
   onUbah: (id: string | null, ringkas: { no: number | null; judul: string | null; status: string | null }) => void;
   onBukaPica?: (id: string) => void;
 }> = ({ memo, boleh, onUbah, onBukaPica }) => {
-  const [daftar, setDaftar] = useState<PicaItem[] | null>(null);
-  const [memuat, setMemuat] = useState(false);
+  const [bukaModal, setBukaModal] = useState(false);
 
-  const muat = async () => {
-    if (daftar || memuat) return;
-    setMemuat(true);
-    try {
-      const d = await api<{ pica: PicaItem[] }>('/api/pica');
-      setDaftar(d.pica ?? []);
-    } catch { setDaftar([]); } finally { setMemuat(false); }
-  };
-  useEffect(() => { if (boleh && memo.pica_id) void muat(); }, [boleh, memo.pica_id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const nomor = (p: { no_urut?: number | null; nomor?: number | null }) => (p.no_urut ? `PICA-${String(p.no_urut).padStart(3, '0')}` : '');
   const label = memo.pica_id
     ? `${memo.pica_no ? `PICA-${String(memo.pica_no).padStart(3, '0')} · ` : ''}${memo.pica_judul ?? memo.pica_id}`
     : '—';
@@ -490,28 +479,63 @@ export const PilihPicaMemo: React.FC<{
       ? <button type="button" onClick={() => onBukaPica?.(memo.pica_id!)} className="text-[13px] text-amber-200 underline text-left">{label}</button>
       : <span className="text-[13px] text-zinc-200">—</span>;
   }
+
   return (
-    <span className="flex items-center gap-2 min-w-0">
-      <select
-        value={memo.pica_id ?? ''}
-        onFocus={muat}
-        onMouseDown={muat}
-        onChange={(e) => {
-          const id = e.target.value || null;
-          const p = daftar?.find((x) => x.id === id);
-          onUbah(id, { no: p?.no_urut ?? null, judul: p?.judul ?? null, status: p?.status ?? null });
-        }}
-        className="input-retro !py-1 !text-[13px] min-w-0 flex-1"
-        aria-label="PICA tertaut"
-      >
-        <option value="">— tidak ditautkan</option>
-        {memo.pica_id && !daftar?.some((p) => p.id === memo.pica_id) && <option value={memo.pica_id}>{label}</option>}
-        {(daftar ?? []).filter((p) => p.status !== 'Closed' || p.id === memo.pica_id).map((p) => (
-          <option key={p.id} value={p.id}>{nomor(p) ? `${nomor(p)} · ` : ''}{p.judul.slice(0, 70)}</option>
-        ))}
-      </select>
-      {memuat && <Loader2 size={13} className="animate-spin text-zinc-400 shrink-0" />}
-      {memo.pica_id && onBukaPica && <button type="button" onClick={() => onBukaPica(memo.pica_id!)} className="text-[12px] text-amber-200 underline shrink-0">Buka</button>}
-    </span>
+    <>
+      <div className="flex items-center gap-1.5 min-w-0">
+        {memo.pica_id ? (
+          <div className="flex items-center gap-1.5 min-w-0">
+            <button
+              type="button"
+              onClick={() => setBukaModal(true)}
+              className="px-2 py-0.5 border border-amber-400/60 bg-amber-950/30 text-amber-200 hover:border-amber-300 text-[12px] font-bold rounded-xs truncate max-w-[240px]"
+              title="Ganti PICA tertaut"
+            >
+              {label}
+            </button>
+            {onBukaPica && (
+              <button
+                type="button"
+                onClick={() => onBukaPica(memo.pica_id!)}
+                className="text-[12px] text-amber-200 underline shrink-0 hover:text-white"
+              >
+                Buka
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onUbah(null, { no: null, judul: null, status: null })}
+              className="text-zinc-500 hover:text-red-300 p-0.5 shrink-0"
+              title="Lepas tautan PICA"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setBukaModal(true)}
+            className="flex items-center gap-1 text-[12px] text-zinc-400 hover:text-amber-300 py-0.5 px-1.5 border border-dashed border-white/20 hover:border-amber-400"
+          >
+            <Plus size={11} /> Tautkan PICA
+          </button>
+        )}
+      </div>
+
+      {bukaModal && (
+        <ModalPilihPica
+          terpilihId={memo.pica_id}
+          onPilih={(p) => {
+            onUbah(p.id, { no: p.no_urut ?? null, judul: p.judul ?? null, status: p.status ?? null });
+            setBukaModal(false);
+          }}
+          onLepas={() => {
+            onUbah(null, { no: null, judul: null, status: null });
+            setBukaModal(false);
+          }}
+          onTutup={() => setBukaModal(false)}
+        />
+      )}
+    </>
   );
 };

@@ -9,7 +9,7 @@
  */
 
 import {
-  AtSign, BarChart3, Bookmark, CalendarClock, Columns2, Columns3, FileSymlink, FileText, Heading1, Heading2, Heading3, Heading4, Highlighter,
+  AlertCircle, AtSign, BarChart3, Bookmark, CalendarClock, Columns2, Columns3, FileSymlink, FileText, Heading1, Heading2, Heading3, Heading4, Highlighter,
   ImagePlus, Info, List, ListChecks, ListCollapse, ListOrdered, ListTree, MapPin, Minus, Palette, Paperclip, Quote, Sigma, Smile,
   Sparkles, SquareCode, Sprout, Table2, Type, Video,
 } from 'lucide-react';
@@ -55,6 +55,7 @@ export const DAFTAR_BLOK: DefinisiBlok[] = [
   { id: 'tabel', grup: 'Blok dasar', label: 'Tabel', ket: 'Kisi baris dan kolom', ikon: Table2, kata: ['tabel', 'table', 'kisi', 'kolom', 'baris'] },
   { id: 'garis', grup: 'Blok dasar', label: 'Divider', ket: 'Garis pemisah bagian', pintasan: '---', ikon: Minus, kata: ['divider', 'garis', 'pemisah'] },
   { id: 'tautan_halaman', grup: 'Blok dasar', label: 'Tautan ke halaman', ket: 'Tautkan memo lain', ikon: FileSymlink, kata: ['tautan', 'halaman', 'link', 'page', 'memo'] },
+  { id: 'pica', grup: 'Blok dasar', label: 'Tabel PICA', ket: 'Sisipkan tabel data PICA (Open, Continue, Selesai) & buat grafik', ikon: AlertCircle, kata: ['pica', 'tabel', 'masalah', 'temuan', 'tindakan', 'korektif', 'link'] },
   // ---- Media ----
   { id: 'gambar', grup: 'Media', label: 'Gambar', ket: 'Foto dari kamera atau galeri', ikon: ImagePlus, kata: ['gambar', 'foto', 'image', 'kamera'] },
   { id: 'video', grup: 'Media', label: 'Video', ket: 'Tautan video (YouTube, Drive, …)', ikon: Video, kata: ['video', 'youtube', 'film', 'rekaman'] },

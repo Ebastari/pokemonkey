@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   X, Save, FileText, Upload, Trash2, Download, AlertCircle, RefreshCw,
-  FileSpreadsheet, ClipboardList, Send, Calendar, User, MapPin, Tag,
+  FileSpreadsheet, ClipboardList, Send, Calendar, User, MapPin, Tag, Lock, Unlock,
 } from 'lucide-react';
 import {
   type ItemSurat,
@@ -11,6 +11,7 @@ import {
   generateNomorSuratOtomatis,
   hitungLamaHari,
 } from '../lib/tipe-surat';
+import { ModalBukaKunci } from './ModalBukaKunci';
 import * as W from '../lib/waktu';
 
 interface Props {
@@ -29,6 +30,8 @@ export const FormNomorSuratModal: React.FC<Props> = ({
   notify,
 }) => {
   const isEdit = Boolean(initialData?.id);
+  const [terkunci, setTerkunci] = useState<boolean>(Boolean(initialData?.terkunci));
+  const [bukaModalKunci, setBukaModalKunci] = useState<boolean>(false);
   const [kategori, setKategori] = useState<KategoriSurat>(initialData?.kategori ?? 'im');
 
   const [nomorSurat, setNomorSurat] = useState(initialData?.nomorSurat ?? '');
@@ -190,11 +193,13 @@ export const FormNomorSuratModal: React.FC<Props> = ({
       keterangan: keterangan.trim(),
       dokumen: dokumenList,
       internalMemoId: initialData?.internalMemoId,
+      terkunci: true,
       dibuatPada: initialData?.dibuatPada || new Date().toISOString(),
       diubahPada: new Date().toISOString(),
     };
 
     onSimpan(item, bukaDiMemoDinas);
+    notify('DATA NOMOR SURAT DISIMPAN & TERKUNCI (PASSWORD: eblhasnurajadeh)');
   };
 
   return (
@@ -213,25 +218,61 @@ export const FormNomorSuratModal: React.FC<Props> = ({
               <FileText size={16} />
             </div>
             <div>
-              <h3 className="font-title text-[14px] text-white">
-                {isEdit ? 'Ubah Data Nomor Surat' : 'Buat Nomor Surat Baru'}
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-title text-[14px] text-white">
+                  {isEdit ? 'Ubah Data Nomor Surat' : 'Buat Nomor Surat Baru'}
+                </h3>
+                {terkunci && (
+                  <span className="inline-flex items-center gap-1 text-[10px] bg-amber-950/80 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-mono font-bold">
+                    <Lock size={10} /> Terkunci
+                  </span>
+                )}
+              </div>
               <p className="text-[11px] text-zinc-400">
                 Manajemen nomor surat internal &amp; eksternal Departemen RNR
               </p>
             </div>
           </div>
-          <button
-            onClick={onTutup}
-            className="text-zinc-400 hover:text-white transition-colors"
-            title="Tutup (Esc)"
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {terkunci && (
+              <button
+                type="button"
+                onClick={() => setBukaModalKunci(true)}
+                className="btn-retro btn-retro-sm !bg-amber-600 hover:!bg-amber-500 !text-white flex items-center gap-1 text-[11px] mr-1"
+                title="Buka kunci dokumen dengan password"
+              >
+                <Unlock size={12} /> Buka Kunci
+              </button>
+            )}
+            <button
+              onClick={onTutup}
+              className="text-zinc-400 hover:text-white transition-colors"
+              title="Tutup (Esc)"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Isi Formulir */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
+          {terkunci && (
+            <div className="bg-amber-500/10 border-2 border-amber-500 text-amber-200 px-3.5 py-2.5 rounded flex items-center justify-between gap-3 text-xs font-medium">
+              <div className="flex items-center gap-2">
+                <Lock size={15} className="text-amber-400 shrink-0" />
+                <span>Data nomor surat ini telah disimpan dan terkunci. Buka kunci untuk melakukan penyuntingan.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBukaModalKunci(true)}
+                className="btn-retro btn-retro-sm !bg-amber-600 hover:!bg-amber-500 !text-white flex items-center gap-1 shrink-0"
+              >
+                <Unlock size={12} /> Buka Kunci
+              </button>
+            </div>
+          )}
+
+          <fieldset disabled={terkunci} className="contents space-y-4">
           {/* Pilihan Kategori */}
           <div>
             <label className="label-retro text-zinc-300 mb-1.5 flex items-center gap-1.5">
@@ -615,6 +656,7 @@ export const FormNomorSuratModal: React.FC<Props> = ({
               </div>
             )}
           </div>
+          </fieldset>
         </div>
 
         {/* Footer Aksi Modal */}
@@ -628,27 +670,51 @@ export const FormNomorSuratModal: React.FC<Props> = ({
           </button>
 
           <div className="flex items-center gap-2">
-            {kategori === 'im' && (
+            {terkunci ? (
               <button
                 type="button"
-                onClick={() => handleSimpan(true)}
+                onClick={() => setBukaModalKunci(true)}
                 className="btn-retro btn-retro-sm bg-amber-600 hover:bg-amber-500 text-white font-bold flex items-center gap-1.5 shadow-[2px_2px_0_#000]"
-                title="Simpan nomor dan langsung buka di form cetak A4 Internal Memo Dinas"
               >
-                <FileSpreadsheet size={13} /> Simpan &amp; Buat Memo Dinas
+                <Unlock size={13} /> Buka Kunci Dokumen
               </button>
-            )}
+            ) : (
+              <>
+                {kategori === 'im' && (
+                  <button
+                    type="button"
+                    onClick={() => handleSimpan(true)}
+                    className="btn-retro btn-retro-sm bg-amber-600 hover:bg-amber-500 text-white font-bold flex items-center gap-1.5 shadow-[2px_2px_0_#000]"
+                    title="Simpan nomor dan langsung buka di form cetak A4 Internal Memo Dinas"
+                  >
+                    <FileSpreadsheet size={13} /> Simpan &amp; Buat Memo Dinas
+                  </button>
+                )}
 
-            <button
-              type="button"
-              onClick={() => handleSimpan(false)}
-              className="btn-retro btn-retro-sm bg-lime-600 hover:bg-lime-500 text-white font-bold flex items-center gap-1.5 shadow-[2px_2px_0_#000]"
-            >
-              <Save size={13} /> Simpan Nomor Surat
-            </button>
+                <button
+                  type="button"
+                  onClick={() => handleSimpan(false)}
+                  className="btn-retro btn-retro-sm bg-lime-600 hover:bg-lime-500 text-white font-bold flex items-center gap-1.5 shadow-[2px_2px_0_#000]"
+                >
+                  <Save size={13} /> Simpan Nomor Surat
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
+
+      {bukaModalKunci && (
+        <ModalBukaKunci
+          namaDokumen={`Nomor Surat ${nomorSurat || ''}`}
+          onSukses={() => {
+            setBukaModalKunci(false);
+            setTerkunci(false);
+          }}
+          onBatal={() => setBukaModalKunci(false)}
+          notify={notify}
+        />
+      )}
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, FileSpreadsheet, Loader2, ArrowLeft, CopyPlus, X, Save, Cloud, CloudOff, HardDrive } from 'lucide-react';
+import { Plus, Trash2, FileSpreadsheet, Loader2, ArrowLeft, CopyPlus, X, Save, Cloud, CloudOff, HardDrive, Lock, Unlock } from 'lucide-react';
 import {
   muatRabRnr, simpanRabRnr, rabBaru, ambilRabServer, kirimRabServer, hapusRabServer, kirimHapusTertunda, gabungRab, sinkronRabAktif, eksporRabRnr, kartuRab, barisRekap, isiKeranjang, salinKeKeranjang,
   ubahBaris, aturQtyBaris, tambahBarisKosong, hapusBaris, susunRab,
@@ -11,6 +11,7 @@ import { DAFTAR_BULAN, formatRupiah } from '../lib/rab-hcga';
 import { PapanRabRnr, PilihKategori } from './PapanRabRnr';
 import { muatKatalog, simpanBarangKatalog } from '../lib/katalog-rab';
 import { PratinjauRabRnr } from './PratinjauRabRnr';
+import { ModalBukaKunci } from './ModalBukaKunci';
 import { muatSurat, simpanSuratKeServer } from '../lib/dokumen';
 import { generateNomorSuratOtomatis, type ItemSurat } from '../lib/tipe-surat';
 import * as W from '../lib/waktu';
@@ -73,6 +74,7 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
   const [pratinjau, setPratinjau] = useState(false);
   const [menyimpan, setMenyimpan] = useState(false);
   const [mengekspor, setMengekspor] = useState<string | null>(null);
+  const [bukaModalKunci, setBukaModalKunci] = useState(false);
   const bolehKelola = true;
 
   useEffect(() => { simpanRabRnr(daftar); }, [daftar]);
@@ -246,7 +248,7 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
     const berisi = barisRekap(r).filter((u) => u.uraian.trim());
     if (!berisi.some((u) => totalUraian(u) > 0)) { notify('SUSUN MINIMAL SATU URAIAN DENGAN HARGA & QTY'); return; }
     setMenyimpan(true);
-    ubah({ ...r, kartu: kartuRab(r).filter((k) => k.uraian.trim()).map((k) => ({ ...k, uraian: k.uraian.trim() })) }, 200);
+    ubah({ ...r, terkunci: true, kartu: kartuRab(r).filter((k) => k.uraian.trim()).map((k) => ({ ...k, uraian: k.uraian.trim() })) }, 200);
     const sisaKeranjang = isiKeranjang(r).length;
     if (sisaKeranjang) notify(`${sisaKeranjang} AJUAN MASIH DI KERANJANG · TIDAK IKUT RAB SEBELUM DISUSUN`);
     let baru = 0;
@@ -266,7 +268,7 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
       }
     }
     setMenyimpan(false);
-    notify(baru ? `RAB TERSIMPAN · ${baru} URAIAN BARU MASUK KATALOG` : 'RAB TERSIMPAN');
+    notify(baru ? `RAB TERSIMPAN & TERKUNCI · ${baru} URAIAN BARU MASUK KATALOG` : 'RAB TERSIMPAN & TERKUNCI (PASSWORD: eblhasnurajadeh)');
     setPratinjau(true);
   };
 
@@ -296,7 +298,15 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
           {tampil.map((r) => (
             <div key={r.id} className="border-2 border-white/20 bg-black/50 p-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
               <button type="button" onClick={() => setAktifId(r.id)} className="flex-1 min-w-[220px] text-left">
-                <div className="font-bold text-white text-[13px] hover:text-amber-300">{r.judul}</div>
+                <div className="font-bold text-white text-[13px] hover:text-amber-300 flex items-center gap-1.5">
+                  {r.terkunci && <span title="RAB Terkunci" className="inline-flex"><Lock size={12} className="text-amber-400 shrink-0" /></span>}
+                  <span>{r.judul}</span>
+                  {r.terkunci && (
+                    <span className="text-[10px] bg-amber-950/80 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-normal font-mono">
+                      Terkunci
+                    </span>
+                  )}
+                </div>
                 <div className="text-[11px] text-cyan-300 font-mono">{r.nomorRab}</div>
                 <div className="text-[11px] text-zinc-400">{barisRekap(r).length} uraian · {isiKeranjang(r).length ? `${isiKeranjang(r).length} di keranjang · ` : ''}{r.pemohonNama}</div>
               </button>
@@ -365,7 +375,15 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
       <div className="flex flex-wrap items-center gap-2 sticky top-0 z-10 bg-zinc-950/95 py-2 border-b-2 border-white/20">
         <button type="button" onClick={() => setAktifId(null)} className="btn-retro btn-retro-sm bg-zinc-800"><ArrowLeft size={12} /> Daftar</button>
         <div className="mr-auto min-w-0">
-          <div className="font-bold text-white text-[13px] truncate">{r.judul}</div>
+          <div className="font-bold text-white text-[13px] truncate flex items-center gap-1.5">
+            {r.terkunci && <Lock size={13} className="text-amber-400 shrink-0" />}
+            <span>{r.judul}</span>
+            {r.terkunci && (
+              <span className="text-[10px] bg-amber-950/80 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-mono font-bold">
+                Terkunci
+              </span>
+            )}
+          </div>
           <div className="text-[11px] text-cyan-300 font-mono">{r.nomorRab}</div>
           <TandaSinkron status={sinkron} />
         </div>
@@ -376,10 +394,46 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
         <button type="button" onClick={() => ekspor(r)} disabled={mengekspor === r.id} className="btn-retro btn-retro-sm bg-teal-700 !py-1.5 text-[12px]" title="Export Excel lengkap (rekap + kategori)">
           {mengekspor === r.id ? <Loader2 size={12} className="animate-spin" /> : <FileSpreadsheet size={12} />} Export Excel
         </button>
-        <button type="button" onClick={() => simpanRab(r)} disabled={menyimpan} className="btn-retro bg-emerald-700 !py-1.5 text-[12px] disabled:opacity-50" title="Simpan, masukkan uraian baru ke katalog, lalu pratinjau Export Excel/PDF">
-          {menyimpan ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Simpan RAB
-        </button>
+
+        {r.terkunci ? (
+          <button
+            type="button"
+            onClick={() => setBukaModalKunci(true)}
+            className="btn-retro !bg-amber-600 hover:!bg-amber-500 !text-white !py-1.5 text-[12px] flex items-center gap-1.5 shadow-[2px_2px_0_#000]"
+            title="Dokumen terkunci. Klik untuk membuka kunci dengan password."
+          >
+            <Lock size={13} className="text-amber-200" /> Buka Kunci
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => simpanRab(r)}
+            disabled={menyimpan}
+            className="btn-retro bg-emerald-700 !py-1.5 text-[12px] disabled:opacity-50"
+            title="Simpan, kunci dengan password, masukkan uraian baru ke katalog, lalu pratinjau Export Excel/PDF"
+          >
+            {menyimpan ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Simpan RAB
+          </button>
+        )}
       </div>
+
+      {r.terkunci && (
+        <div className="bg-amber-500/10 border-2 border-amber-500 text-amber-200 px-3.5 py-2.5 rounded flex items-center justify-between gap-3 text-xs font-medium">
+          <div className="flex items-center gap-2">
+            <Lock size={15} className="text-amber-400 shrink-0" />
+            <span>Dokumen RAB RNR ini telah disimpan dan terkunci. Buka kunci untuk melakukan penyuntingan.</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setBukaModalKunci(true)}
+            className="btn-retro btn-retro-sm !bg-amber-600 hover:!bg-amber-500 !text-white flex items-center gap-1 shrink-0"
+          >
+            <Unlock size={12} /> Buka Kunci
+          </button>
+        </div>
+      )}
+
+      <fieldset disabled={Boolean(r.terkunci)} className="contents space-y-3">
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[12px]">
         <label><span className="label-retro">Bulan</span><select value={r.bulan} onChange={(e) => ubah({ ...r, bulan: e.target.value })} className={kelas}>{DAFTAR_BULAN.map((b) => <option key={b}>{b}</option>)}</select></label>
@@ -498,8 +552,21 @@ export const RabRnr: React.FC<Props> = ({ pengguna, notify, bukaId, onDibuka }) 
           ? `Total ${formatRupiah(total)} lebih dari 25 juta → ada kolom TTD Pak Rahmad (${r.penyetuju || PENYETUJU_DIREKTUR.nama}) di samping para penyetuju site & div head.`
           : `Total ${formatRupiah(total)} ≤ 25 juta → TTD cukup sampai Div Head (${r.penyetujuDivHead ?? PENYETUJU_DIV_HEAD.nama}), kolom TTD Pak Rahmad ditiadakan.`}
       </p>
+      </fieldset>
 
       {pratinjau && <PratinjauRabRnr rab={r} notify={notify} onTutup={() => setPratinjau(false)} />}
+
+      {bukaModalKunci && (
+        <ModalBukaKunci
+          namaDokumen={`RAB ${r.judul}`}
+          onSukses={() => {
+            setBukaModalKunci(false);
+            ubah({ ...r, terkunci: false });
+          }}
+          onBatal={() => setBukaModalKunci(false)}
+          notify={notify}
+        />
+      )}
     </div>
   );
 };

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   FileText, Printer, Save, RotateCcw, X, Edit3, Eye, Calendar, Clock,
   MapPin, Users, Plus, Trash2, Image as ImageIcon, Download, CheckCircle2,
-  FileSpreadsheet, MoveRight, LayoutTemplate
+  FileSpreadsheet, MoveRight, LayoutTemplate, Lock, Unlock,
 } from 'lucide-react';
 import {
   type DataMOM,
@@ -14,6 +14,7 @@ import {
   eksporMOMKeExcel,
 } from '../lib/ekspor-mom';
 import { LOGO_HASNUR_BASE64 } from '../lib/logo-hasnur';
+import { ModalBukaKunci } from './ModalBukaKunci';
 import * as W from '../lib/waktu';
 
 interface Props {
@@ -32,6 +33,7 @@ export const FormMOM: React.FC<Props> = ({
   const [data, setData] = useState<DataMOM>(initialData ?? MOM_DEFAULT);
   const [mode, setMode] = useState<'form' | 'preview'>('form');
   const [sedangEkspor, setSedangEkspor] = useState(false);
+  const [bukaModalKunci, setBukaModalKunci] = useState(false);
 
   // --- Handlers Poin Rapat ---
   const tambahPoin = () => {
@@ -179,8 +181,10 @@ export const FormMOM: React.FC<Props> = ({
   };
 
   const handleSimpan = () => {
-    onSimpan?.(data);
-    notify('MINUTES OF MEETING BERHASIL DISIMPAN');
+    const dataTerkunci: DataMOM = { ...data, terkunci: true };
+    setData(dataTerkunci);
+    onSimpan?.(dataTerkunci);
+    notify('MINUTES OF MEETING DISIMPAN & TERKUNCI (PASSWORD: eblhasnurajadeh)');
   };
 
   const formatTanggalLengkap = (s?: string) => {
@@ -315,14 +319,27 @@ export const FormMOM: React.FC<Props> = ({
             <span className="hidden md:inline">Reset</span>
           </button>
 
-          <button
-            onClick={handleSimpan}
-            className="btn-retro btn-retro-sm !bg-emerald-600 hover:!bg-emerald-500 !text-white font-bold flex items-center gap-1 text-[11px]"
-            title="Simpan perubahan Minutes of Meeting"
-          >
-            <Save size={13} />
-            <span>Simpan</span>
-          </button>
+          {data.terkunci ? (
+            <button
+              type="button"
+              onClick={() => setBukaModalKunci(true)}
+              className="btn-retro btn-retro-sm !bg-amber-600 hover:!bg-amber-500 !text-white font-bold flex items-center gap-1 text-[11px]"
+              title="Dokumen terkunci. Klik untuk membuka kunci dengan password."
+            >
+              <Lock size={13} className="text-amber-200" />
+              <span>Buka Kunci</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSimpan}
+              className="btn-retro btn-retro-sm !bg-emerald-600 hover:!bg-emerald-500 !text-white font-bold flex items-center gap-1 text-[11px]"
+              title="Simpan dokumen & kunci dengan password"
+            >
+              <Save size={13} />
+              <span>Simpan</span>
+            </button>
+          )}
 
           <button
             onClick={onTutup}
@@ -337,6 +354,23 @@ export const FormMOM: React.FC<Props> = ({
       {/* ================= FORM EDITOR MODE ================= */}
       {mode === 'form' && (
         <main className="max-w-6xl mx-auto w-full flex-1 bg-slate-900 border-2 border-slate-700 rounded-xl p-3 sm:p-5 text-white overflow-y-auto space-y-6">
+          {data.terkunci && (
+            <div className="bg-amber-500/10 border-2 border-amber-500 text-amber-200 px-4 py-3 rounded-lg flex items-center justify-between gap-3 text-xs font-medium">
+              <div className="flex items-center gap-2">
+                <Lock size={16} className="text-amber-400 shrink-0" />
+                <span>Dokumen ini telah disimpan dan terkunci. Buka kunci untuk melakukan penyuntingan.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBukaModalKunci(true)}
+                className="btn-retro btn-retro-sm !bg-amber-600 hover:!bg-amber-500 !text-white flex items-center gap-1 shrink-0"
+              >
+                <Unlock size={13} /> Buka Kunci
+              </button>
+            </div>
+          )}
+
+          <fieldset disabled={Boolean(data.terkunci)} className="space-y-6 contents">
           {/* Bagian 1: Header / Informasi Pertemuan */}
           <section className="bg-slate-950/60 p-3.5 rounded-lg border border-slate-800 space-y-3">
             <h2 className="text-xs font-title text-blue-400 flex items-center gap-2 tracking-wider">
@@ -614,6 +648,7 @@ export const FormMOM: React.FC<Props> = ({
               )}
             </div>
           </section>
+          </fieldset>
         </main>
       )}
 
@@ -872,6 +907,20 @@ export const FormMOM: React.FC<Props> = ({
           }
         }
       `}</style>
+
+      {bukaModalKunci && (
+        <ModalBukaKunci
+          namaDokumen="Minutes of Meeting (MoM)"
+          onSukses={() => {
+            setBukaModalKunci(false);
+            const dibuka = { ...data, terkunci: false };
+            setData(dibuka);
+            onSimpan?.(dibuka);
+          }}
+          onBatal={() => setBukaModalKunci(false)}
+          notify={notify}
+        />
+      )}
     </div>
   );
 };

@@ -39,6 +39,7 @@ export interface DataMemoDinas {
   namaPenandatangan?: string;
   tembusan?: string;
   dibuatPada?: string;
+  terkunci?: boolean;
 }
 
 export const MEMO_DINAS_DEFAULT: DataMemoDinas = {

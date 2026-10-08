@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, Flame, Loader2, CheckCircle2, FileText, Trees, Mountain, Clock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Flame, Loader2, CheckCircle2, FileText, Trees, Mountain, Clock, Lock } from 'lucide-react';
 import { demoAktif } from '../lib/api';
 import { DAFTAR_IPPKH, type LaporanKarhutla, type TitikApiFireItem } from '../lib/fire-report';
 import {
@@ -117,7 +117,7 @@ export const FireHarian: React.FC<Props> = ({
       return (
         <button type="button" onClick={(e) => { e.stopPropagation(); onBukaDraf(s.laporan); }}
           className="chip-retro !text-[10px] font-bold flex items-center gap-1 border-amber-400 bg-amber-950 text-amber-300">
-          <FileText size={11} /> {label}: Draf · Lanjut
+          {s.laporan.terkunci ? <Lock size={11} className="text-amber-400" /> : <FileText size={11} />} {label}: Draf {s.laporan.terkunci ? '(Terkunci)' : ''} · Lanjut
         </button>
       );
     }

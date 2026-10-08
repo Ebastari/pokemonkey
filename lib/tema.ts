@@ -9,15 +9,15 @@
  * tetap gelap.
  */
 
-export type Tema = 'gelap' | 'terang';
+export type Tema = 'gelap' | 'terang' | 'putih';
 
 const KUNCI = 'pokemonkey_tema';
-const WARNA_BILAH: Record<Tema, string> = { gelap: '#000000', terang: '#e6eae3' };
+const WARNA_BILAH: Record<Tema, string> = { gelap: '#000000', terang: '#e6eae3', putih: '#ffffff' };
 
 export function bacaTema(): Tema {
   try {
     const tersimpan = localStorage.getItem(KUNCI);
-    if (tersimpan === 'terang' || tersimpan === 'gelap') return tersimpan;
+    if (tersimpan === 'terang' || tersimpan === 'gelap' || tersimpan === 'putih') return tersimpan;
   } catch {
     /* penyimpanan diblokir — pakai bawaan */
   }
@@ -27,7 +27,13 @@ export function bacaTema(): Tema {
 /** Pasang tema ke halaman, sekaligus warna bilah status di HP. */
 export function pasangTema(tema: Tema): void {
   if (typeof document === 'undefined') return;
-  document.documentElement.dataset.tema = tema;
+  if (tema === 'putih') {
+    document.documentElement.dataset.tema = 'terang';
+    document.documentElement.dataset.ragam = 'putih';
+  } else {
+    document.documentElement.dataset.tema = tema;
+    delete document.documentElement.dataset.ragam;
+  }
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', WARNA_BILAH[tema]);
   try {
     localStorage.setItem(KUNCI, tema);

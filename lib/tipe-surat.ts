@@ -49,6 +49,7 @@ export interface ItemSurat {
 
   dibuatPada: string;
   diubahPada?: string;
+  terkunci?: boolean;
 }
 
 export const KATEGORI_SURAT_INFO: Record<

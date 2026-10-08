@@ -36,6 +36,7 @@ export interface Disposisi {
   baris: BarisDisposisi[];
   dibuatPada: string;
   diubahPada: string;
+  terkunci?: boolean;
 }
 
 export const barisDisposisiBaru = (): BarisDisposisi => ({ id: idBaru('d'), keterangan: '', nilai: null, jatuhTempo: '', kodeBudget: '' });
@@ -87,6 +88,7 @@ export interface RabInsidental {
   disetujui: Penanda;
   dibuatPada: string;
   diubahPada: string;
+  terkunci?: boolean;
 }
 
 export const barisInsidentalBaru = (): BarisInsidental => ({ id: idBaru('i'), kegiatan: '', keterangan: '', banyak: 1, harga: null, wbs: '' });
@@ -159,6 +161,7 @@ export interface Lbpd {
   disetujui: string;
   dibuatPada: string;
   diubahPada: string;
+  terkunci?: boolean;
 }
 
 export const barisLbpdBaru = (tanggal = hariIni()): BarisLbpd => ({ id: idBaru('l'), tanggal, uraian: '', ref: '', nilai: null, alokasi: 'transport' });

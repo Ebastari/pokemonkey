@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, FileSpreadsheet, Loader2, ArrowLeft, Copy, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, FileSpreadsheet, Loader2, ArrowLeft, Copy, ChevronDown, Save, Lock, Unlock } from 'lucide-react';
 import {
   muatFormulir, simpanFormulir, disposisiBaru, insidentalBaru, lbpdBaru,
   barisDisposisiBaru, barisInsidentalBaru, barisLbpdBaru,
@@ -9,6 +9,7 @@ import {
 } from '../lib/formulir-keuangan';
 import { terbilang } from '../lib/xlsx-templat';
 import { formatRupiah } from '../lib/rab-hcga';
+import { ModalBukaKunci } from './ModalBukaKunci';
 import type { Pengguna } from '../lib/tipe-api';
 
 /**
@@ -36,12 +37,20 @@ export const FormulirKeuangan: React.FC<Props> = ({ jenis, pengguna, notify }) =
   const [daftar, setDaftar] = useState<Formulir[]>(() => muatFormulir(jenis));
   const [aktifId, setAktifId] = useState<string | null>(null);
   const [mengekspor, setMengekspor] = useState(false);
+  const [bukaModalKunci, setBukaModalKunci] = useState(false);
 
   useEffect(() => { setDaftar(muatFormulir(jenis)); setAktifId(null); }, [jenis]);
   useEffect(() => { simpanFormulir(jenis, daftar); }, [jenis, daftar]);
 
   const aktif = daftar.find((f) => f.id === aktifId) ?? null;
   const ubah = (baru: Formulir) => setDaftar((d) => d.map((f) => (f.id === baru.id ? { ...baru, diubahPada: new Date().toISOString() } : f)));
+
+  const handleSimpan = () => {
+    if (!aktif) return;
+    const terkunciBaru = { ...aktif, terkunci: true, diubahPada: new Date().toISOString() };
+    ubah(terkunciBaru);
+    notify(`${INFO[jenis].judul} DISIMPAN & TERKUNCI (PASSWORD: eblhasnurajadeh)`);
+  };
 
   const buat = () => {
     const f = jenis === 'disposisi' ? disposisiBaru() : jenis === 'insidental' ? insidentalBaru() : lbpdBaru(pengguna.nama);
@@ -86,7 +95,15 @@ export const FormulirKeuangan: React.FC<Props> = ({ jenis, pengguna, notify }) =
           {daftar.map((f) => (
             <div key={f.id} className="border-2 border-white/20 bg-black/50 p-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
               <button type="button" onClick={() => setAktifId(f.id)} className="flex-1 min-w-[200px] text-left">
-                <div className="font-bold text-white text-[13px] hover:text-amber-300">{judulDok(f)}</div>
+                <div className="font-bold text-white text-[13px] hover:text-amber-300 flex items-center gap-1.5">
+                  {f.terkunci && <Lock size={13} className="text-amber-400 shrink-0" />}
+                  <span>{judulDok(f)}</span>
+                  {f.terkunci && (
+                    <span className="text-[10px] bg-amber-950/80 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-normal font-mono">
+                      Terkunci
+                    </span>
+                  )}
+                </div>
                 <div className="text-[11px] text-zinc-400">{tglPanjang(tanggalDok(f))} · {f.baris.length} baris · diubah {new Date(f.diubahPada).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
               </button>
               <span className="font-mono text-emerald-300 text-[13px] font-bold">{formatRupiah(totalDok(f))}</span>
@@ -106,15 +123,76 @@ export const FormulirKeuangan: React.FC<Props> = ({ jenis, pengguna, notify }) =
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 sticky top-0 z-10 bg-zinc-950/95 py-2 border-b-2 border-white/20">
         <button type="button" onClick={() => setAktifId(null)} className="btn-retro btn-retro-sm bg-zinc-800"><ArrowLeft size={12} /> Daftar</button>
-        <span className="font-title text-[11px] text-yellow-300 mr-auto">{INFO[jenis].judul}</span>
+        <div className="flex items-center gap-1.5 mr-auto">
+          <span className="font-title text-[11px] text-yellow-300">{INFO[jenis].judul}</span>
+          {aktif.terkunci && (
+            <span className="inline-flex items-center gap-1 text-[10px] bg-amber-950/80 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-mono font-bold">
+              <Lock size={10} /> Terkunci
+            </span>
+          )}
+        </div>
         <span className="font-mono text-emerald-300 font-bold">{formatRupiah(totalDok(aktif))}</span>
+
+        {/* Tombol Simpan atau Buka Kunci */}
+        {aktif.terkunci ? (
+          <button
+            type="button"
+            onClick={() => setBukaModalKunci(true)}
+            className="btn-retro !bg-amber-600 hover:!bg-amber-500 !text-white !py-1.5 text-[12px] flex items-center gap-1.5 shadow-[2px_2px_0_#000]"
+            title="Dokumen terkunci. Klik untuk membuka kunci dengan password."
+          >
+            <Lock size={13} className="text-amber-200" /> Buka Kunci
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSimpan}
+            className="btn-retro !bg-amber-600 hover:!bg-amber-500 !text-white !py-1.5 text-[12px] flex items-center gap-1.5 shadow-[2px_2px_0_#000]"
+            title="Simpan dokumen & kunci dengan password"
+          >
+            <Save size={13} /> Simpan
+          </button>
+        )}
+
         <button type="button" onClick={() => ekspor(aktif)} disabled={mengekspor} className="btn-retro bg-emerald-700 !py-1.5 text-[12px] disabled:opacity-50">
           {mengekspor ? <Loader2 size={13} className="animate-spin" /> : <FileSpreadsheet size={13} />} Ekspor Excel
         </button>
       </div>
-      {aktif.jenis === 'disposisi' && <EditorDisposisi d={aktif} ubah={ubah} />}
-      {aktif.jenis === 'insidental' && <EditorInsidental r={aktif} ubah={ubah} />}
-      {aktif.jenis === 'lbpd' && <EditorLbpd l={aktif} ubah={ubah} />}
+
+      {aktif.terkunci && (
+        <div className="bg-amber-500/10 border-2 border-amber-500 text-amber-200 px-3.5 py-2.5 rounded flex items-center justify-between gap-3 text-xs font-medium">
+          <div className="flex items-center gap-2">
+            <Lock size={15} className="text-amber-400 shrink-0" />
+            <span>Dokumen {INFO[jenis].judul} ini telah disimpan dan terkunci. Buka kunci untuk melakukan penyuntingan.</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setBukaModalKunci(true)}
+            className="btn-retro btn-retro-sm !bg-amber-600 hover:!bg-amber-500 !text-white flex items-center gap-1 shrink-0"
+          >
+            <Unlock size={12} /> Buka Kunci
+          </button>
+        </div>
+      )}
+
+      <fieldset disabled={Boolean(aktif.terkunci)} className="contents space-y-3">
+        {aktif.jenis === 'disposisi' && <EditorDisposisi d={aktif} ubah={ubah} />}
+        {aktif.jenis === 'insidental' && <EditorInsidental r={aktif} ubah={ubah} />}
+        {aktif.jenis === 'lbpd' && <EditorLbpd l={aktif} ubah={ubah} />}
+      </fieldset>
+
+      {bukaModalKunci && (
+        <ModalBukaKunci
+          namaDokumen={INFO[jenis].judul}
+          onSukses={() => {
+            setBukaModalKunci(false);
+            const dibuka = { ...aktif, terkunci: false };
+            ubah(dibuka);
+          }}
+          onBatal={() => setBukaModalKunci(false)}
+          notify={notify}
+        />
+      )}
     </div>
   );
 };
