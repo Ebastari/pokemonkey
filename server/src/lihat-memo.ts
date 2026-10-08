@@ -16,7 +16,7 @@
 import type { Env, Pengguna } from './tipe';
 import katex from 'katex';
 import { htmlGrafikReklamasi, type BarisReklamasi } from './grafik-memo';
-import { cssTemaGrafik, hitungGrafikTabel, htmlKartuGrafikTabel, kolomStatusTabel, kontras, statusBaku } from './grafik-tabel';
+import { barisMendatang, cssTemaGrafik, hitungGrafikTabel, htmlKartuGrafikTabel, kolomPendek, kolomStatusTabel, kontras, labelStatus, statusBaku } from './grafik-tabel';
 import { daftarJudul, uraiBlok, uraiInline, hitungTugas, hakMemo, type Blok, type Inline } from './memo-blok';
 import { jamWita, selisihHari, tanggalIndonesia, tanggalWita } from './waktu';
 import { BAHASA_KODE, CSS_SAMPUL_WARNA, GALERI_SAMPUL, WARNA_KODE, gayaWarna, paletOpsi, posisiY, sorotKode, warnaTenggat } from './tampil-memo';
@@ -321,12 +321,18 @@ function htmlSatu({ b, anak, i }: Simpul, k: Konteks): string {
       case 'tabel': {
         // Sama dengan aplikasi: kolom status berupa lencana berwarna, grafik tersambung di bawah tabel.
         const kolomStatus = kolomStatusTabel(b.baris, b.kepala);
+        const pendek = kolomPendek(b.baris);
+        const mendatang = b.grafik ? barisMendatang(b.baris, b.kepala, b.grafik) : new Set<number>();
         const sel = (c: string, i: number, j: number) => {
-          if (b.kepala && i === 0) return `<th>${inline(c, k)}</th>`;
+          const gaya = pendek[j] ? ' style="white-space:nowrap"' : '';
+          if (b.kepala && i === 0) return `<th${gaya}>${inline(c, k)}</th>`;
           const st = j === kolomStatus ? statusBaku(c) : null;
+          if (j === kolomStatus && mendatang.has(i) && st?.kunci !== 'selesai') {
+            return `<td><span style="display:inline-block;padding:1px 7px;border:2px dashed #a1a1aa;color:#a1a1aa;font-weight:700;font-size:12px;white-space:nowrap">Belum waktunya</span></td>`;
+          }
           return st
-            ? `<td><span style="display:inline-block;padding:1px 7px;border:2px solid #0f172a;background:${st.warna};color:${kontras(st.warna)};font-weight:700;font-size:12px;white-space:nowrap">${esc(b.pica ? st.label : c)}</span></td>`
-            : `<td>${inline(c, k)}</td>`;
+            ? `<td><span style="display:inline-block;padding:1px 7px;border:2px solid #0f172a;background:${st.warna};color:${kontras(st.warna)};font-weight:700;font-size:12px;white-space:nowrap">${esc(b.pica ? st.label : labelStatus(c))}</span></td>`
+            : `<td${gaya}>${inline(c, k)}</td>`;
         };
         const dg = b.grafik?.aktif ? hitungGrafikTabel(b.baris, b.kepala, b.grafik, Boolean(b.pica)) : null;
         return `<div class="tabel"><table>${b.baris.map((r, i) => `<tr>${r.map((c, j) => sel(c, i, j)).join('')}</tr>`).join('')}</table></div>${dg ? htmlKartuGrafikTabel(dg) : ''}${isiAnak}`;

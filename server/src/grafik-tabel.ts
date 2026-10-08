@@ -46,6 +46,12 @@ export function statusBaku(teks: string): StatusBaku | null {
   return null;
 }
 
+/**
+ * Kolom pendek (isi terpanjang ≤ `maks` huruf, mis. No, Hari, Tanggal): jangan dilipat di gambar/halaman
+ * bagikan. Gambar HP yang sempit memakai batas kecil agar kolom uraian tidak terhimpit.
+ */
+export const kolomPendek = (baris: string[][], maks = 12) => (baris[0] ?? []).map((_, j) => Math.max(0, ...baris.map((r) => (r[j] ?? '').length)) <= maks);
+
 /** Label status tanpa tanda ceklis ("[x] Selesai" → "Selesai", "☐ Belum" → "Belum"). */
 export function labelStatus(teks: string): string {
   return (teks ?? '').replace(/^\s*(\[[ xX]\]|☐|☑|✓|✔|✗|✘)\s*/, '').trim() || (teks ?? '').trim();
@@ -625,7 +631,7 @@ function htmlProgres(d: DataGrafikTabel): string {
   ) : '';
   const langkah = n > 15 ? 5 : 1;
   const labelX = p.kumulatif.map((_, i) => ((i + 1) % langkah === 0 || i === 0 || i === n - 1
-    ? `<span style="position:absolute;left:${x(i)}%;transform:translateX(-50%);font-size:12px;font-weight:700;color:${TEKS}">${i + 1}</span>` : '')).join('');
+    ? `<span style="position:absolute;left:${x(i)}%;transform:translateX(-50%);font-size:12px;font-weight:700;color:${TEKS};white-space:nowrap">${i + 1}</span>` : '')).join('');
   const sumbuY = `<div style="flex:0 0 auto;position:relative;width:36px;height:${TINGGI}px">${tick.map((t) => (
     `<span style="position:absolute;right:6px;bottom:${(t / atas) * 100}%;transform:translateY(50%);font-size:12px;font-weight:700;color:${PUDAR}">${t}</span>`
   )).join('')}</div>`;

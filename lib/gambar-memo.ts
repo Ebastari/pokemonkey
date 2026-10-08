@@ -16,7 +16,7 @@
 
 import { daftarJudul, hitungTugas, uraiBlok, uraiInline, type Blok, type Inline } from '../server/src/memo-blok';
 import { CSS_SAMPUL_WARNA, WARNA_KODE, gayaWarna, sorotKode, warnaTenggat } from '../server/src/tampil-memo';
-import { cssTemaGrafik, hitungGrafikTabel, htmlKartuGrafikTabel, kolomStatusTabel, kontras, statusBaku } from '../server/src/grafik-tabel';
+import { barisMendatang, cssTemaGrafik, hitungGrafikTabel, htmlKartuGrafikTabel, kolomPendek, kolomStatusTabel, kontras, labelStatus, statusBaku } from '../server/src/grafik-tabel';
 import { muatKatex, rumusHtml } from './rumus';
 import { ha, ringkasRevegetasi, totalTahun, type BarisRevegetasi } from './revegetasi';
 import { SUMBER_REVEGETASI, barisGrafik, kegiatanRevegetasi, muatRevegetasi } from './revegetasi-muat';
@@ -28,6 +28,18 @@ import * as W from './waktu';
 import logoHasnur from '../aset/logo-hasnur-memo.png';
 
 export type GayaGambarMemo = 'retro-gelap' | 'retro-terang' | 'resmi';
+/**
+ * Ukuran gambar: 'hp' = tegak 540 px (dipotret 1080 px) untuk layar HP & WhatsApp;
+ * 'komputer' = lebar 1040 px (±2080 px) seperti halaman memo di monitor — tabel jarang
+ * terlipat, kolom berdampingan, grafik besar.
+ */
+export type UkuranGambarMemo = 'hp' | 'komputer';
+const LEBAR_UKURAN: Record<UkuranGambarMemo, number> = { hp: 540, komputer: 1040 };
+
+/** Layar komputer: tetikus (bukan sentuh) dan jendela cukup lebar. */
+export const layarKomputer = () => {
+  try { return window.matchMedia('(pointer: fine)').matches && window.innerWidth >= 1024; } catch { return false; }
+};
 
 export const GAYA_GAMBAR_MEMO: { id: GayaGambarMemo; label: string; ket: string }[] = [
   { id: 'retro-gelap', label: 'Retro gelap', ket: 'Santai · khas aplikasi' },
@@ -66,7 +78,6 @@ const HEX: Record<string, string> = {
 };
 const hex = (nama?: string | null) => HEX[nama ?? ''] ?? HEX.zinc;
 
-const LEBAR = 540; // px CSS; dipotret 2× → 1080 px, tajam di layar HP
 const PIKSEL = "'Pixelify Sans', 'Segoe UI', system-ui, sans-serif";
 const JUDUL_PIKSEL = "'Press Start 2P', monospace";
 const BIASA = "'Segoe UI', Roboto, Arial, sans-serif";
@@ -112,6 +123,8 @@ function el(tag: string, gaya: Gaya, isi?: (Node | string)[] | string): HTMLElem
 
 /** Konteks penyusunan: tema, gambar yang sudah dimuat (kunci → URL), dan nama anggota. */
 interface Ktx {
+  /** Ukuran gambar: HP (tegak) atau komputer (lebar). */
+  ukuran: UkuranGambarMemo;
   t: Tema; gambar: Map<string, string>; nama: Map<string, string>; hariIni: string;
   /** Judul-judul memo untuk blok daftar isi. */
   judul: { indeks: number; tingkat: number; teks: string }[];
@@ -347,16 +360,25 @@ function satuBlok(b: Blok, k: Ktx): HTMLElement {
       const tabel = el('table', { width: '100%', borderCollapse: 'collapse', fontSize: '13px', tableLayout: 'auto' });
       // Kolom status: lencana berwarna sama dengan aplikasi & grafik (label baku untuk tabel PICA).
       const kolomStatus = kolomStatusTabel(b.baris, b.kepala);
+      const pendek = kolomPendek(b.baris, k.ukuran === 'komputer' ? 12 : 4);
+      // Gambar HP sempit: tulisan lencana boleh turun baris agar kolom uraian tidak terhimpit.
+      const lencanaUtuh = k.ukuran === 'komputer' ? 'nowrap' : 'normal';
+      // Habit: hari yang belum tiba ditulis "Belum waktunya", sama dengan aplikasi.
+      const mendatang = b.grafik ? barisMendatang(b.baris, b.kepala, b.grafik) : new Set<number>();
       b.baris.forEach((r, i) => {
         const tr = document.createElement('tr');
         r.forEach((c, j) => {
           const judul = b.kepala && i === 0;
           const st = !judul && j === kolomStatus ? statusBaku(c) : null;
-          const isi = st
-            ? [el('span', { display: 'inline-block', padding: '1px 7px', border: '2px solid #0f172a', background: st.warna, color: kontras(st.warna), fontWeight: '700', fontSize: '12px', whiteSpace: 'nowrap' }, b.pica ? st.label : c)]
-            : sebaris(c, k);
+          const nanti = !judul && j === kolomStatus && mendatang.has(i) && st?.kunci !== 'selesai';
+          const isi = nanti
+            ? [el('span', { display: 'inline-block', padding: '1px 7px', border: `2px dashed ${t.redup}`, color: t.redup, fontWeight: '700', fontSize: '12px', whiteSpace: lencanaUtuh, wordBreak: 'normal', overflowWrap: 'normal' }, 'Belum waktunya')]
+            : st
+              ? [el('span', { display: 'inline-block', padding: '1px 7px', border: '2px solid #0f172a', background: st.warna, color: kontras(st.warna), fontWeight: '700', fontSize: '12px', whiteSpace: lencanaUtuh, wordBreak: 'normal', overflowWrap: 'normal' }, b.pica ? st.label : labelStatus(c))]
+              : sebaris(c, k);
           tr.append(el(judul ? 'th' : 'td', {
-            border: `1px solid ${t.garis}`, padding: '3px 6px', textAlign: 'left', verticalAlign: 'top', wordBreak: 'break-word',
+            border: `1px solid ${t.garis}`, padding: '3px 6px', textAlign: 'left', verticalAlign: 'top',
+            ...(pendek[j] ? { whiteSpace: 'nowrap' } : { wordBreak: 'break-word' }),
             fontWeight: judul ? '700' : '400', background: judul ? (t.gelap ? 'rgba(255,255,255,.07)' : '#f4f4f5') : 'transparent',
           }, isi));
         });
@@ -507,9 +529,10 @@ function susunPoster(d: DataGambarMemo, gaya: GayaGambarMemo, k: Ktx): HTMLEleme
 
   // ---- ikon & judul (ikon menumpang di tepi bawah sampul, seperti di halaman memo)
   const sampul = susunSampul(d, k);
-  const badan = el('div', { padding: t.retro ? '18px' : '22px', display: 'flex', flexDirection: 'column', gap: '14px', overflowWrap: 'anywhere' });
-  if (d.ikon) badan.append(el('div', { fontSize: '52px', lineHeight: '1', marginTop: sampul ? '-44px' : '0' }, d.ikon));
-  badan.append(el('div', { fontFamily: t.hurufIsi, fontSize: '25px', fontWeight: '700', lineHeight: '1.25', color: t.judul, wordBreak: 'break-word', marginTop: d.ikon ? '-6px' : '0' }, d.judul.trim() || 'Tanpa judul'));
+  const pc = k.ukuran === 'komputer';
+  const badan = el('div', { padding: pc ? '30px 44px' : t.retro ? '18px' : '22px', display: 'flex', flexDirection: 'column', gap: pc ? '18px' : '14px', overflowWrap: 'anywhere' });
+  if (d.ikon) badan.append(el('div', { fontSize: pc ? '64px' : '52px', lineHeight: '1', marginTop: sampul ? (pc ? '-56px' : '-44px') : '0' }, d.ikon));
+  badan.append(el('div', { fontFamily: t.hurufIsi, fontSize: pc ? '34px' : '25px', fontWeight: '700', lineHeight: '1.25', color: t.judul, wordBreak: 'break-word', marginTop: d.ikon ? '-6px' : '0' }, d.judul.trim() || 'Tanpa judul'));
 
   // ---- properti: chip kategori/tipe/status, lalu baris "Nama  Nilai" seperti di halaman
   const chips = [d.kategori && chip(d.kategori, t, true), d.tipe && chip(d.tipe, t, false), d.status && chip(d.status, t, true)]
@@ -523,7 +546,7 @@ function susunPoster(d: DataGambarMemo, gaya: GayaGambarMemo, k: Ktx): HTMLEleme
     ...(d.properti ?? []).filter((p) => p.nilai.trim()).map((p) => [p.label, p.nilai] as [string, string]),
   ];
   if (baris.length) {
-    badan.append(el('div', { display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '3px 16px', fontFamily: t.hurufIsi, fontSize: '13px' },
+    badan.append(el('div', { display: 'grid', gridTemplateColumns: pc ? '160px 1fr' : 'max-content 1fr', gap: pc ? '6px 24px' : '3px 16px', fontFamily: t.hurufIsi, fontSize: pc ? '14px' : '13px' },
       baris.flatMap(([a, b]) => [el('span', { color: t.redup }, a), el('span', { color: t.teks, fontWeight: '700', wordBreak: 'break-word' }, b)])));
   }
 
@@ -558,7 +581,7 @@ function susunPoster(d: DataGambarMemo, gaya: GayaGambarMemo, k: Ktx): HTMLEleme
     borderRadius: t.retro ? '0' : '6px',
   }, [kepala, ...(sampul ? [sampul] : []), badan, kaki]);
 
-  return el('div', { width: `${LEBAR}px`, boxSizing: 'border-box', padding: t.retro ? '18px 26px 26px 18px' : '20px', background: t.luar }, [kertas]);
+  return el('div', { width: `${LEBAR_UKURAN[k.ukuran]}px`, boxSizing: 'border-box', padding: t.retro ? '18px 26px 26px 18px' : '20px', background: t.luar }, [kertas]);
 }
 
 const namaBerkas = (judul: string) => (judul.trim() || 'memo').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'memo';
@@ -633,11 +656,11 @@ async function muatGambar(d: DataGambarMemo): Promise<Map<string, string>> {
 }
 
 /** Susun poster di luar layar lalu potret jadi PNG. */
-export async function buatGambarMemo(d: DataGambarMemo, gaya: GayaGambarMemo): Promise<{ blob: Blob; nama: string }> {
+export async function buatGambarMemo(d: DataGambarMemo, gaya: GayaGambarMemo, ukuran: UkuranGambarMemo = 'hp'): Promise<{ blob: Blob; nama: string }> {
   const { toCanvas } = await import('html-to-image');
   if (/\$\$|!rumus\{/.test(d.isi)) await muatKatex();
   const k: Ktx = {
-    t: TEMA[gaya], gambar: await muatGambar(d), nama: new Map((d.tim ?? []).map((a) => [a.id, a.nama])), hariIni: W.hariIniWita(),
+    t: TEMA[gaya], ukuran, gambar: await muatGambar(d), nama: new Map((d.tim ?? []).map((a) => [a.id, a.nama])), hariIni: W.hariIniWita(),
     judul: daftarJudul(d.isi),
     revegetasi: /!grafik\{/.test(d.isi) ? await muatRevegetasi() : undefined,
   };
@@ -655,8 +678,11 @@ export async function buatGambarMemo(d: DataGambarMemo, gaya: GayaGambarMemo): P
     ]).catch(() => undefined);
     const w = poster.offsetWidth;
     const h = poster.offsetHeight;
-    // 2× supaya tajam; memo sangat panjang diturunkan agar kanvas tidak melebihi batas memori WebView.
-    const rasio = w * h * 4 <= 16_000_000 ? 2 : 1;
+    // 2× supaya tajam; memo sangat panjang diturunkan agar kanvas tidak melebihi batas memori
+    // (WebView HP lebih ketat; peramban komputer longgar tetapi tinggi kanvas dibatasi ±16.000 px).
+    const rasio = ukuran === 'komputer'
+      ? (w * h * 4 <= 48_000_000 && h * 2 <= 16_000 ? 2 : 1)
+      : (w * h * 4 <= 16_000_000 ? 2 : 1);
     const kanvas = await toCanvas(poster, {
       width: w,
       height: h,
@@ -666,14 +692,14 @@ export async function buatGambarMemo(d: DataGambarMemo, gaya: GayaGambarMemo): P
       onImageErrorHandler: () => '',
     });
     const blob = await new Promise<Blob>((ok, gagal) => kanvas.toBlob((b) => (b ? ok(b) : gagal(new Error('Gambar gagal dibuat'))), 'image/png'));
-    return { blob, nama: `memo-${namaBerkas(d.judul)}-${gaya}.png` };
+    return { blob, nama: `memo-${namaBerkas(d.judul)}-${gaya}${ukuran === 'komputer' ? '-lebar' : ''}.png` };
   } finally {
     pembungkus.remove();
   }
 }
 
-export async function unduhGambarMemo(d: DataGambarMemo, gaya: GayaGambarMemo): Promise<'dibagikan' | 'diunduh'> {
-  const { blob, nama } = await buatGambarMemo(d, gaya);
+export async function unduhGambarMemo(d: DataGambarMemo, gaya: GayaGambarMemo, ukuran: UkuranGambarMemo = 'hp'): Promise<'dibagikan' | 'diunduh'> {
+  const { blob, nama } = await buatGambarMemo(d, gaya, ukuran);
   return simpanBerkas(blob, nama, d.judul || 'Memo');
 }
 

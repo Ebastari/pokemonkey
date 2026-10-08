@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { unduhGambar } from '../lib/gambar';
-import { unduhGambarMemo, bagikanGambarMemo, GAYA_GAMBAR_MEMO, type GayaGambarMemo } from '../lib/gambar-memo';
+import { unduhGambarMemo, bagikanGambarMemo, GAYA_GAMBAR_MEMO, layarKomputer, type GayaGambarMemo, type UkuranGambarMemo } from '../lib/gambar-memo';
 import { bukuBaru, gayakanChip, lembarBaru, simpanBuku, tanggalExcel, FORMAT_TANGGAL } from '../lib/excel';
 import type { AnggotaRingkas, Bootstrap, Opsi, Pengguna, Properti as DefProperti } from '../lib/tipe-api';
 import type { Memo } from '../types';
@@ -814,6 +814,7 @@ const KonteksGambarMemo = React.createContext<{
 type MemoUntukGambar = Pick<Memo, 'judul' | 'isi' | 'ringkasan' | 'kategori' | 'tipe' | 'status' | 'tanggal' | 'penulis' | 'lingkup' | 'props' | 'pica_id' | 'pica_no' | 'pica_judul' | 'induk_id'>;
 
 const KUNCI_GAYA_GAMBAR = 'pokemonkey_memo_gaya_gambar';
+const KUNCI_UKURAN_GAMBAR = 'pokemonkey_memo_ukuran_gambar';
 
 /**
  * Tombol gambar memo: pilih gaya (Retro gelap / Retro terang / Resmi — pilihan
@@ -829,8 +830,17 @@ const TombolGambarMemo: React.FC<{ memo: MemoUntukGambar; kecil?: boolean }> = (
       return GAYA_GAMBAR_MEMO.some((x) => x.id === g) ? (g as GayaGambarMemo) : 'retro-gelap';
     } catch { return 'retro-gelap'; }
   });
+  // Ukuran: Otomatis = komputer → lebar seperti di monitor, HP → tegak. Pilihan terakhir diingat.
+  const [ukuran, setUkuranState] = useState<'otomatis' | UkuranGambarMemo>(() => {
+    try {
+      const u = localStorage.getItem(KUNCI_UKURAN_GAMBAR);
+      return u === 'hp' || u === 'komputer' ? u : 'otomatis';
+    } catch { return 'otomatis'; }
+  });
   if (!ctx) return null;
   const setGaya = (g: GayaGambarMemo) => { setGayaState(g); try { localStorage.setItem(KUNCI_GAYA_GAMBAR, g); } catch { /* abaikan */ } };
+  const setUkuran = (u: 'otomatis' | UkuranGambarMemo) => { setUkuranState(u); try { localStorage.setItem(KUNCI_UKURAN_GAMBAR, u); } catch { /* abaikan */ } };
+  const ukuranUnduh: UkuranGambarMemo = ukuran === 'otomatis' ? (layarKomputer() ? 'komputer' : 'hp') : ukuran;
   const chip = (nilai: string | null, opsi: Opsi[]) => {
     if (!nilai) return null;
     const o = opsi.find((x) => x.nilai === nilai);
@@ -854,9 +864,10 @@ const TombolGambarMemo: React.FC<{ memo: MemoUntukGambar; kecil?: boolean }> = (
     };
     try {
       if (aksi === 'unduh') {
-        const hasil = await unduhGambarMemo(data, gaya);
+        const hasil = await unduhGambarMemo(data, gaya, ukuranUnduh);
         ctx.notify(hasil === 'diunduh' ? 'GAMBAR MEMO DIUNDUH' : 'GAMBAR MEMO SIAP DISIMPAN / DIBAGIKAN');
       } else {
+        // WhatsApp dibaca di HP: selalu format tegak (gambar lebar diperkecil, tulisannya terlalu kecil).
         const hasil = await bagikanGambarMemo(data, gaya);
         if (hasil === 'diunduh') ctx.notify('PERANGKAT INI TIDAK BISA BERBAGI LANGSUNG · GAMBAR DIUNDUH, LAMPIRKAN DI WHATSAPP');
         else if (hasil === 'dibagikan') ctx.notify('GAMBAR MEMO DIBAGIKAN');
@@ -896,6 +907,18 @@ const TombolGambarMemo: React.FC<{ memo: MemoUntukGambar; kecil?: boolean }> = (
                 </span>
               </button>
             ))}
+            <span className="px-2 py-1 text-[10px] text-zinc-400 uppercase border-b border-white/20">Ukuran unduhan</span>
+            <span className="grid grid-cols-3 gap-1 p-1.5 border-b border-white/10" role="radiogroup" aria-label="Ukuran gambar">
+              {([['otomatis', 'Otomatis'], ['hp', 'HP'], ['komputer', 'Komputer']] as const).map(([u, label]) => (
+                <button key={u} type="button" role="radio" aria-checked={ukuran === u} onClick={() => setUkuran(u)}
+                  className={`px-1 py-1 text-[11px] font-bold border-2 ${ukuran === u ? 'border-lime-300 bg-lime-500/20 text-white' : 'border-white/15 text-zinc-300 hover:bg-white/5'}`}>
+                  {label}
+                </button>
+              ))}
+            </span>
+            <span className="px-2 pt-1 text-[10px] text-zinc-400 leading-snug">
+              Unduh: {ukuranUnduh === 'komputer' ? 'lebar seperti di komputer' : 'tegak seperti di HP'} · Bagikan WhatsApp: tegak (HP)
+            </span>
             <span className="grid grid-cols-2 gap-1.5 p-1.5">
               <button type="button" onClick={() => jalankan('unduh')} className="btn-retro btn-retro-sm bg-zinc-700 justify-center"><Download size={12} /> Unduh</button>
               <button type="button" onClick={() => jalankan('bagikan')} className="btn-retro btn-retro-sm bg-emerald-700 justify-center" title="Bagikan langsung, pilih WhatsApp"><Send size={12} /> WhatsApp</button>
