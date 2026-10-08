@@ -10,9 +10,10 @@ import { unduhBerkasMemo } from '../lib/memo-gambar';
 import * as W from '../lib/waktu';
 import { infoHalaman, type PetaHalaman } from '../lib/memo-dom';
 import { KartuDataLapangan } from './KartuDataLapangan';
-import { GrafikTabelMemo } from './GrafikTabelMemo';
-import { sinkronkanTabelPica } from '../lib/pica-tabel';
-import { hitungRingkasanTabel, toggleStatusBarisTabel, cekNilaiSelesai } from '../lib/tabel-interaktif';
+import { GrafikTabelMemo, LencanaStatus, RingkasanProgres } from './GrafikTabelMemo';
+import { cariIdPica, kolomNoPica, sinkronkanTabelPica } from '../lib/pica-tabel';
+import { hitungRingkasanTabel, toggleStatusBarisTabel, lebarKolomTabel, cekNilaiSelesai, ringkasanTanpa } from '../lib/tabel-interaktif';
+import { barisMendatang } from '../server/src/grafik-tabel';
 
 /**
  * Penampil memo. Teks memo tetap teks biasa (lihat server/src/memo-blok.ts untuk
@@ -245,7 +246,12 @@ export const TabelBaca: React.FC<{
   const [dataBaris, setDataBaris] = useState(baris);
 
   const infoProgres = useMemo(() => hitungRingkasanTabel(dataBaris), [dataBaris]);
+  const lebarKolom = useMemo(() => lebarKolomTabel(dataBaris), [dataBaris]);
+  const mendatang = useMemo(() => (grafik ? barisMendatang(dataBaris, kepala, grafik) : new Set<number>()), [dataBaris, kepala, grafik]);
 
+  // Kunci isi tabel: `baris` dari uraiBlok() selalu array baru tiap render, jadi tidak dipakai langsung
+  // sebagai dependensi (dulu membuat /api/pica dipanggil ulang setiap layar memo diperbarui).
+  const kunciBaris = JSON.stringify(baris);
   useEffect(() => {
     setDataBaris(baris);
     if (!pica?.aktif) return;
@@ -260,7 +266,8 @@ export const TabelBaca: React.FC<{
     return () => {
       batal = true;
     };
-  }, [baris, pica?.aktif, pica?.filterStatus, pica?.picaIds?.join(',')]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kunciBaris, pica?.aktif, pica?.filterStatus, pica?.picaIds?.join(',')]);
 
   return (
     <div className="my-2">
@@ -300,30 +307,9 @@ export const TabelBaca: React.FC<{
         </div>
       )}
 
-      {/* Ringkasan Progres & KPI jika tabel memiliki kolom status / ceklis */}
+      {/* Ringkasan progres (Total · Selesai · Sisa · Progres) bila tabel punya kolom status / ceklis */}
       {infoProgres && infoProgres.idxStatus !== -1 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 mb-2 bg-gradient-to-r from-zinc-900 to-zinc-950 border border-lime-500/40 rounded-xs text-[12px]">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded-xs font-bold text-zinc-300">
-              Total: {infoProgres.total}
-            </span>
-            <span className="px-2 py-0.5 bg-emerald-950/70 border border-emerald-500/50 rounded-xs font-bold text-emerald-300">
-              ✓ Selesai: {infoProgres.selesai}
-            </span>
-            <span className="px-2 py-0.5 bg-amber-950/70 border border-amber-500/50 rounded-xs font-bold text-amber-300">
-              Sisa: {infoProgres.sisa}
-            </span>
-            <span className="px-2 py-0.5 bg-lime-950/70 border border-lime-500/50 rounded-xs font-mono font-bold text-lime-400">
-              Progres: {infoProgres.persen}%
-            </span>
-          </div>
-          <div className="w-28 sm:w-40 h-2 bg-zinc-800 rounded-full overflow-hidden border border-white/10">
-            <div
-              className="h-full bg-lime-500 transition-all duration-300"
-              style={{ width: `${infoProgres.persen}%` }}
-            />
-          </div>
-        </div>
+        <RingkasanProgres {...ringkasanTanpa(infoProgres, dataBaris, mendatang)} />
       )}
 
       {/* Grid Tabel */}
@@ -337,7 +323,8 @@ export const TabelBaca: React.FC<{
                     return (
                       <th
                         key={j}
-                        className="border-2 border-white/25 px-2 py-1 text-left align-top min-w-[90px] font-bold text-white break-words"
+                        style={{ minWidth: lebarKolom[j] }}
+                        className="border-2 border-white/25 px-2.5 py-1.5 text-left align-top font-bold text-white break-words"
                       >
                         <TeksInline teks={c} {...ctx} />
                       </th>
@@ -346,25 +333,17 @@ export const TabelBaca: React.FC<{
 
                   // Sel Ceklis Interaktif (pada kolom status)
                   if (i > 0 && infoProgres && j === infoProgres.idxStatus) {
-                    const selesai = cekNilaiSelesai(c);
                     return (
-                      <td key={j} className="border-2 border-white/20 p-1 align-middle text-center bg-white/[0.02]">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const baru = toggleStatusBarisTabel(dataBaris, i);
-                            setDataBaris(baru);
-                          }}
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xs font-bold text-[11px] transition-all cursor-pointer ${
-                            selesai
-                              ? 'bg-emerald-950/80 border border-emerald-400 text-emerald-200 hover:bg-emerald-900 shadow-xs'
-                              : 'bg-zinc-800/80 border border-white/20 text-zinc-400 hover:text-white hover:border-amber-400'
-                          }`}
-                          title="Klik untuk mengubah status penyelesaian (grafik otomatis terupdate)"
-                        >
-                          <CheckSquare size={13} className={selesai ? 'text-emerald-400' : 'text-zinc-500'} />
-                          <span>{c || (selesai ? '✓ Selesai' : 'Belum')}</span>
-                        </button>
+                      <td key={j} className="border-2 border-white/20 px-1.5 py-1 align-middle text-center bg-white/[0.02]">
+                        <LencanaStatus
+                          teks={c}
+                          nanti={mendatang.has(i) && !cekNilaiSelesai(c)}
+                          pica={Boolean(pica)}
+                          // PICA: buka di menu PICA (status hanya diubah/ditutup di sana).
+                          onKlik={pica
+                            ? (ctx.onBukaPica ? () => { void cariIdPica(r[kolomNoPica(dataBaris[0])] ?? '').then((id) => { if (id) ctx.onBukaPica?.(id); }); } : undefined)
+                            : () => setDataBaris(toggleStatusBarisTabel(dataBaris, i))}
+                        />
                       </td>
                     );
                   }
@@ -381,7 +360,8 @@ export const TabelBaca: React.FC<{
                   return (
                     <td
                       key={j}
-                      className={`border-2 border-white/20 px-2.5 py-1.5 align-top text-zinc-100 break-words whitespace-pre-wrap leading-relaxed ${c.length > 25 ? 'min-w-[180px]' : 'min-w-[90px]'}`}
+                      style={{ minWidth: lebarKolom[j] }}
+                      className="border-2 border-white/20 px-2.5 py-1.5 align-top text-zinc-100 break-words whitespace-pre-wrap leading-relaxed"
                     >
                       <TeksInline teks={c} {...ctx} />
                     </td>
@@ -395,7 +375,7 @@ export const TabelBaca: React.FC<{
 
       {/* Grafik yang terkoneksi langsung dengan baris tabel terkini */}
       {grafik?.aktif && (
-        <GrafikTabelMemo baris={dataBaris} kepala={kepala} grafik={grafik} />
+        <GrafikTabelMemo baris={dataBaris} kepala={kepala} grafik={grafik} pica={Boolean(pica)} />
       )}
     </div>
   );

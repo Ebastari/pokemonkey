@@ -25,13 +25,15 @@ import * as W from '../lib/waktu';
 import { BlokRumus, DaftarIsi, IsiMemo, KartuPenanda, KartuVideo, gayaGambar } from './MemoMarkup';
 import { KartuDataLapangan } from './KartuDataLapangan';
 import { DAFTAR_BLOK, UBAH_JADI, cocokKueri, skorKueri, type DefinisiBlok } from '../lib/blok-jenis';
-import { GrafikTabelMemo } from './GrafikTabelMemo';
+import { GrafikTabelMemo, LencanaStatus, RingkasanProgres } from './GrafikTabelMemo';
 import { GrafikReklamasi } from './GrafikReklamasi';
 import { ModalPilihPica } from './ModalPilihPica';
 import { ModalImporTabel } from './ModalImporTabel';
+import { ModalHabit } from './ModalHabit';
 import { uraiClipboard, uraiTsvKeMatriks } from '../lib/memo-clipboard';
-import { sinkronkanTabelPica, capWaktuSekarang, capDitetapkanSekarang } from '../lib/pica-tabel';
-import { hitungRingkasanTabel, toggleStatusBarisTabel, cekNilaiSelesai, buatOpsiGrafikOtomatis } from '../lib/tabel-interaktif';
+import { sinkronkanTabelPica, capWaktuSekarang, capDitetapkanSekarang, cariIdPica, kolomNoPica } from '../lib/pica-tabel';
+import { hitungRingkasanTabel, toggleStatusBarisTabel, buatOpsiGrafikOtomatis, lebarKolomTabel, sesuaikanGrafik, cekNilaiSelesai, ringkasanTanpa } from '../lib/tabel-interaktif';
+import { barisMendatang } from '../server/src/grafik-tabel';
 
 /**
  * Penyunting memo gaya Notion: halaman berisi blok yang langsung jadi saat
@@ -228,13 +230,61 @@ interface Penangan {
   ubahRaw: (id: string, raw: string) => void;
   /** Gulir ke blok ke-n (daftar isi). */
   lompat: (indeks: number) => void;
+  /** Buka PICA (dari nomor "PICA-006" di tabel PICA) di menu PICA. */
+  bukaPica: (nomor: string) => void;
 }
 
 /**
  * Tabel ala Notion: sel bisa langsung diketik; "+ Baris", "+ Kolom", hapus
  * baris/kolom, dan baris judul. Disimpan sebagai satu baris `!tabel{…}`.
  */
-const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = ({ raw, onUbah }) => {
+/**
+ * Sel tabel penyunting: teks panjang dibungkus ke bawah dan tinggi baris mengikuti
+ * isinya, jadi Masalah / Akar Masalah / Tindakan terbaca utuh (tidak terpotong).
+ * Isi tetap satu baris data (ganti baris diabaikan); Enter = sel di bawahnya.
+ */
+const SelTabel: React.FC<{
+  nilai: string; judul: boolean; lebarMin: number; sel: string; label: string;
+  onIsi: (v: string) => void; onTombol: (e: React.KeyboardEvent) => void; onEnter: () => void; onTempel: (e: React.ClipboardEvent) => void;
+}> = ({ nilai, judul, lebarMin, sel, label, onIsi, onTombol, onEnter, onTempel }) => {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const tinggikan = () => {
+    const t = ref.current;
+    if (!t) return;
+    t.style.height = '0px';
+    t.style.height = `${t.scrollHeight}px`;
+  };
+  useLayoutEffect(tinggikan, [nilai, lebarMin]);
+  // Lebar kolom ikut berubah saat sel lain diketik: tinggi dihitung ulang.
+  useEffect(() => {
+    const t = ref.current;
+    if (!t || typeof ResizeObserver === 'undefined') return;
+    let lebar = t.clientWidth;
+    const ro = new ResizeObserver(() => { if (t.clientWidth !== lebar) { lebar = t.clientWidth; tinggikan(); } });
+    ro.observe(t);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={nilai}
+      onChange={(e) => onIsi(e.target.value.replace(/[\r\n]+/g, ' '))}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onEnter(); return; }
+        onTombol(e);
+      }}
+      onPaste={onTempel}
+      data-sel={sel}
+      style={{ minWidth: lebarMin }}
+      className={`block w-full bg-transparent px-2 py-1.5 outline-none focus:bg-lime-500/10 resize-none overflow-hidden whitespace-pre-wrap break-words leading-snug ${judul ? 'font-bold text-white' : 'text-zinc-100'}`}
+      placeholder={judul ? label : ''}
+      aria-label={label}
+    />
+  );
+};
+
+const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void; onBukaPica?: (nomor: string) => void }> = ({ raw, onUbah, onBukaPica }) => {
   const kisi = useRef<HTMLDivElement>(null);
   const t = bacaTabel(raw);
   if (!t) return null;
@@ -245,7 +295,11 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = (
   const [memuatSync, setMemuatSync] = useState(false);
 
   const infoProgres = useMemo(() => hitungRingkasanTabel(baris), [baris]);
-  const kirim = (b: string[][], k = kepala, g = grafik, p = pica) => onUbah(rakitTabel(b, k, g, p));
+  const lebarKolom = useMemo(() => lebarKolomTabel(baris, kolomLebar), [baris, kolomLebar]);
+  const mendatang = useMemo(() => (grafik ? barisMendatang(baris, kepala, grafik) : new Set<number>()), [baris, kepala, grafik]);
+  // Grafik yang sudah ada ikut menunjuk kolom yang sama walau kolom dihapus/disisip/diimpor ulang.
+  const kirim = (b: string[][], k = kepala, g = grafik, p = pica) =>
+    onUbah(rakitTabel(b, k, g && g === grafik ? sesuaikanGrafik(baris, b, k, g) : g, p));
 
   // Selalu update otomatis jika tabel dalam mode Live Sync PICA
   useEffect(() => {
@@ -312,7 +366,7 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = (
 
   // Sel yang sudah ada langsung difokus; sel di baris baru menunggu render berikutnya.
   const fokusSel = (i: number, j: number) => {
-    const cari = () => kisi.current?.querySelector(`input[data-sel="${i}-${j}"]`) as HTMLInputElement | null;
+    const cari = () => kisi.current?.querySelector(`[data-sel="${i}-${j}"]`) as HTMLTextAreaElement | null;
     const sel = cari();
     if (sel) sel.select();
     else setTimeout(() => cari()?.select(), 0);
@@ -454,30 +508,9 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = (
         </div>
       )}
 
-      {/* Ringkasan Progres & KPI jika tabel memiliki kolom status / ceklis */}
+      {/* Ringkasan progres (Total · Selesai · Sisa · Progres) bila tabel punya kolom status / ceklis */}
       {infoProgres && infoProgres.idxStatus !== -1 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 mb-2 bg-gradient-to-r from-zinc-900 to-zinc-950 border border-lime-500/40 rounded-xs text-[12px]">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded-xs font-bold text-zinc-300">
-              Total: {infoProgres.total}
-            </span>
-            <span className="px-2 py-0.5 bg-emerald-950/70 border border-emerald-500/50 rounded-xs font-bold text-emerald-300">
-              ✓ Selesai: {infoProgres.selesai}
-            </span>
-            <span className="px-2 py-0.5 bg-amber-950/70 border border-amber-500/50 rounded-xs font-bold text-amber-300">
-              Sisa: {infoProgres.sisa}
-            </span>
-            <span className="px-2 py-0.5 bg-lime-950/70 border border-lime-500/50 rounded-xs font-mono font-bold text-lime-400">
-              Progres: {infoProgres.persen}%
-            </span>
-          </div>
-          <div className="w-28 sm:w-40 h-2 bg-zinc-800 rounded-full overflow-hidden border border-white/10">
-            <div
-              className="h-full bg-lime-500 transition-all duration-300"
-              style={{ width: `${infoProgres.persen}%` }}
-            />
-          </div>
-        </div>
+        <RingkasanProgres {...ringkasanTanpa(infoProgres, baris, mendatang)} />
       )}
 
       {/* Tabel Grid */}
@@ -489,25 +522,15 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = (
                 {r.map((c, j) => {
                   // Sel Ceklis Interaktif (pada kolom status)
                   if (i > 0 && infoProgres && j === infoProgres.idxStatus) {
-                    const selesai = cekNilaiSelesai(c);
                     return (
-                      <td key={j} className="border-2 border-white/20 p-1 align-middle text-center bg-white/[0.02]">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const baru = toggleStatusBarisTabel(baris, i);
-                            kirim(baru);
-                          }}
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xs font-bold text-[11px] transition-all cursor-pointer ${
-                            selesai
-                              ? 'bg-emerald-950/80 border border-emerald-400 text-emerald-200 hover:bg-emerald-900 shadow-xs'
-                              : 'bg-zinc-800/80 border border-white/20 text-zinc-400 hover:text-white hover:border-amber-400'
-                          }`}
-                          title="Klik untuk mengubah status penyelesaian (grafik otomatis terupdate)"
-                        >
-                          <CheckSquare size={13} className={selesai ? 'text-emerald-400' : 'text-zinc-500'} />
-                          <span>{c || (selesai ? '✓ Selesai' : 'Belum')}</span>
-                        </button>
+                      <td key={j} className="border-2 border-white/20 px-1.5 py-1 align-middle text-center bg-white/[0.02]">
+                        <LencanaStatus
+                          teks={c}
+                          nanti={mendatang.has(i) && !cekNilaiSelesai(c)}
+                          pica={Boolean(pica)}
+                          // PICA: buka di menu PICA (status tidak diubah dari memo). Tabel biasa: selesai/belum.
+                          onKlik={pica ? (onBukaPica ? () => onBukaPica(r[kolomNoPica(baris[0])] ?? '') : undefined) : () => kirim(toggleStatusBarisTabel(baris, i))}
+                        />
                       </td>
                     );
                   }
@@ -521,42 +544,19 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = (
                     );
                   }
 
-                  const isKolomTeksPanjang = c.length > 25 || (i === 0 && (c.toLowerCase().includes('topik') || c.toLowerCase().includes('materi') || c.toLowerCase().includes('masalah')));
-                  const minW = kolomLebar
-                    ? (isKolomTeksPanjang ? 'min-w-[280px]' : 'min-w-[180px]')
-                    : (isKolomTeksPanjang ? 'min-w-[180px]' : 'min-w-[110px]');
-
                   return (
                     <td key={j} className={`border-2 border-white/20 p-0 align-top ${kepala && i === 0 ? 'bg-white/[0.07]' : ''}`}>
-                      {kolomLebar && c.length > 20 ? (
-                        <textarea
-                          value={c}
-                          onChange={(e) => isiSel(i, j, e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              pindahSel(e, i, j);
-                            }
-                          }}
-                          onPaste={(e) => tempelSel(e, i, j)}
-                          data-sel={`${i}-${j}`}
-                          rows={Math.min(4, Math.max(1, Math.ceil(c.length / 30)))}
-                          className={`w-full ${minW} bg-transparent px-2 py-1 outline-none focus:bg-lime-500/10 whitespace-pre-wrap break-words resize-none text-[12px] ${kepala && i === 0 ? 'font-bold text-white' : 'text-zinc-100'}`}
-                          placeholder={kepala && i === 0 ? `Kolom ${j + 1}` : ''}
-                          aria-label={`Baris ${i + 1}, kolom ${j + 1}`}
-                        />
-                      ) : (
-                        <input
-                          value={c}
-                          onChange={(e) => isiSel(i, j, e.target.value)}
-                          onKeyDown={(e) => pindahSel(e, i, j)}
-                          onPaste={(e) => tempelSel(e, i, j)}
-                          data-sel={`${i}-${j}`}
-                          className={`w-full ${minW} bg-transparent px-2 py-1 outline-none focus:bg-lime-500/10 break-words ${kepala && i === 0 ? 'font-bold text-white' : 'text-zinc-100'}`}
-                          placeholder={kepala && i === 0 ? `Kolom ${j + 1}` : ''}
-                          aria-label={`Baris ${i + 1}, kolom ${j + 1}`}
-                        />
-                      )}
+                      <SelTabel
+                        nilai={c}
+                        judul={kepala && i === 0}
+                        lebarMin={lebarKolom[j] ?? 96}
+                        sel={`${i}-${j}`}
+                        label={kepala && i === 0 ? `Kolom ${j + 1}` : `Baris ${i + 1}, kolom ${j + 1}`}
+                        onIsi={(v) => isiSel(i, j, v)}
+                        onTombol={(e) => pindahSel(e, i, j)}
+                        onEnter={() => { if (i + 1 < baris.length) fokusSel(i + 1, j); }}
+                        onTempel={(e) => tempelSel(e, i, j)}
+                      />
                     </td>
                   );
                 })}
@@ -631,6 +631,7 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = (
           baris={baris}
           kepala={kepala}
           grafik={grafik}
+          pica={Boolean(pica)}
           bolehUbah={true}
           onUbah={(baru) => kirim(baris, kepala, baru)}
         />
@@ -653,7 +654,8 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void }> = (
         <ModalImporTabel
           onTutup={() => setModalImporBuka(false)}
           onSisipkan={(barisBaru, kBaru, dgGrafik) => {
-            kirim(barisBaru, kBaru, dgGrafik ? buatOpsiGrafikOtomatis(barisBaru) : undefined);
+            // Tabel yang sudah bergrafik tetap bergrafik (kolomnya dipetakan ulang ke data baru).
+            kirim(barisBaru, kBaru, dgGrafik ? buatOpsiGrafikOtomatis(barisBaru) : grafik);
             setModalImporBuka(false);
           }}
         />
@@ -855,7 +857,7 @@ const BlokBaris = React.memo<{
           {blok.jenis === 'penanda' && <KartuPenanda url={blok.url} judul={blok.judul} ket={blok.ket} situs={blok.situs} />}
           {blok.jenis === 'grafik' && <div data-sunting><GrafikReklamasi blok={blok} onUbah={(g) => h.current.ubahRaw(b.id, rakitGrafik(g))} /></div>}
           {blok.jenis === 'video' && <KartuVideo url={blok.url} judul={blok.judul} />}
-          {blok.jenis === 'tabel' && <TabelSunting raw={b.raw} onUbah={(raw) => h.current.ubahRaw(b.id, raw)} />}
+          {blok.jenis === 'tabel' && <TabelSunting raw={b.raw} onUbah={(raw) => h.current.ubahRaw(b.id, raw)} onBukaPica={(nomor) => h.current.bukaPica(nomor)} />}
           {blok.jenis === 'data' && (
             <KartuDataLapangan
               blok={blok}
@@ -958,6 +960,7 @@ const EditorBlok: React.FC<Props> = ({
   const [sibuk, setSibuk] = useState(0);
   const [modalPica, setModalPica] = useState<{ id: string; pos: number } | null>(null);
   const [modalImpor, setModalImpor] = useState<{ id: string; pos: number } | null>(null);
+  const [modalHabit, setModalHabit] = useState<{ id: string } | null>(null);
   const [seret, setSeret] = useState<{ id: string; ke: number; atas: number; kiri?: number; lebar?: number; dalam?: number } | null>(null);
   const [pilihan, setPilihan] = useState<{ x: number; y: number } | null>(null);
   /** Bilah format mengambang: digeser agar tidak terpotong tepi layar (teks terpilih di dekat tepi). */
@@ -1518,6 +1521,7 @@ const EditorBlok: React.FC<Props> = ({
     if (pid === 'tautan_halaman') { setCariHalaman(''); setPanel({ jenis: 'halaman', id, pos }); }
     if (pid === 'pica') { setModalPica({ id, pos }); return; }
     if (pid === 'impor_tabel') { setModalImpor({ id, pos }); return; }
+    if (pid === 'habit') { setModalHabit({ id }); return; }
     if (pid === 'halaman') void buatSubHalaman(id);
     if (pid.startsWith('emoji:')) { sisipTeks(id, pos, pid.slice(6)); return; }
     if (pid.startsWith('warna:')) { warnaiBlok(id, pid.slice(6, 7) as 'w' | 'l', pid.slice(8)); return; }
@@ -2279,7 +2283,7 @@ const EditorBlok: React.FC<Props> = ({
 
   // ---- penangan untuk BlokBaris (ref tetap agar BlokBaris tidak dirender ulang) ----------
 
-  const h = useRef<Penangan>({ daftar: () => undefined, centang: () => undefined, pegang: () => undefined, tambahDi: () => undefined, lipat: () => undefined, ubahRaw: () => undefined, lompat: () => undefined });
+  const h = useRef<Penangan>({ daftar: () => undefined, centang: () => undefined, pegang: () => undefined, tambahDi: () => undefined, lipat: () => undefined, ubahRaw: () => undefined, lompat: () => undefined, bukaPica: () => undefined });
   h.current = {
     daftar: (id, el) => { if (el) elRef.current.set(id, el); else elRef.current.delete(id); },
     centang,
@@ -2291,6 +2295,10 @@ const EditorBlok: React.FC<Props> = ({
       if (kini - ketikTerakhir.current > 1000) catatRiwayat();
       ketikTerakhir.current = kini;
       terapkan(blokRef.current.map((x) => (x.id === id ? { ...x, raw } : x)), { catat: false });
+    },
+    bukaPica: (nomor) => {
+      if (!onBukaPica) return;
+      void cariIdPica(nomor).then((id) => (id ? onBukaPica(id) : notify('PICA TIDAK DITEMUKAN')));
     },
     lompat: (i) => {
       const b = blokRef.current[i];
@@ -2757,6 +2765,13 @@ const EditorBlok: React.FC<Props> = ({
             setModalPica(null);
           }}
           onTutup={() => setModalPica(null)}
+        />
+      )}
+
+      {modalHabit && (
+        <ModalHabit
+          onTutup={() => setModalHabit(null)}
+          onSisipkan={(raw) => { sisipBlokKhusus(modalHabit.id, raw); setModalHabit(null); }}
         />
       )}
 

@@ -139,7 +139,8 @@ export const MAKS_KOLOM_TABEL = 25;
 /** Pengaturan grafik dinamis yang terkoneksi pada tabel memo. */
 export interface OpsiGrafikTabel {
   aktif: boolean;
-  tipe: 'batang' | 'garis' | 'pie';
+  /** 'progres' = kurva progres harian (ceklis + kumulatif vs target), mis. habit 1 bulan. */
+  tipe: 'batang' | 'garis' | 'pie' | 'progres';
   sumbuX?: number;
   seriY?: number[];
   judul?: string;
@@ -147,6 +148,10 @@ export interface OpsiGrafikTabel {
   mode?: 'nilai' | 'hitung';
   /** Kolom kedua untuk pengelompokan (breakdown) pada mode hitung (misal: kolom Status saat sumbuX = PIC) */
   kolomPecah?: number;
+  /** Tanggal mulai (YYYY-MM-DD) untuk grafik progres bila tabel tidak punya kolom tanggal. */
+  mulai?: string;
+  /** Tabel habit: hari yang belum tiba tidak bisa dicentang dan tidak dihitung. */
+  habit?: boolean;
 }
 
 /** Pengaturan sinkronisasi tabel dinamis PICA di memo. */

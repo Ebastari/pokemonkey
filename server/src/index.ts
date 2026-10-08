@@ -559,8 +559,13 @@ async function daftarPica(url: URL, env: Env): Promise<Response> {
     syarat.push(`(p.judul LIKE ?${nilai.length} OR p.akar LIKE ?${nilai.length} OR p.id LIKE ?${nilai.length})`);
   }
 
+  // ?ringkas=1 (tabel PICA di memo): tanpa tiga subkueri per baris — jauh lebih ringan untuk D1.
+  const ringkas = url.searchParams.get('ringkas') === '1';
   const { results } = await env.DB.prepare(
-    `SELECT p.*, t.nama AS pic_nama,
+    ringkas
+      ? `SELECT p.*, t.nama AS pic_nama FROM pica p LEFT JOIN tim t ON t.id = p.pic_id
+          WHERE ${syarat.join(' AND ')} ORDER BY p.no_urut DESC`
+      : `SELECT p.*, t.nama AS pic_nama,
             (SELECT u.catatan FROM pica_update u WHERE u.pica_id = p.id ORDER BY u.pada DESC LIMIT 1) AS update_terakhir,
             (SELECT u.pada FROM pica_update u WHERE u.pica_id = p.id ORDER BY u.pada DESC LIMIT 1) AS update_terakhir_pada,
             (SELECT COUNT(*) FROM lampiran l WHERE (l.entitas = 'pica' AND l.entitas_id = p.id) OR (l.entitas = 'laporan' AND l.entitas_id IN (SELECT id FROM laporan WHERE pica_id = p.id))) AS jumlah_lampiran

@@ -89,23 +89,30 @@ export function saringDaftarPica(
   });
 }
 
-// Cache ringan dalam memori untuk mencegah spam HTTP GET /api/pica
+// Cache dalam memori: tabel PICA live di memo tidak boleh memanggil /api/pica berulang-ulang.
+// - 30 detik: cukup segar untuk tabel (tombol "Segarkan" memaksa ambil baru);
+// - permintaan yang sedang berjalan dipakai bersama (beberapa tabel dalam satu memo = 1 panggilan);
+// - ?ringkas=1: server melewati subkueri update terakhir & jumlah lampiran yang tidak dipakai tabel.
 let cachePica: { waktu: number; data: PicaItem[] } | null = null;
-const CACHE_TTL_MS = 4000; // 4 detik
+let sedangAmbil: Promise<PicaItem[]> | null = null;
+const CACHE_TTL_MS = 30_000;
 
 export async function ambilDaftarPica(paksaSegarkan = false): Promise<PicaItem[]> {
-  const sekarang = Date.now();
-  if (!paksaSegarkan && cachePica && sekarang - cachePica.waktu < CACHE_TTL_MS) {
-    return cachePica.data;
-  }
-  try {
-    const res = await api<{ pica: PicaItem[] }>('/api/pica');
-    const items = res.pica ?? [];
-    cachePica = { waktu: sekarang, data: items };
-    return items;
-  } catch {
-    return cachePica ? cachePica.data : [];
-  }
+  if (!paksaSegarkan && cachePica && Date.now() - cachePica.waktu < CACHE_TTL_MS) return cachePica.data;
+  if (sedangAmbil) return sedangAmbil;
+  sedangAmbil = (async () => {
+    try {
+      const res = await api<{ pica: PicaItem[] }>('/api/pica?ringkas=1');
+      const items = res.pica ?? [];
+      cachePica = { waktu: Date.now(), data: items };
+      return items;
+    } catch {
+      return cachePica ? cachePica.data : [];
+    } finally {
+      sedangAmbil = null;
+    }
+  })();
+  return sedangAmbil;
 }
 
 /** Sinkronkan tabel dari server berdasarkan konfigurasi InfoPicaLive */
@@ -159,15 +166,17 @@ export function rakitBlokTabelPica(
     ...(opsi.ditetapkan ? { ditetapkanPada: capDitetapkanSekarang() } : {}),
   };
 
+  // Bawaan: kotak angka + batang mendatar per status (paling mudah dibaca). Judul tanpa
+  // jumlah, karena jumlah dihitung ulang dari isi tabel terkini (Live Sync).
   const grafik: OpsiGrafikTabel | undefined =
     opsi.denganGrafik !== false
       ? {
           aktif: true,
-          tipe: 'pie',
+          tipe: 'batang',
           mode: 'hitung',
           sumbuX: 4, // Kolom Status
           kolomPecah: -1,
-          judul: `Rekap Status PICA (${items.length} Data)`,
+          judul: 'Status PICA',
         }
       : undefined;
 
@@ -178,3 +187,17 @@ export function rakitBlokTabelPica(
     pica,
   })}`;
 }
+
+/**
+ * Status PICA hanya diubah/ditutup di menu PICA (siapa pun penggunanya). Lencana
+ * status di tabel memo membuka PICA-nya: cari id PICA dari sel "No PICA" (PICA-006).
+ */
+export async function cariIdPica(nomor: string): Promise<string | null> {
+  const t = (nomor ?? '').trim();
+  if (!t) return null;
+  const daftar = await ambilDaftarPica();
+  return daftar.find((p) => nomorPica(p) === t || p.id === t)?.id ?? null;
+}
+
+/** Kolom "No PICA" pada tabel PICA (bawaan kolom pertama). */
+export const kolomNoPica = (judul: string[]): number => Math.max(0, judul.findIndex((c) => /no\.?\s*pica|nomor\s*pica/i.test(c ?? '')));

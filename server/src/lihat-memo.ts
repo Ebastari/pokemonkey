@@ -16,6 +16,7 @@
 import type { Env, Pengguna } from './tipe';
 import katex from 'katex';
 import { htmlGrafikReklamasi, type BarisReklamasi } from './grafik-memo';
+import { cssTemaGrafik, hitungGrafikTabel, htmlKartuGrafikTabel, kolomStatusTabel, kontras, statusBaku } from './grafik-tabel';
 import { daftarJudul, uraiBlok, uraiInline, hitungTugas, hakMemo, type Blok, type Inline } from './memo-blok';
 import { jamWita, selisihHari, tanggalIndonesia, tanggalWita } from './waktu';
 import { BAHASA_KODE, CSS_SAMPUL_WARNA, GALERI_SAMPUL, WARNA_KODE, gayaWarna, paletOpsi, posisiY, sorotKode, warnaTenggat } from './tampil-memo';
@@ -317,8 +318,19 @@ function htmlSatu({ b, anak, i }: Simpul, k: Konteks): string {
         try { situs = new URL(b.url).hostname.replace(/^www\./, ''); } catch { /* biarkan alamat utuh */ }
         return `<a class="video" href="${esc(b.url)}" target="_blank" rel="noopener noreferrer nofollow"><span class="layar">${ikon('video', 28)}</span><span class="kaki">${ikon('video', 13)}<b>${esc(b.judul || 'Video')}</b><small>${esc(situs)}</small>${ikon('luar', 12)}</span></a>${isiAnak}`;
       }
-      case 'tabel':
-        return `<div class="tabel"><table>${b.baris.map((r, i) => `<tr>${r.map((c) => (b.kepala && i === 0 ? `<th>${inline(c, k)}</th>` : `<td>${inline(c, k)}</td>`)).join('')}</tr>`).join('')}</table></div>${isiAnak}`;
+      case 'tabel': {
+        // Sama dengan aplikasi: kolom status berupa lencana berwarna, grafik tersambung di bawah tabel.
+        const kolomStatus = kolomStatusTabel(b.baris, b.kepala);
+        const sel = (c: string, i: number, j: number) => {
+          if (b.kepala && i === 0) return `<th>${inline(c, k)}</th>`;
+          const st = j === kolomStatus ? statusBaku(c) : null;
+          return st
+            ? `<td><span style="display:inline-block;padding:1px 7px;border:2px solid #0f172a;background:${st.warna};color:${kontras(st.warna)};font-weight:700;font-size:12px;white-space:nowrap">${esc(b.pica ? st.label : c)}</span></td>`
+            : `<td>${inline(c, k)}</td>`;
+        };
+        const dg = b.grafik?.aktif ? hitungGrafikTabel(b.baris, b.kepala, b.grafik, Boolean(b.pica)) : null;
+        return `<div class="tabel"><table>${b.baris.map((r, i) => `<tr>${r.map((c, j) => sel(c, i, j)).join('')}</tr>`).join('')}</table></div>${dg ? htmlKartuGrafikTabel(dg) : ''}${isiAnak}`;
+      }
       case 'data':
         return `<aside class="penting" style="border-color:rgba(132,204,22,.5);background:rgba(26,46,5,.3);">${ikon('info', 15)}<div><b>Data ${b.sumber === 'nursery' ? 'Smart Nursery' : 'Geotagging Lapangan'}</b>: Data operasional internal disembunyikan pada tautan publik (hanya tampil setelah masuk/login).</div></aside>${isiAnak}`;
       case 'kosong': return `<div class="jarak"></div>${isiAnak}`;
@@ -493,6 +505,7 @@ function halaman(judul: string, isi: string, status = 200): Response {
 <style>
   * { box-sizing: border-box; }
   html { background: #09090b; }
+  :root { ${cssTemaGrafik(true)}; }
   body { margin: 0; background: #09090b; color: #f4f4f5; font: 16px/1.5 'Pixelify Sans', 'Segoe UI', system-ui, sans-serif; overflow-wrap: anywhere; }
   a { color: inherit; }
   svg { flex: none; display: inline-block; vertical-align: -2px; }

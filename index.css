@@ -866,6 +866,51 @@ input[type='date'], input[type='time'] {
 [data-tema='terang'] .ml-merah { background: #fee2e2; }
 /* Rumus MathML (KaTeX): ikut warna teks sekitarnya. */
 .rumus-blok { overflow-y: hidden; padding: .3em 0; }
+/* ============================================================
+ * Mode Lapangan (tema terang) — terbaca di bawah terik matahari
+ * Pantulan cahaya "memakan" kontras layar, jadi kontras dibuat maksimum:
+ *   - latar putih murni + teks hitam murni (21:1; sebelumnya 14,6:1);
+ *   - teks redup tidak lebih muda dari ±10:1 (sebelumnya 6,5:1);
+ *   - isi sedikit lebih tebal dan huruf terkecil dinaikkan 1 px;
+ *   - garis tipis dipertebal warnanya agar bingkai tetap terlihat.
+ * Ditulis sesudah lapisan tema terang di atas sehingga menimpanya.
+ * ============================================================ */
+[data-tema='terang'] { --pk-ink: #000000; --pk-muted: #2e353b; --pk-border: #000000; }
+[data-tema='terang'] body { background: #ffffff; color: #000000; font-weight: 500; }
+[data-tema='terang'] .pudar-login { background: linear-gradient(to bottom, transparent, rgb(255 255 255 / 0.75) 55%, #ffffff); }
+[data-tema='terang'] .pudar-login-kanan { background: linear-gradient(to right, transparent, #ffffff); }
+[data-tema='terang'] ::-webkit-scrollbar-track { background: #e3e7e1; }
+[data-tema='terang'] ::-webkit-scrollbar-thumb { background: #000000; border: 2px solid #ffffff; }
+[data-tema='terang'] [class~="bg-zinc-950"], [data-tema='terang'] [class~="!bg-zinc-950"] { background-color: #ffffff !important; }
+[data-tema='terang'] [class~="bg-zinc-800"], [data-tema='terang'] [class~="!bg-zinc-800"] { background-color: #f1f3f1 !important; }
+[data-tema='terang'] [class~="bg-zinc-700"], [data-tema='terang'] [class~="!bg-zinc-700"] { background-color: #e3e7e1 !important; }
+[data-tema='terang'] [class~="bg-zinc-600"], [data-tema='terang'] [class~="!bg-zinc-600"] { background-color: #cfd5cb !important; }
+[data-tema='terang'] [class~="text-white"], [data-tema='terang'] [class~="!text-white"] { color: #000000 !important; }
+[data-tema='terang'] [class~="text-zinc-100"], [data-tema='terang'] [class~="!text-zinc-100"] { color: #0b0d10 !important; }
+[data-tema='terang'] [class~="text-zinc-200"], [data-tema='terang'] [class~="!text-zinc-200"] { color: #111418 !important; }
+[data-tema='terang'] [class~="text-zinc-300"], [data-tema='terang'] [class~="!text-zinc-300"] { color: #1f2429 !important; }
+[data-tema='terang'] [class~="text-zinc-400"], [data-tema='terang'] [class~="!text-zinc-400"] { color: #2e353b !important; }
+[data-tema='terang'] [class~="text-zinc-500"], [data-tema='terang'] [class~="!text-zinc-500"] { color: #3a424a !important; }
+[data-tema='terang'] [class~="text-zinc-600"], [data-tema='terang'] [class~="!text-zinc-600"] { color: #4a535b !important; }
+[data-tema='terang'] [class*="text-zinc-300/"], [data-tema='terang'] [class*="text-zinc-400/"] { color: #2e353b !important; }
+[data-tema='terang'] [class~="text-[10px]"] { font-size: 11px !important; }
+[data-tema='terang'] [class~="text-[11px]"] { font-size: 12px !important; }
+[data-tema='terang'] [class~="border-white/10"], [data-tema='terang'] [class~="!border-white/10"] { border-color: rgb(0 0 0 / 0.28) !important; }
+[data-tema='terang'] [class~="border-white/15"], [data-tema='terang'] [class~="!border-white/15"] { border-color: rgb(0 0 0 / 0.34) !important; }
+[data-tema='terang'] [class~="border-white/20"], [data-tema='terang'] [class~="!border-white/20"] { border-color: rgb(0 0 0 / 0.42) !important; }
+[data-tema='terang'] [class~="border-white/25"], [data-tema='terang'] [class~="!border-white/25"] { border-color: rgb(0 0 0 / 0.5) !important; }
+
+/* ---------- Grafik tabel memo (server/src/grafik-tabel.ts) ----------
+ * Ikut tema: gelap di mode gelap (bawaan), terang di mode terang dan di memo berlatar
+ * putih — kartu grafik tidak menjadi kotak putih mencolok di layar gelap. */
+:root {
+  --gk-kartu: #18181b; --gk-kotak: #27272a; --gk-teks: #f4f4f5; --gk-pudar: #a1a1aa;
+  --gk-garis: #000000; --gk-bayang: #000000; --gk-sumbu: #a1a1aa; --gk-bantu: #3f3f46; --gk-bingkai: #3f3f46;
+}
+[data-tema='terang'], .memo-latar-putih {
+  --gk-kartu: #ffffff; --gk-kotak: #f8fafc; --gk-teks: #0f172a; --gk-pudar: #475569;
+  --gk-garis: #0f172a; --gk-bayang: #0f172a; --gk-sumbu: #0f172a; --gk-bantu: #cbd5e1; --gk-bingkai: #0f172a;
+}
 /* Deret tombol yang digeser jari (bilah alat HP, tab): tanpa batang gulir. */
 .tanpa-scrollbar { scrollbar-width: none; }
 .tanpa-scrollbar::-webkit-scrollbar { display: none; }

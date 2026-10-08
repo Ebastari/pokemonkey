@@ -9,6 +9,8 @@
  * 4. Terhubung langsung secara real-time dengan komponen GrafikTabelMemo.
  */
 
+import { barisData, kolomStatusTabel, statusBaku } from '../server/src/grafik-tabel';
+
 export interface RingkasanTabel {
   total: number;
   selesai: number;
@@ -18,61 +20,23 @@ export interface RingkasanTabel {
   idxKumulatif: number;
 }
 
-/** Periksa apakah teks sel menunjukkan kondisi selesai / tercapai */
+/**
+ * Selesai / belum memakai aturan yang sama dengan grafik (server/src/grafik-tabel.ts):
+ * penyangkalan dicek dulu, jadi "Belum selesai" atau "Tidak selesai" = belum.
+ */
 export function cekNilaiSelesai(teks: string): boolean {
-  const s = (teks || '').trim().toLowerCase();
-  return (
-    s.includes('selesai') ||
-    s.includes('✓') ||
-    s.includes('✔') ||
-    s.includes('[x]') ||
-    s.includes('☑') ||
-    s === '1' ||
-    s.includes('done') ||
-    s.includes('tuntas') ||
-    s.includes('closed')
-  );
+  return statusBaku(teks)?.kunci === 'selesai';
 }
 
-/** Periksa apakah teks sel menunjukkan kondisi belum / pending */
+/** Teks status yang belum selesai (Open, Belum, [ ], Dikerjakan, …). */
 export function cekNilaiBelum(teks: string): boolean {
-  const s = (teks || '').trim().toLowerCase();
-  return (
-    s.includes('belum') ||
-    s.includes('[ ]') ||
-    s.includes('☐') ||
-    s === '0' ||
-    s.includes('pending') ||
-    s.includes('open') ||
-    s.includes('to do') ||
-    s.includes('todo')
-  );
+  const st = statusBaku(teks);
+  return Boolean(st) && st!.kunci !== 'selesai' && st!.kunci !== 'batal';
 }
 
-/** Deteksi apakah kolom pada baris data berisi status/ceklis */
+/** Kolom status/ceklis (judul atau isinya); -1 bila tidak ada. Baris pertama = judul. */
 export function deteksiKolomStatus(baris: string[][]): number {
-  if (baris.length <= 1) return -1;
-  const kepala = baris[0];
-
-  // 1. Cek dari nama header kolom
-  const idxHeader = kepala.findIndex((h) =>
-    /status|ceklis|check|selesai|kondisi|state|progres\s*hari/i.test(h)
-  );
-  if (idxHeader !== -1) return idxHeader;
-
-  // 2. Cek dari isi sel jika nama header umum
-  for (let j = 0; j < kepala.length; j++) {
-    let adaSelesai = false;
-    let adaBelum = false;
-    for (let i = 1; i < baris.length; i++) {
-      const val = baris[i][j] || '';
-      if (cekNilaiSelesai(val)) adaSelesai = true;
-      if (cekNilaiBelum(val)) adaBelum = true;
-    }
-    if (adaSelesai && adaBelum) return j;
-  }
-
-  return -1;
+  return kolomStatusTabel(baris, true);
 }
 
 /** Deteksi apakah ada kolom hitungan kumulatif / running total */
@@ -90,15 +54,10 @@ export function hitungRingkasanTabel(baris: string[][]): RingkasanTabel | null {
   if (idxStatus === -1) return null;
 
   const idxKumulatif = deteksiKolomKumulatif(baris);
-  const total = baris.length - 1;
-  let selesai = 0;
-
-  for (let i = 1; i < baris.length; i++) {
-    const val = baris[i][idxStatus] || '';
-    if (cekNilaiSelesai(val)) {
-      selesai++;
-    }
-  }
+  // Baris kosong (mis. baru ditambah lewat "+ Baris") tidak ikut dihitung.
+  const isi = barisData(baris.slice(1));
+  const total = isi.length;
+  const selesai = isi.filter((r) => cekNilaiSelesai(r[idxStatus] || '')).length;
 
   const sisa = Math.max(0, total - selesai);
   const persen = total > 0 ? Math.round((selesai / total) * 100) : 0;
@@ -154,17 +113,11 @@ import type { OpsiGrafikTabel } from '../server/src/memo-blok';
 export function buatOpsiGrafikOtomatis(baris: string[][]): OpsiGrafikTabel {
   const ringkasan = hitungRingkasanTabel(baris);
 
-  // 1. Jika ada kolom kumulatif (seperti YOLO Tracker) -> langsung buat grafik Garis tren kumulatif
-  if (ringkasan && ringkasan.idxKumulatif !== -1) {
-    const namaKum = baris[0]?.[ringkasan.idxKumulatif] || 'Kumulatif';
-    return {
-      aktif: true,
-      tipe: 'garis',
-      mode: 'nilai',
-      sumbuX: 0,
-      seriY: [ringkasan.idxKumulatif],
-      judul: `Tren Progres Kumulatif (${namaKum})`,
-    };
+  // 1. Ceklis harian (ada kolom kumulatif atau kolom hari/tanggal, mis. tracker H-01..H-30):
+  //    kurva progres — selesai vs target, hari terlewat, runtunan (lebih jelas dari garis kumulatif saja).
+  const kolomHari = (baris[0] ?? []).some((h) => /^(hari|tanggal|tgl|date|day)\b|hari\s*ke/i.test(h ?? ''));
+  if (ringkasan && ringkasan.idxStatus !== -1 && (ringkasan.idxKumulatif !== -1 || kolomHari)) {
+    return { aktif: true, tipe: 'progres', mode: 'nilai', sumbuX: 0, judul: 'Progres harian' };
   }
 
   // 2. Jika ada kolom status/ceklis -> langsung buat grafik Donut atau Batang rekap status
@@ -172,11 +125,11 @@ export function buatOpsiGrafikOtomatis(baris: string[][]): OpsiGrafikTabel {
     const namaStatus = baris[0]?.[ringkasan.idxStatus] || 'Status';
     return {
       aktif: true,
-      tipe: 'pie',
+      tipe: 'batang',
       mode: 'hitung',
       sumbuX: ringkasan.idxStatus,
       kolomPecah: -1,
-      judul: `Rekap ${namaStatus} (${ringkasan.total} Item)`,
+      judul: `Rekap ${namaStatus}`,
     };
   }
 
@@ -187,4 +140,54 @@ export function buatOpsiGrafikOtomatis(baris: string[][]): OpsiGrafikTabel {
     mode: 'nilai',
     sumbuX: 0,
   };
+}
+
+/**
+ * Lebar minimum tiap kolom (px) menurut isinya, agar teks dibungkus ke bawah dan
+ * tidak terpotong: kolom uraian (Masalah, Akar Masalah, Tindakan, Keterangan, …)
+ * paling lebar, kolom pendek (No, Status, tanggal) sempit. `lebar` = tombol
+ * "Lebarkan Kolom" (×1,4). Dipakai penyunting dan mode baca.
+ */
+export function lebarKolomTabel(baris: string[][], lebar = false): number[] {
+  if (!baris.length) return [];
+  return baris[0].map((judul, j) => {
+    const terpanjang = Math.max(0, ...baris.map((r) => (r[j] ?? '').length));
+    const uraian = /masalah|akar|tindakan|uraian|keterangan|deskripsi|catatan|topik|materi|kegiatan|kebiasaan|rincian|hasil/i.test(judul ?? '');
+    const dasar = uraian || terpanjang > 40 ? 240 : terpanjang > 18 ? 160 : 96;
+    return Math.round(dasar * (lebar ? 1.4 : 1));
+  });
+}
+
+/**
+ * Grafik menyimpan nomor kolom. Saat kolom dihapus, disisip, atau tabel diimpor ulang,
+ * nomor itu dipetakan ulang menurut NAMA judul kolom, agar grafik tetap menunjuk kolom
+ * yang sama (bukan diam-diam kolom lain). Kolom yang hilang → kembali otomatis.
+ */
+export function sesuaikanGrafik(lama: string[][], baru: string[][], kepala: boolean, g: OpsiGrafikTabel): OpsiGrafikTabel {
+  const judulLama = lama[0] ?? [];
+  const judulBaru = baru[0] ?? [];
+  if (judulLama.length === judulBaru.length && judulLama.every((c, j) => c === judulBaru[j])) return g;
+  // Tanpa baris judul: hanya nomor yang masih ada yang dipakai.
+  const peta = (j: number | undefined): number | undefined => {
+    if (j === undefined || j < 0) return j;
+    if (!kepala) return j < judulBaru.length ? j : undefined;
+    const nama = (judulLama[j] ?? '').trim().toLowerCase();
+    if (!nama) return j < judulBaru.length ? j : undefined;
+    const k = judulBaru.findIndex((c) => c.trim().toLowerCase() === nama);
+    return k === -1 ? undefined : k;
+  };
+  const seriY = (g.seriY ?? []).map(peta).filter((j): j is number => j !== undefined && j >= 0);
+  return {
+    ...g,
+    sumbuX: peta(g.sumbuX),
+    seriY: seriY.length ? seriY : undefined,
+    kolomPecah: g.kolomPecah === -1 ? -1 : peta(g.kolomPecah),
+  };
+}
+
+/** Ringkasan tanpa centang di baris tertentu (habit: hari yang belum tiba tidak dihitung, sama dengan grafik). */
+export function ringkasanTanpa(r: RingkasanTabel, baris: string[][], kecuali: Set<number>): RingkasanTabel {
+  if (!kecuali.size) return r;
+  const selesai = baris.filter((b, i) => i > 0 && !kecuali.has(i) && b.some((c) => (c ?? '').trim()) && cekNilaiSelesai(b[r.idxStatus] || '')).length;
+  return { ...r, selesai, sisa: Math.max(0, r.total - selesai), persen: r.total > 0 ? Math.round((selesai / r.total) * 100) : 0 };
 }

@@ -6,7 +6,6 @@
  * kolom status/ceklis dan opsi grafik otomatis.
  */
 
-import JSZip from 'jszip';
 import { MAKS_BARIS_TABEL, MAKS_KOLOM_TABEL } from '../server/src/memo-blok';
 import { cekNilaiSelesai } from './tabel-interaktif';
 
@@ -87,6 +86,8 @@ export function uraiCsvKeMatriks(teks: string): string[][] {
 
 /** Urai ArrayBuffer berkas .xlsx menggunakan JSZip & DOMParser bawaan peramban */
 export async function uraiXlsxKeMatriks(buffer: ArrayBuffer): Promise<string[][]> {
+  // Dimuat saat dibutuhkan saja: JSZip tidak ikut berkas utama aplikasi.
+  const { default: JSZip } = await import('jszip');
   const zip = await JSZip.loadAsync(buffer);
 
   // 1. Ambil tabel shared strings jika ada

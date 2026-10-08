@@ -16,6 +16,7 @@
 
 import { daftarJudul, hitungTugas, uraiBlok, uraiInline, type Blok, type Inline } from '../server/src/memo-blok';
 import { CSS_SAMPUL_WARNA, WARNA_KODE, gayaWarna, sorotKode, warnaTenggat } from '../server/src/tampil-memo';
+import { cssTemaGrafik, hitungGrafikTabel, htmlKartuGrafikTabel, kolomStatusTabel, kontras, statusBaku } from '../server/src/grafik-tabel';
 import { muatKatex, rumusHtml } from './rumus';
 import { ha, ringkasRevegetasi, totalTahun, type BarisRevegetasi } from './revegetasi';
 import { SUMBER_REVEGETASI, barisGrafik, kegiatanRevegetasi, muatRevegetasi } from './revegetasi-muat';
@@ -344,15 +345,34 @@ function satuBlok(b: Blok, k: Ktx): HTMLElement {
     case 'tabel': {
       // Tabel asli dengan lebar penuh: kolom menyesuaikan dan teks panjang dibungkus, tidak terpotong.
       const tabel = el('table', { width: '100%', borderCollapse: 'collapse', fontSize: '13px', tableLayout: 'auto' });
+      // Kolom status: lencana berwarna sama dengan aplikasi & grafik (label baku untuk tabel PICA).
+      const kolomStatus = kolomStatusTabel(b.baris, b.kepala);
       b.baris.forEach((r, i) => {
         const tr = document.createElement('tr');
-        r.forEach((c) => tr.append(el(b.kepala && i === 0 ? 'th' : 'td', {
-          border: `1px solid ${t.garis}`, padding: '3px 6px', textAlign: 'left', verticalAlign: 'top', wordBreak: 'break-word',
-          fontWeight: b.kepala && i === 0 ? '700' : '400', background: b.kepala && i === 0 ? (t.gelap ? 'rgba(255,255,255,.07)' : '#f4f4f5') : 'transparent',
-        }, sebaris(c, k))));
+        r.forEach((c, j) => {
+          const judul = b.kepala && i === 0;
+          const st = !judul && j === kolomStatus ? statusBaku(c) : null;
+          const isi = st
+            ? [el('span', { display: 'inline-block', padding: '1px 7px', border: '2px solid #0f172a', background: st.warna, color: kontras(st.warna), fontWeight: '700', fontSize: '12px', whiteSpace: 'nowrap' }, b.pica ? st.label : c)]
+            : sebaris(c, k);
+          tr.append(el(judul ? 'th' : 'td', {
+            border: `1px solid ${t.garis}`, padding: '3px 6px', textAlign: 'left', verticalAlign: 'top', wordBreak: 'break-word',
+            fontWeight: judul ? '700' : '400', background: judul ? (t.gelap ? 'rgba(255,255,255,.07)' : '#f4f4f5') : 'transparent',
+          }, isi));
+        });
         tabel.append(tr);
       });
-      return el('div', { margin: '6px 0' }, [tabel]);
+      const wadahTabel = el('div', { margin: '6px 0' }, [tabel]);
+      // Grafik yang tersambung ke tabel: HTML yang sama dengan aplikasi & halaman bagikan.
+      const dg = b.grafik?.aktif ? hitungGrafikTabel(b.baris, b.kepala, b.grafik, Boolean(b.pica)) : null;
+      if (dg) {
+        const kartu = document.createElement('div');
+        // Grafik mengikuti gaya gambar: gelap di "Retro gelap", terang di "Retro terang" / "Resmi".
+        kartu.setAttribute('style', cssTemaGrafik(t.gelap));
+        kartu.innerHTML = htmlKartuGrafikTabel(dg);
+        wadahTabel.append(kartu);
+      }
+      return wadahTabel;
     }
     case 'data': {
       const beku = b.beku;

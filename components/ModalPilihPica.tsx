@@ -21,6 +21,11 @@ import {
 } from 'lucide-react';
 import type { PicaItem } from '../lib/tipe-api';
 import type { InfoPicaLive } from '../server/src/memo-blok';
+import { kontras } from '../server/src/grafik-tabel';
+import { LencanaStatus } from './GrafikTabelMemo';
+
+/** Warna tombol saring = warna status di layar PICA, tabel, dan grafik. */
+const WARNA_SARING = { semua: '#65a30d', open: '#f59e0b', continue: '#4f46e5', selesai: '#059669' } as const;
 import * as W from '../lib/waktu';
 import {
   ambilDaftarPica,
@@ -212,16 +217,11 @@ export const ModalPilihPica: React.FC<Props> = ({
               key={k}
               type="button"
               onClick={() => setFilterStatus(k)}
-              className={`px-2.5 py-1 text-[12px] font-bold rounded-xs shrink-0 transition-colors ${
+              style={filterStatus === k ? { background: WARNA_SARING[k], color: kontras(WARNA_SARING[k]) } : undefined}
+              className={`px-2.5 py-1 text-[12px] font-bold border-2 shrink-0 transition-colors ${
                 filterStatus === k
-                  ? k === 'open'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : k === 'continue'
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : k === 'selesai'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'bg-lime-600 text-white shadow-sm'
-                  : 'bg-white/5 text-zinc-300 hover:bg-white/10'
+                  ? 'border-[color:var(--gk-garis)] shadow-[2px_2px_0_var(--gk-bayang)]'
+                  : 'border-[color:var(--gk-bingkai)] bg-[var(--gk-kotak)] text-[color:var(--gk-teks)] hover:border-amber-400'
               }`}
             >
               {label}
@@ -250,7 +250,7 @@ export const ModalPilihPica: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={pilihSemuaTampil}
-                  className="btn-retro btn-retro-sm !text-[11px] !py-1 !px-2 bg-zinc-800 text-zinc-300 hover:text-white"
+                  className="px-2 py-1 border-2 border-[color:var(--gk-garis)] font-bold text-[11px] bg-[var(--gk-kotak)] text-[color:var(--gk-teks)]"
                   title="Centang semua PICA yang tampil pada daftar"
                 >
                   <CheckSquare size={12} />
@@ -260,7 +260,7 @@ export const ModalPilihPica: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={batalSemua}
-                    className="btn-retro btn-retro-sm !text-[11px] !py-1 !px-2 bg-zinc-800 text-zinc-400 hover:text-red-300"
+                    className="px-2 py-1 border-2 border-[color:var(--gk-garis)] font-bold text-[11px] bg-[var(--gk-kotak)] text-red-500"
                     title="Batal pilih semua centang"
                   >
                     Batal
@@ -348,13 +348,6 @@ export const ModalPilihPica: React.FC<Props> = ({
             tersaring.map((p) => {
               const aktifTaut = p.id === terpilihId;
               const dicentang = pilihanIds.has(p.id);
-              const kat = cekStatusKategori(p.status);
-              const warnaBadge =
-                kat === 'open'
-                  ? 'border-red-400 text-red-300 bg-red-950/40'
-                  : kat === 'continue'
-                  ? 'border-amber-400 text-amber-200 bg-amber-950/40'
-                  : 'border-emerald-400 text-emerald-200 bg-emerald-950/40';
 
               return (
                 <div
@@ -388,10 +381,8 @@ export const ModalPilihPica: React.FC<Props> = ({
 
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono font-bold text-amber-300 text-[12px]">{nomorPica(p)}</span>
-                        <span className={`px-1.5 py-0.2 border text-[10px] font-bold rounded-xs ${warnaBadge}`}>
-                          {p.status}
-                        </span>
+                        <span className="font-mono font-bold text-[color:var(--gk-teks)] text-[12px]">{nomorPica(p)}</span>
+                        <LencanaStatus teks={p.status || 'Open'} pica />
                         {p.bidang && <span className="text-[11px] text-zinc-500">[{p.bidang}]</span>}
                       </div>
                       <p className="text-[13px] text-zinc-100 font-medium leading-snug break-words">{p.judul}</p>
@@ -418,7 +409,7 @@ export const ModalPilihPica: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => sisipTabelSatu(p)}
-                        className="btn-retro btn-retro-sm !bg-zinc-800 hover:!bg-amber-600 hover:!text-black text-zinc-300 font-bold flex items-center gap-1 text-[11px] py-1 px-2"
+                        className="px-2 py-1 border-2 border-[color:var(--gk-garis)] font-bold bg-[var(--gk-kotak)] text-[color:var(--gk-teks)] hover:bg-amber-500 hover:text-black flex items-center gap-1 text-[11px]"
                         title="Sisipkan rincian lengkap PICA ini sebagai tabel di memo"
                       >
                         <Table2 size={12} /> Rincian
@@ -431,9 +422,9 @@ export const ModalPilihPica: React.FC<Props> = ({
                           onPilih(p);
                           onTutup();
                         }}
-                        className={`btn-retro btn-retro-sm ${
-                          aktifTaut ? '!bg-lime-600 !text-white' : '!bg-white/10 hover:!bg-white/20 text-zinc-200'
-                        } text-[11px] py-1 px-2`}
+                        className={`px-2 py-1 border-2 border-[color:var(--gk-garis)] font-bold ${
+                          aktifTaut ? 'bg-lime-600 text-white' : 'bg-[var(--gk-kotak)] text-[color:var(--gk-teks)] hover:bg-amber-500 hover:text-black'
+                        } text-[11px]`}
                         title="Tautkan referensi PICA ini"
                       >
                         {aktifTaut ? 'Terpilih' : 'Tautkan'}
@@ -465,7 +456,7 @@ export const ModalPilihPica: React.FC<Props> = ({
               </button>
             )}
           </div>
-          <button type="button" onClick={onTutup} className="btn-retro btn-retro-sm bg-zinc-800 text-zinc-300">
+          <button type="button" onClick={onTutup} className="px-2 py-1 border-2 border-[color:var(--gk-garis)] font-bold text-[12px] bg-[var(--gk-kotak)] text-[color:var(--gk-teks)]">
             Tutup
           </button>
         </div>

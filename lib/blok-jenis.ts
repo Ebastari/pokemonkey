@@ -9,7 +9,7 @@
  */
 
 import {
-  AlertCircle, AtSign, BarChart3, Bookmark, CalendarClock, Columns2, Columns3, FileSpreadsheet, FileSymlink, FileText, Heading1, Heading2, Heading3, Heading4, Highlighter,
+  AlertCircle, AtSign, BarChart3, Bookmark, CalendarCheck, CalendarClock, Columns2, Columns3, FileSpreadsheet, FileSymlink, FileText, Heading1, Heading2, Heading3, Heading4, Highlighter,
   ImagePlus, Info, List, ListChecks, ListCollapse, ListOrdered, ListTree, MapPin, Minus, Palette, Paperclip, Quote, Sigma, Smile,
   Sparkles, SquareCode, Sprout, Table2, Type, Video,
 } from 'lucide-react';
@@ -56,6 +56,7 @@ export const DAFTAR_BLOK: DefinisiBlok[] = [
   { id: 'impor_tabel', grup: 'Blok dasar', label: 'Impor Excel / CSV', ket: 'Sisipkan tabel dari berkas .xlsx, .xls, atau .csv & grafik otomatis', ikon: FileSpreadsheet, kata: ['impor', 'excel', 'csv', 'xlsx', 'xls', 'spreadsheet', 'tabel', 'upload'] },
   { id: 'garis', grup: 'Blok dasar', label: 'Divider', ket: 'Garis pemisah bagian', pintasan: '---', ikon: Minus, kata: ['divider', 'garis', 'pemisah'] },
   { id: 'tautan_halaman', grup: 'Blok dasar', label: 'Tautan ke halaman', ket: 'Tautkan memo lain', ikon: FileSymlink, kata: ['tautan', 'halaman', 'link', 'page', 'memo'] },
+  { id: 'habit', grup: 'Blok dasar', label: 'Habit', ket: 'Lacak / ubah kebiasaan 1 bulan: contoh CSV, prompt AI, unggah CSV & grafik progres', ikon: CalendarCheck, kata: ['habit', 'kebiasaan', 'tracker', 'ceklis', 'harian', 'bulan', 'rutin', 'progres', 'target'] },
   { id: 'pica', grup: 'Blok dasar', label: 'Tabel PICA', ket: 'Sisipkan tabel data PICA (Open, Continue, Selesai) & buat grafik', ikon: AlertCircle, kata: ['pica', 'tabel', 'masalah', 'temuan', 'tindakan', 'korektif', 'link'] },
   // ---- Media ----
   { id: 'gambar', grup: 'Media', label: 'Gambar', ket: 'Foto dari kamera atau galeri', ikon: ImagePlus, kata: ['gambar', 'foto', 'image', 'kamera'] },
