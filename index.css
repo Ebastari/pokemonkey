@@ -393,6 +393,18 @@ input[type='date'], input[type='time'] {
   color: #ffffff !important;
 }
 
+/* Kecuali tombol ikon berlatar terang (kepala halaman memo berlatar putih: kembali, menu,
+   dilihat, suka, komentar, ⋯): ikonnya gelap di semua tema, supaya tidak putih di atas putih. */
+.btn-ikon[class~="!bg-zinc-100"],
+[data-tema='terang'] .btn-ikon[class~="!bg-zinc-100"],
+[data-tema='terang'] .btn-ikon[class~="!bg-zinc-100"] [class*="text-zinc-"] {
+  color: #27272a !important;
+  background-color: #f4f4f5 !important;
+  border-color: #a1a1aa !important;
+}
+[data-tema='terang'] .btn-ikon[class~="!bg-zinc-100"]:hover { background-color: #e4e4e7 !important; }
+[data-tema='terang'] .btn-ikon[class~="!bg-amber-100"] { color: #78350f !important; }
+
 /* ---- Bingkai ---- */
 [data-tema='terang'] [class~="border-white"], [data-tema='terang'] [class~="!border-white"] { border-color: #15181c !important; }
 [data-tema='terang'] [class~="border-white/70"], [data-tema='terang'] [class~="!border-white/70"] { border-color: rgb(21 24 28 / 0.5) !important; }

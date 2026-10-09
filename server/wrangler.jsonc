@@ -12,7 +12,8 @@
   "assets": {
     "directory": "../dist",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/wa/*", "/lihat/*", "/unduh/*"]
+    // /f/* = formulir memo yang dibuka lewat tautan publik (server/src/formulir.ts).
+    "run_worker_first": ["/api/*", "/wa/*", "/lihat/*", "/unduh/*", "/f/*"]
   },
 
   // Database. Isi "database_id" dengan keluaran `wrangler d1 create pokemonkey`.

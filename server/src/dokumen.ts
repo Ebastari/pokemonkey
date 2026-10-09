@@ -11,6 +11,7 @@
  */
 
 import type { Env, Pengguna } from './tipe';
+import { beriXp } from './xp';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -94,6 +95,7 @@ async function simpanSurat(req: Request, env: Env, pengguna: Pengguna): Promise<
     teks(b.internalMemoId, 60) || null,
     pengguna.id, JSON.stringify(b), sekarang(),
   ).run();
+  await beriXp(env, pengguna, 'dokumen_buat', `surat:${b.id}`, { pelaku: pengguna });
   return json({ ok: true, id: b.id });
 }
 
@@ -152,6 +154,7 @@ async function simpanDokumen(req: Request, env: Env, pengguna: Pengguna, tabel: 
      VALUES (?1, ${nomorParam}, ?${kolom.length + 2}, ?${kolom.length + 3})
      ON CONFLICT(id) DO UPDATE SET ${setBagian}, data_json = excluded.data_json, diubah_pada = ?${kolom.length + 4}`,
   ).bind(b.id, ...r.nilai, pengguna.id, JSON.stringify(b), sekarang()).run();
+  await beriXp(env, pengguna, 'dokumen_buat', `${tabel}:${b.id}`, { pelaku: pengguna });
   return json({ ok: true, id: b.id });
 }
 
@@ -221,6 +224,7 @@ async function simpanFoto(req: Request, env: Env, pengguna: Pengguna): Promise<R
   await env.BUKET.put(kunci, biner, { httpMetadata: { contentType: cocok[1] } });
   await env.DB.prepare('UPDATE tim SET foto = ?1 WHERE id = ?2').bind(kunci, pengguna.id).run();
   if (lama?.foto) await env.BUKET.delete(lama.foto).catch(() => undefined);
+  await beriXp(env, pengguna, 'profil_foto', 'sekali', { pelaku: pengguna });
   return json({ foto: kunci });
 }
 

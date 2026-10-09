@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, ChevronsLeft, FileText, Home, Lock, NotebookPen, Pin, Plus, Search, Sparkles, SquarePen, Trash2, Users, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronsLeft, FileText, FolderOpen, Home, Lock, NotebookPen, Pin, Plus, Search, ShieldCheck, Sparkles, SquarePen, Trash2, Users, X } from 'lucide-react';
 import type { Memo } from '../types';
 import { bacaProps } from './PropertiMemo';
 
@@ -17,6 +17,9 @@ const ikonDari = (m: Memo) => {
 };
 
 const urutDiubah = (a: Memo, b: Memo) => String(b.diubah_pada ?? b.dibuat_pada).localeCompare(String(a.diubah_pada ?? a.dibuat_pada));
+/** Disematkan (untuk saya atau untuk semua) selalu di atas. */
+export const tersemat = (m: Memo) => Boolean(m.sematan_saya || m.disematkan);
+const urutSemat = (a: Memo, b: Memo) => Number(tersemat(b)) - Number(tersemat(a));
 
 // Halaman yang sub-halamannya sedang dibuka, diingat per perangkat (seperti Notion).
 const KUNCI_BUKA = 'pokemonkey_memo_sidebar_buka';
@@ -84,7 +87,7 @@ const BarisHalaman: React.FC<{ m: Memo; dalam: number; pohon: Pohon | null } & A
         >
           <span className="w-4 shrink-0 flex justify-center text-[14px] leading-none">{ikon || <FileText size={14} className="text-zinc-500" />}</span>
           <span className={`truncate flex-1 ${m.judul ? '' : 'text-zinc-500 italic'}`}>{m.judul || 'Tanpa judul'}</span>
-          {m.disematkan ? <Pin size={11} className="text-lime-300 shrink-0" /> : null}
+          {m.disematkan ? <Pin size={11} className="text-red-400 shrink-0" aria-label="Disematkan untuk semua" /> : m.sematan_saya ? <Pin size={11} className="text-lime-300 shrink-0" aria-label="Disematkan" /> : null}
         </button>
         {bisaAnak && (
           <button
@@ -138,8 +141,12 @@ const Bagian: React.FC<{
 };
 
 export const SidebarMemo: React.FC<{
-  memoTim: Memo[]; memoPribadi: Memo[]; aktifId: string; lingkupAktif: 'tim' | 'pribadi';
-  bolehBuatTim: boolean; onPilih: (id: string) => void; onBaru: (lingkup: 'tim' | 'pribadi') => void;
+  memoTim: Memo[]; memoPribadi: Memo[]; aktifId: string; lingkupAktif: 'tim' | 'pribadi' | 'rahasia';
+  /** Memo rahasia yang boleh saya buka (pembuat atau orang yang dituju). */
+  memoRahasia?: Memo[];
+  bolehBuatTim: boolean; onPilih: (id: string) => void; onBaru: (lingkup: 'tim' | 'pribadi' | 'rahasia') => void;
+  /** Pohon Folder Dokumen (tepat di atas Sampah), seperti penjelajah folder. */
+  folder?: React.ReactNode;
   onBeranda: () => void; onTutup?: () => void; className?: string;
   /** Laptop: sembunyikan sidebar agar halaman memenuhi layar (tombol « seperti Notion). */
   onSembunyi?: () => void;
@@ -151,8 +158,8 @@ export const SidebarMemo: React.FC<{
   /** Tanya semua memo dengan AI. */
   onTanya?: () => void;
 }> = ({
-  memoTim, memoPribadi, aktifId, lingkupAktif, bolehBuatTim, onPilih, onBaru, onBeranda, onTutup, className = '', onSembunyi,
-  onBaruAnak, bolehAnak, onSampah, onTanya,
+  memoTim, memoPribadi, memoRahasia = [], aktifId, lingkupAktif, bolehBuatTim, onPilih, onBaru, onBeranda, onTutup, className = '', onSembunyi,
+  onBaruAnak, bolehAnak, onSampah, onTanya, folder,
 }) => {
   const [cari, setCari] = useState('');
   const [cariBuka, setCariBuka] = useState(false);
@@ -162,20 +169,20 @@ export const SidebarMemo: React.FC<{
     const q = cari.trim().toLowerCase();
     return (q ? d.filter((m) => `${m.judul} ${m.isi}`.toLowerCase().includes(q)) : d).slice().sort(urutDiubah);
   };
-  const tim = useMemo(() => saring(memoTim), [memoTim, cari]); // eslint-disable-line react-hooks/exhaustive-deps
-  const pribadi = useMemo(
-    () => saring(memoPribadi).sort((a, b) => b.disematkan - a.disematkan),
-    [memoPribadi, cari], // eslint-disable-line react-hooks/exhaustive-deps
-  );
+  const tim = useMemo(() => saring(memoTim).sort(urutSemat), [memoTim, cari]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pribadi = useMemo(() => saring(memoPribadi).sort(urutSemat), [memoPribadi, cari]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rahasia = useMemo(() => saring(memoRahasia).sort(urutSemat), [memoRahasia, cari]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Bagian "Disematkan": pintasan rata ke halaman penting dari semua bagian.
+  const semat = useMemo(() => [...tim, ...rahasia, ...pribadi].filter(tersemat), [tim, rahasia, pribadi]);
 
   // Leluhur halaman yang sedang dibuka selalu terbuka, supaya halaman itu terlihat di pohon.
   const buka = useMemo(() => {
-    const semua = new Map([...memoTim, ...memoPribadi].map((m) => [m.id, m]));
+    const semua = new Map([...memoTim, ...memoPribadi, ...memoRahasia].map((m) => [m.id, m]));
     const hasil = new Set(bukaSimpan);
     let x = semua.get(aktifId)?.induk_id;
     for (let i = 0; x && i < 50; i += 1) { hasil.add(x); x = semua.get(x)?.induk_id; }
     return hasil;
-  }, [bukaSimpan, aktifId, memoTim, memoPribadi]);
+  }, [bukaSimpan, aktifId, memoTim, memoPribadi, memoRahasia]);
   const alihBuka = (id: string) => {
     const baru = new Set(buka);
     if (baru.has(id)) baru.delete(id); else baru.add(id);
@@ -217,23 +224,33 @@ export const SidebarMemo: React.FC<{
       </div>
 
       <nav className="flex-1 overflow-y-auto custom-scrollbar px-2 pt-3">
+        {semat.length > 0 && !mencari && (
+          <Bagian judul="Disematkan" ikon={<Pin size={12} />} daftar={semat} mencari {...aksi} />
+        )}
         <Bagian judul="Memo Internal" ikon={<Users size={12} />} daftar={tim} mencari={mencari} onTambah={bolehBuatTim ? () => onBaru('tim') : undefined} {...aksi} />
+        <Bagian judul="Rahasia" ikon={<ShieldCheck size={12} />} daftar={rahasia} mencari={mencari} onTambah={() => onBaru('rahasia')} {...aksi} />
         <Bagian judul="Pribadi" ikon={<Lock size={12} />} daftar={pribadi} mencari={mencari} onTambah={() => onBaru('pribadi')} {...aksi} />
+        {folder && !mencari && (
+          <section className="mb-3">
+            <div className="flex items-center gap-1 px-1.5 h-7 text-[12px] text-zinc-500"><FolderOpen size={12} /> Folder Dokumen</div>
+            {folder}
+          </section>
+        )}
       </nav>
 
       <div className="p-2 border-t-2 border-white/10 space-y-1">
         {onSampah && (
           <button type="button" onClick={onSampah} className="w-full flex items-center gap-2 px-2 h-8 text-[13px] text-zinc-300 hover:bg-white/5 text-left">
-            <Trash2 size={15} /> Sampah <span className="text-[11px] text-zinc-500 ml-auto">pulihkan halaman</span>
+            <Trash2 size={15} /> Sampah · 30 hari <span className="text-[11px] text-zinc-500 ml-auto">pulihkan</span>
           </button>
         )}
         <button
           type="button"
-          onClick={() => onBaru(lingkupAktif === 'tim' && bolehBuatTim ? 'tim' : 'pribadi')}
+          onClick={() => onBaru(lingkupAktif === 'tim' && bolehBuatTim ? 'tim' : lingkupAktif === 'rahasia' ? 'rahasia' : 'pribadi')}
           className="w-full flex items-center gap-2 px-2 h-9 text-[13px] font-bold text-zinc-200 border-2 border-white/15 hover:border-white/40 hover:bg-white/5"
         >
           <SquarePen size={15} /> Halaman baru
-          <span className="ml-auto text-[11px] font-normal text-zinc-500">{lingkupAktif === 'tim' && bolehBuatTim ? 'Memo Internal' : 'Pribadi'}</span>
+          <span className="ml-auto text-[11px] font-normal text-zinc-500">{lingkupAktif === 'tim' && bolehBuatTim ? 'Memo Internal' : lingkupAktif === 'rahasia' ? 'Rahasia' : 'Pribadi'}</span>
         </button>
       </div>
     </aside>

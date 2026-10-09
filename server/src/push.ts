@@ -14,6 +14,7 @@
 
 import { buildPushPayload, type PushMessage, type PushSubscription, type VapidKeys } from '@block65/webcrypto-web-push';
 import type { Env, Pengguna } from './tipe';
+import { beriXp } from './xp';
 import { siapkanNotif, acaraPengingat } from './sumber';
 import type { Slot } from './ringkasan';
 import { sekarangUtcIso, tanggalWita } from './waktu';
@@ -107,6 +108,7 @@ export async function rutePush(jalur: string, req: Request, env: Env, pengguna: 
       pengguna.id, b.endpoint, b.keys.p256dh, b.keys.auth, b.platform ?? null,
       b.slot ? JSON.stringify(b.slot) : null, sekarangUtcIso(),
     ).run();
+    await beriXp(env, pengguna, 'notif_aktif', 'sekali', { pelaku: pengguna });
     return json({ ok: true });
   }
 
@@ -140,6 +142,23 @@ export async function rutePush(jalur: string, req: Request, env: Env, pengguna: 
   }
 
   return null;
+}
+
+/**
+ * Push seketika ke semua perangkat Web Push milik satu orang — hanya untuk surat
+ * bertanda Penting di Kotak Surat (surat biasa ikut ringkasan pukul 12.00).
+ */
+export async function kirimPushLangsung(env: Env, userId: string, isi: { judul: string; isi: string; tab?: string }): Promise<number> {
+  const vapid = vapidDari(env);
+  if (!vapid) return 0;
+  const { results } = await env.DB.prepare('SELECT * FROM push_langganan WHERE user_id = ?1').bind(userId).all<BarisLangganan>();
+  let terkirim = 0;
+  for (const row of results) {
+    const hasil = await kirimSatu(vapid, row, { judul: isi.judul, isi: isi.isi, tab: isi.tab ?? 'habitat', slot: 'uji' });
+    await catatHasil(env, row, hasil);
+    if (hasil === 'ok') terkirim++;
+  }
+  return terkirim;
 }
 
 // ============================================================

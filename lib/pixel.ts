@@ -186,6 +186,59 @@ export const AKSESORI: Record<string, Aksesori> = {
     peta: rapikan(['.Y................Y...', 'YYY..............YYY..', 'YyYY............YYyY..', 'YyyYY..........YYyyY..', '.YyyYY........YYyyY...', '..YyYYY......YYYyY....', '...YYYY......YYYY.....', '....YY........YY......']),
     warna: { Y: '#ca8a04', y: '#fef08a' },
   },
+
+  // ---------- Skin Prestasi (tidak bisa dibeli) ----------
+  helm_pemadam: {
+    y: ATAS - 3,
+    peta: rapikan(['.........YY...........', '......RRRYYRRRR.......', '.....RRRRYYRRRRRR.....', '....RRRRRRRRRRRRRR....', '...RRRRRRRRRRRRRRRR...', '..RRR............RRRR.']),
+    warna: { R: '#dc2626', Y: '#facc15' },
+  },
+  rompi_reflektor: {
+    y: ATAS + 13,
+    peta: rapikan(['.......VVVVVVVVV......', '......VVWWWWWWVV......', '......VVVVVVVVVV......', '......VVWWWWWWVV......', '.......VVVVVVVV.......']),
+    warna: { V: '#ea580c', W: '#e5e7eb' },
+  },
+  medali: {
+    y: ATAS + 12,
+    peta: rapikan(['..........B.B.........', '...........Y..........', '..........YWY.........', '...........Y..........']),
+    warna: { B: '#2563eb', Y: '#facc15', W: '#ffffff' },
+  },
+  topi_pemburu: {
+    y: ATAS - 3,
+    peta: rapikan(['.........TTTT.........', '.......TTtTTtTT.......', '.....TTTTTTTTTTTT.....', '...TTTTTtTTTTtTTTTT...', '..T...............T...']),
+    warna: { T: '#92400e', t: '#d97706' },
+  },
+  kaca_pembesar: {
+    y: ATAS + 9,
+    peta: rapikan(['.................GGG..', '................GWccG.', '................GccWG.', '.................GGG..', '................H.....', '...............H......']),
+    warna: { G: '#facc15', W: '#ffffff', c: '#7dd3fc', H: '#78350f' },
+  },
+  jubah_merah: {
+    y: ATAS + 12,
+    belakang: true,
+    peta: rapikan(['......CCCCCCCCCCCC....', '.....CCCCCCCCCCCCCC...', '....CCCCCCCCCCCCCCCC..', '....CCCCCCCCCCCCCCCC..', '...CCCCCCCCCCCCCCCCCC.', '...CCCCCCCCCCCCCCCCCC.', '..CCCCCCCCCCCCCCCCCCCC', '..CCcCCCCCCCCCCCCCcCCC', '..CccccccccccccccccccC', '..CCCCCCCCCCCCCCCCCCCC']),
+    warna: { C: '#b91c1c', c: '#fde047' },
+  },
+  ikat_kepala: {
+    y: ATAS + 2,
+    peta: rapikan(['....RRRRRRRRRRRRRR....', '..................RRR.', '...................RR.']),
+    warna: { R: '#ef4444' },
+  },
+  lambang_tolong: {
+    y: ATAS + 13,
+    peta: rapikan(['..........WWW.........', '.........WWRWW........', '.........WRRRW........', '.........WWRWW........', '..........WWW.........']),
+    warna: { W: '#ffffff', R: '#dc2626' },
+  },
+  baret: {
+    y: ATAS - 2,
+    peta: rapikan(['...........b..........', '.......BBBBBBBB.......', '.....BBBBBBBBBBBB.....', '....BBBBBBBBBBBBBBB...']),
+    warna: { B: '#1e3a8a', b: '#0f172a' },
+  },
+  kamera: {
+    y: ATAS + 13,
+    peta: rapikan(['.......KKK............', '......KKKKKKKKKK......', '......KKWKKGGKKK......', '......KKKKGccGKK......', '......KKKKKGGKKK......', '.......KKKKKKKK.......']),
+    warna: { K: '#27272a', W: '#f4f4f5', G: '#71717a', c: '#38bdf8' },
+  },
 };
 
 // ---------- Warna ----------

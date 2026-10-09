@@ -16,6 +16,8 @@ export interface Env {
   FIRMS_MAP_KEY?: string;
   /** Rahasia — Google Gemini AI API Key untuk asisten tulisan PICA dan Resume */
   GEMINI_API_KEY?: string;
+  /** Kunci enkripsi isi memo Rahasia (dipasang sendiri: `wrangler secret put KUNCI_RAHASIA_MEMO`). */
+  KUNCI_RAHASIA_MEMO?: string;
   /** Model Gemini per tingkat (opsional, dipisah koma): cepat = rapikan/ringkas/teks terpilih, kuat = kembangkan/tugas/tulis. */
   GEMINI_MODEL_CEPAT?: string;
   GEMINI_MODEL_KUAT?: string;

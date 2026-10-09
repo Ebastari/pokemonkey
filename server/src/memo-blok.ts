@@ -17,6 +17,9 @@
  *   !kolom                          satu kolom; kolom bersebelahan = tata letak kolom (isinya = anak)
  *   !penanda{"url":"…","judul":"…","ket":"…","situs":"…"}   kartu tautan web
  *   !grafik{"sumber":"reklamasi","tampil":"tahun"}   grafik realisasi reklamasi (gaya Monkey Point; tampil: tahun|kegiatan|blok|lengkap)
+ *   !formulir{"id":"frm_…","judul":"…"}   formulir (pertanyaan & jawaban di server: server/src/formulir.ts)
+ * Tabel boleh membawa tipe kolom & baris hitung:
+ *   !tabel{"kepala":true,"baris":[…],"kolom":[{"t":"ceklis"},{"t":"rupiah"},{"t":"rumus","rumus":"[A]*[B]"}],"hitung":[null,"jumlah"]}
  * Di dalam baris:
  *   **tebal**  *miring*  ~~coret~~  ++garis bawah++  `kode`  [teks](https://…)
  *   {w:merah|teks}  warna teks   {l:kuning|teks}  stabilo/latar   $$x^2$$  rumus sebaris   <br>  baris baru di dalam blok
@@ -62,7 +65,8 @@ type BlokDasar =
   | { jenis: 'garis' }
   | { jenis: 'gambar'; nama: string; kunci: string; lebar?: number; rata?: RataGambar }
   | { jenis: 'video'; judul: string; url: string }
-  | { jenis: 'tabel'; baris: string[][]; kepala: boolean; grafik?: OpsiGrafikTabel; pica?: InfoPicaLive }
+  | { jenis: 'tabel'; baris: string[][]; kepala: boolean; grafik?: OpsiGrafikTabel; pica?: InfoPicaLive; kolom?: (KolomTabel | null)[]; hitung?: (FungsiHitung | null)[] }
+  | { jenis: 'formulir'; id: string; judul: string }
   | { jenis: 'berkas'; nama: string; kunci: string }
   | BlokData
   | { jenis: 'kode'; bahasa: string; isi: string }
@@ -154,6 +158,37 @@ export interface OpsiGrafikTabel {
   habit?: boolean;
 }
 
+/**
+ * Tipe kolom tabel (seperti properti database Notion). Tanpa tipe = teks biasa
+ * (tabel lama tetap terbaca; kolom status masih terdeteksi otomatis).
+ */
+export type TipeKolom = 'teks' | 'angka' | 'rupiah' | 'persen' | 'ceklis' | 'tanggal' | 'pilihan' | 'rumus';
+export interface KolomTabel { t: TipeKolom; rumus?: string; opsi?: string[] }
+/** Baris hitung di bawah tabel (seperti "Calculate" di Notion). */
+export type FungsiHitung = 'jumlah' | 'rata' | 'min' | 'maks' | 'median' | 'terisi' | 'kosong' | 'tercentang' | 'persen_centang';
+const TIPE_KOLOM: TipeKolom[] = ['teks', 'angka', 'rupiah', 'persen', 'ceklis', 'tanggal', 'pilihan', 'rumus'];
+const FUNGSI_HITUNG: FungsiHitung[] = ['jumlah', 'rata', 'min', 'maks', 'median', 'terisi', 'kosong', 'tercentang', 'persen_centang'];
+
+function bersihKolom(v: unknown, lebar: number): (KolomTabel | null)[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const hasil = v.slice(0, lebar).map((k): KolomTabel | null => {
+    if (!k || typeof k !== 'object') return null;
+    const o = k as Record<string, unknown>;
+    if (!TIPE_KOLOM.includes(o.t as TipeKolom) || o.t === 'teks') return null;
+    return {
+      t: o.t as TipeKolom,
+      ...(o.t === 'rumus' && typeof o.rumus === 'string' ? { rumus: o.rumus.slice(0, 300) } : {}),
+      ...(o.t === 'pilihan' && Array.isArray(o.opsi) ? { opsi: o.opsi.map((x) => String(x).slice(0, 40)).slice(0, 20) } : {}),
+    };
+  });
+  return hasil.some(Boolean) ? hasil : undefined;
+}
+function bersihHitung(v: unknown, lebar: number): (FungsiHitung | null)[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const hasil = v.slice(0, lebar).map((x) => (FUNGSI_HITUNG.includes(x as FungsiHitung) ? (x as FungsiHitung) : null));
+  return hasil.some(Boolean) ? hasil : undefined;
+}
+
 /** Pengaturan sinkronisasi tabel dinamis PICA di memo. */
 export interface InfoPicaLive {
   /** Apakah mode live sync aktif (selalu update data terbaru) atau statis (ditetapkan) */
@@ -178,6 +213,8 @@ export function bacaTabel(b: string): {
   kepala: boolean;
   grafik?: OpsiGrafikTabel;
   pica?: InfoPicaLive;
+  kolom?: (KolomTabel | null)[];
+  hitung?: (FungsiHitung | null)[];
 } | null {
   try {
     const d = JSON.parse(b.slice('!tabel'.length)) as {
@@ -185,6 +222,8 @@ export function bacaTabel(b: string): {
       kepala?: unknown;
       grafik?: unknown;
       pica?: unknown;
+      kolom?: unknown;
+      hitung?: unknown;
     };
     if (!Array.isArray(d.baris) || d.baris.length === 0) return null;
     const lebar = Math.min(MAKS_KOLOM_TABEL, Math.max(1, ...d.baris.map((r) => (Array.isArray(r) ? r.length : 0))));
@@ -195,7 +234,9 @@ export function bacaTabel(b: string): {
     });
     const grafik = d.grafik && typeof d.grafik === 'object' && (d.grafik as OpsiGrafikTabel).aktif ? (d.grafik as OpsiGrafikTabel) : undefined;
     const pica = d.pica && typeof d.pica === 'object' ? (d.pica as InfoPicaLive) : undefined;
-    return { jenis: 'tabel', baris, kepala: d.kepala !== false, grafik, pica };
+    const kolom = bersihKolom(d.kolom, lebar);
+    const hitung = bersihHitung(d.hitung, lebar);
+    return { jenis: 'tabel', baris, kepala: d.kepala !== false, grafik, pica, ...(kolom ? { kolom } : {}), ...(hitung ? { hitung } : {}) };
   } catch {
     return null;
   }
@@ -206,14 +247,24 @@ export const rakitTabel = (
   baris: string[][],
   kepala: boolean,
   grafik?: OpsiGrafikTabel,
-  pica?: InfoPicaLive
-): string =>
-  `!tabel${JSON.stringify({
+  pica?: InfoPicaLive,
+  ext?: { kolom?: (KolomTabel | null)[]; hitung?: (FungsiHitung | null)[] },
+): string => {
+  const lebar = baris[0]?.length ?? 0;
+  const kolom = bersihKolom(ext?.kolom, lebar);
+  const hitung = bersihHitung(ext?.hitung, lebar);
+  return `!tabel${JSON.stringify({
     kepala,
     baris: baris.map((r) => r.map(bersihSel)),
     ...(grafik?.aktif ? { grafik } : {}),
     ...(pica ? { pica } : {}),
+    ...(kolom ? { kolom } : {}),
+    ...(hitung ? { hitung } : {}),
   })}`;
+};
+
+/** Tulis blok formulir sebagai satu baris memo. */
+export const rakitFormulir = (id: string, judul: string): string => `!formulir${JSON.stringify({ id, judul: judul.slice(0, 160) })}`;
 
 /** Baca baris `!data{…}`; null bila rusak. */
 export function bacaData(b: string): BlokData | null {
@@ -276,6 +327,9 @@ function blokKhusus(b: string): BlokDasar | null {
   let d: Record<string, unknown> | null;
   if ((d = jsonSetelah(b, '!kode'))) return { jenis: 'kode', bahasa: teksAman(d.bahasa || 'teks', 20), isi: teksAman(d.isi, MAKS_KODE) };
   if ((d = jsonSetelah(b, '!rumus'))) return { jenis: 'rumus', isi: teksAman(d.isi, 2000) };
+  if ((d = jsonSetelah(b, '!formulir')) && typeof d.id === 'string' && /^[\w-]{1,60}$/.test(d.id)) {
+    return { jenis: 'formulir', id: d.id, judul: teksAman(d.judul, 160) };
+  }
   if ((d = jsonSetelah(b, '!grafik')) && d.sumber === 'reklamasi') {
     const tampil = (['tahun', 'kegiatan', 'blok', 'lengkap'] as const).find((x) => x === d!.tampil) ?? 'tahun';
     const tahun = (v: unknown) => (Number.isInteger(v) && Number(v) >= 2000 && Number(v) <= 2100 ? Number(v) : undefined);
@@ -617,15 +671,28 @@ export const tandaJadwalMemo = (b: BarisJadwalMemo[]): string =>
 /** penuh = sunting, hapus, bagikan, atur akses · edit = sunting isi & properti · baca = hanya baca. */
 export type HakMemo = 'penuh' | 'edit' | 'baca';
 
+/** Daftar id anggota yang dituju memo Rahasia (kolom `izin`, JSON array). */
+export function izinMemo(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map(String);
+  if (typeof v !== 'string' || !v) return [];
+  try { const a = JSON.parse(v); return Array.isArray(a) ? a.map(String).slice(0, 50) : []; } catch { return []; }
+}
+
 /**
- * Memo pribadi: hanya pemiliknya. Memo tim: pembuat, Admin, dan Supervisor
- * selalu penuh; Pemantau selalu baca; anggota lain mengikuti `akses` memo
- * ('edit' atau 'baca', diatur pembuat). null = tidak boleh melihat.
+ * Memo pribadi: hanya pemiliknya. Memo rahasia: pembuat (penuh) dan orang yang
+ * dituju (`izin`, semuanya boleh menyunting) — Admin/Supervisor TIDAK otomatis
+ * melihat. Memo tim: pembuat, Admin, dan Supervisor selalu penuh; Pemantau
+ * selalu baca; anggota lain mengikuti `akses` memo ('edit' atau 'baca', diatur
+ * pembuat). null = tidak boleh melihat.
  */
 export function hakMemo(
-  memo: { user_id?: string | null; lingkup?: string | null; akses?: string | null },
+  memo: { user_id?: string | null; lingkup?: string | null; akses?: string | null; izin?: unknown },
   p: { id: string; peran: string },
 ): HakMemo | null {
+  if (memo.lingkup === 'rahasia') {
+    if (memo.user_id === p.id) return 'penuh';
+    return izinMemo(memo.izin).includes(p.id) ? 'edit' : null;
+  }
   if (memo.lingkup !== 'tim') return memo.user_id === p.id ? 'penuh' : null;
   if (memo.user_id === p.id || p.peran === 'admin' || p.peran === 'supervisor') return 'penuh';
   if (p.peran === 'pemantau') return 'baca';

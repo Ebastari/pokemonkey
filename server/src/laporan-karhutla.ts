@@ -10,6 +10,7 @@
  */
 
 import type { Env, Pengguna } from './tipe';
+import { beriXp } from './xp';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -78,6 +79,7 @@ async function simpanLaporan(req: Request, env: Env, pengguna: Pengguna): Promis
     JSON.stringify(Array.isArray(meta.titik_ids) ? meta.titik_ids.slice(0, 200).map(String) : []),
     pdfKunci, dataKunci, pengguna.id, kini,
   ).run();
+  await beriXp(env, pengguna, 'karhutla_laporan', id, { pelaku: pengguna });
 
   return json({ laporan: await env.DB.prepare(`${SELECT_LAPORAN} WHERE k.id = ?1`).bind(id).first() }, 201);
 }
@@ -119,6 +121,7 @@ export async function ruteLaporanKarhutla(jalur: string, req: Request, env: Env,
       `UPDATE laporan_karhutla SET dikirim_pada = ?2, dikirim_oleh = ?3, jumlah_kirim = jumlah_kirim + 1 WHERE id = ?1`,
     ).bind(cocokKirim[1], new Date().toISOString(), pengguna.id).run();
     if (!r.meta.changes) return galat('Laporan tidak ditemukan.', 404);
+    await beriXp(env, pengguna, 'karhutla_kirim', cocokKirim[1], { pelaku: pengguna });
     return json({ laporan: await env.DB.prepare(`${SELECT_LAPORAN} WHERE k.id = ?1`).bind(cocokKirim[1]).first() });
   }
 

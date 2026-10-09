@@ -3,7 +3,7 @@ import {
   HelpCircle, Heart, HeartOff, User, Trees, Target, Backpack, Calendar as CalendarIcon,
   Gamepad2, Flame, Star, Wifi, WifiOff, Users, ShoppingBag, LogOut, ClipboardList,
   CalendarDays, Megaphone, CloudUpload, Menu, X, Maximize2, Minimize2, CalendarRange, NotebookPen, Bell,
-  Sun, Moon, Presentation, Camera, Coins,
+  Sun, Moon, Presentation, Camera, Coins, Mail,
 } from 'lucide-react';
 import { GameState, MissionStatus, MissionType, FieldReport, AppTab, Mission } from './types';
 import { INITIAL_TOTAL_AREA, INITIAL_MISSIONS, SKINS } from './constants';
@@ -53,6 +53,9 @@ import { ambilAlarmPica, pasangAlarmPica, labelSisa } from './lib/pica-alarm';
 import { bangunAcara, type Sumber } from './lib/acara';
 import { LIBUR_BAWAAN } from './lib/libur';
 import type { TenggatKalender, RosterBaris } from './lib/tipe-api';
+import { ACARA_XP, type KabarXp } from './lib/xp';
+import { PanelKeaktifan } from './components/PanelKeaktifan';
+import { KotakSurat, TulisPesan, type AwalPesan, type TautanSurat } from './components/KotakSurat';
 
 const SAVE_KEY = 'pokemonkey_game_v5';
 const MAX_LIVES = 5;
@@ -196,6 +199,14 @@ const App: React.FC = () => {
   const [panduanBuka, setPanduanBuka] = useState(false);
   const [modalStaminaBuka, setModalStaminaBuka] = useState(false);
   const [modalProfilBuka, setModalProfilBuka] = useState(false);
+  const [kabarXp, setKabarXp] = useState<{ teks: string; naik: number | null; prestasi?: string | null; kunci: number } | null>(null);
+  const [panelXpBuka, setPanelXpBuka] = useState(false);
+  // Kotak Surat: jumlah belum dibaca (kotak surat di KEBUN, amplop di kepala layar), tulis pesan dari TEAM.
+  const [suratBuka, setSuratBuka] = useState(false);
+  const [suratBaru, setSuratBaru] = useState(0);
+  const [tulisPesan, setTulisPesan] = useState<AwalPesan | null>(null);
+  /** Memo yang diminta dibuka dari surat (tautan memo). */
+  const [memoAwal, setMemoAwal] = useState<string | null>(null);
 
   const hariIniWita = useMemo(() => new Date(Date.now() + 480 * 60000).toISOString().slice(0, 10), []);
   const daftarAlarm = useMemo(() => daftarAlarmHariIni(semuaJadwal, hariIniWita), [semuaJadwal, hariIniWita]);
@@ -367,6 +378,7 @@ const App: React.FC = () => {
       ...prev,
       xp: profil.profil?.xp ?? prev.xp,
       level: profil.profil?.level ?? prev.level,
+      saldo: profil.profil ? profil.profil.xp - Number(profil.profil.xp_terpakai ?? 0) : prev.saldo,
       plantedArea: profil.profil?.luas_tanam ?? prev.plantedArea,
       ownedSkins: profil.profil?.skin_dimiliki ?? prev.ownedSkins,
       activeSkinId: profil.profil?.skin_aktif ?? prev.activeSkinId,
@@ -376,6 +388,24 @@ const App: React.FC = () => {
       isOnline: true,
     }));
   }, []);
+
+  const muatJumlahSurat = useCallback(() => {
+    api<{ belum: number }>('/api/surat/jumlah').then((d) => setSuratBaru(d.belum)).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (!sesi) return;
+    muatJumlahSurat();
+    const t = setInterval(() => { if (document.visibilityState === 'visible') muatJumlahSurat(); }, 60_000);
+    return () => clearInterval(t);
+  }, [sesi, muatJumlahSurat]);
+
+  /** Tautan di surat: buka PICA, memo, atau menu yang dimaksud. */
+  const bukaTautanSurat = (s: TautanSurat) => {
+    if (s.jenis === 'pica') { setPicaTerpilih(s.id); setActiveTab('pica'); }
+    else if (s.jenis === 'memo') { setMemoAwal(s.id); setActiveTab('memo'); }
+    else if ((URUTAN_TAB as string[]).includes(s.id)) setActiveTab(s.id as AppTab);
+    setMenuBuka(false);
+  };
 
   const muatSesi = useCallback(async () => {
     try {
@@ -428,6 +458,35 @@ const App: React.FC = () => {
     urlFoto(kunci).then((u) => { if (hidup && u) setGameState((p) => ({ ...p, profilePhoto: u })); });
     return () => { hidup = false; };
   }, [sesi?.pengguna.foto, gameState.profilePhoto]);
+
+  // XP dari server (header X-XP) atau mode demo: angka kepala layar + pesan "+N XP".
+  useEffect(() => {
+    const tangani = (e: Event) => {
+      const k = (e as CustomEvent<KabarXp>).detail;
+      if (!k) return;
+      const prestasi = (k.prestasi ?? []).map((id) => SKINS.find((s) => s.id === id)?.name ?? id);
+      if (k.prestasi?.length) {
+        setGameState((p) => ({ ...p, ownedSkins: [...new Set([...p.ownedSkins, ...k.prestasi!])] }));
+      }
+      if (k.tambah > 0) {
+        setGameState((p) => ({ ...p, xp: k.total, level: Math.max(p.level, k.level), saldo: (p.saldo ?? p.xp) + k.tambah }));
+      }
+      const label = k.rincian.length === 1 ? k.rincian[0].label : `${k.rincian.length} aksi`;
+      setKabarXp({
+        teks: k.tambah > 0 ? `+${k.tambah.toLocaleString('id-ID')} XP · ${label}` : 'Skin baru masuk koleksi',
+        naik: k.naik ? k.level : null,
+        prestasi: prestasi.length ? prestasi.join(' · ') : null,
+        kunci: Date.now(),
+      });
+    };
+    window.addEventListener(ACARA_XP, tangani);
+    return () => window.removeEventListener(ACARA_XP, tangani);
+  }, []);
+  useEffect(() => {
+    if (!kabarXp) return;
+    const t = setTimeout(() => setKabarXp(null), kabarXp.prestasi ? 6000 : kabarXp.naik ? 4500 : 2600);
+    return () => clearTimeout(t);
+  }, [kabarXp]);
 
   useEffect(() => {
     const tangani = () => { setSesi(null); notify('SESI BERAKHIR — SILAKAN MASUK LAGI'); };
@@ -605,11 +664,15 @@ const App: React.FC = () => {
   const handleBuySkin = async (skinId: string) => {
     const skin = SKINS.find((s) => s.id === skinId);
     if (!skin) return;
-    if (gameState.xp < skin.cost) { notify('XP TIDAK CUKUP!'); return; }
-    const newState = { ...gameState, xp: gameState.xp - skin.cost, ownedSkins: [...gameState.ownedSkins, skinId], activeSkinId: skinId };
-    setGameState(newState);
-    await simpanProfil({ xp: newState.xp, skin_dimiliki: newState.ownedSkins, skin_aktif: skinId });
-    notify(`${skin.name.toUpperCase()} DIBELI!`);
+    if ((gameState.saldo ?? gameState.xp) < skin.cost) { notify('SALDO XP TIDAK CUKUP!'); return; }
+    // Belanja memakai saldo, bukan XP: total XP dan level tidak turun (docs/sistem-xp.md).
+    try {
+      const d = await api<{ profil: { saldo: number; skin_dimiliki: string[]; skin_aktif: string } }>('/api/xp/beli-skin', { body: { skin: skinId } });
+      setGameState((p) => ({ ...p, saldo: d.profil.saldo, ownedSkins: d.profil.skin_dimiliki, activeSkinId: d.profil.skin_aktif }));
+      notify(`${skin.name.toUpperCase()} DIBELI!`);
+    } catch (e) {
+      notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBELI SKIN');
+    }
   };
 
   const handleEquipSkin = async (skinId: string) => {
@@ -671,7 +734,7 @@ const App: React.FC = () => {
       case 'meter': finalValue = report.achievedUnit / 10000; break;
     }
 
-    const xpGained = 500 + Math.floor(finalValue * 10);
+    // XP laporan dihitung server (aturan FEED di server/src/xp-aturan.ts) dan datang lewat acara XP.
     const newReport: FieldReport = {
       ...report, id: now.toString(), timestamp: now, achievedUnit: finalValue,
       missionTitle: report.picaId || mission?.title || report.activityType, userId: gameState.userId, userName: gameState.fullName,
@@ -687,8 +750,6 @@ const App: React.FC = () => {
       lastFeedingTime: now,
       lives: Math.min(MAX_LIVES, Math.floor(prev.lives) + 1),
       reports: [newReport, ...prev.reports],
-      xp: prev.xp + xpGained,
-      level: Math.floor((prev.xp + xpGained) / 1000) + 1,
       clearedArea: mission?.type === MissionType.LAND_PREP ? Math.min(prev.totalArea, prev.clearedArea + finalValue) : prev.clearedArea,
       plantedArea: menanam ? Math.min(prev.totalArea, prev.plantedArea + finalValue) : prev.plantedArea,
       missions: mission ? prev.missions.map((m) => (m.id === mission.id ? { ...m, current: nextMissionValue, status: nextStatus ?? m.status } : m)) : prev.missions,
@@ -696,17 +757,17 @@ const App: React.FC = () => {
 
     const bodyLaporan = { pica_id: report.picaId || null, jenis: report.activityType, capaian: finalValue, satuan: report.unitType, catatan: report.notes };
     const bodyMisi = mission
-      ? { nilai: finalValue, target: mission.target, luas: mission.type === MissionType.PLANTING ? finalValue : 0, xp: xpGained }
-      : { nilai: 0, target: 0, luas: menanam ? finalValue : 0, xp: xpGained };
+      ? { nilai: finalValue, target: mission.target, luas: mission.type === MissionType.PLANTING ? finalValue : 0 }
+      : { nilai: 0, target: 0, luas: menanam ? finalValue : 0 };
 
     setSyncing(true);
     try {
-      const d = await api<{ id: string }>('/api/laporan', { body: bodyLaporan });
-      // Tanpa misi, XP dan luas tanam tetap dicatat lewat jalur profil di simpanProfil.
+      const d = await api<{ id: string; xp?: number }>('/api/laporan', { body: bodyLaporan });
+      // Tanpa misi, luas tanam tetap dicatat lewat jalur profil di simpanProfil.
       if (mission) await api(`/api/misi/${mission.id}/tambah`, { body: bodyMisi });
       if (report.photoData) await unggahFoto(d.id, report.photoData).catch(() => notify('FOTO GAGAL TERUNGGAH'));
-      await simpanProfil({ stamina: MAX_STAMINA, xp: gameState.xp + xpGained, level: Math.floor((gameState.xp + xpGained) / 1000) + 1, luas_tanam: menanam ? gameState.plantedArea + finalValue : gameState.plantedArea });
-      setMonkeyDialogue(`Uu-aa! Sync sukses! +${xpGained} XP didapat!`);
+      await simpanProfil({ stamina: MAX_STAMINA, luas_tanam: menanam ? gameState.plantedArea + finalValue : gameState.plantedArea });
+      setMonkeyDialogue(d.xp ? `Uu-aa! Sync sukses! +${d.xp} XP didapat!` : 'Uu-aa! Sync sukses! Laporan tercatat.');
       muatGame().catch(() => undefined);
     } catch (e) {
       if (e instanceof GalatApi && e.status === 0) {
@@ -725,12 +786,12 @@ const App: React.FC = () => {
     setActiveTab('habitat');
   };
 
-  const handleGainXP = (xp: number) => {
-    const newXP = gameState.xp + xp;
-    const newLevel = Math.floor(newXP / 1000) + 1;
-    setGameState((p) => ({ ...p, xp: newXP, level: newLevel }));
-    simpanProfil({ xp: newXP, level: newLevel });
+  /** Pisang di KEBUN dan Monkey Run: server yang menimbang dan membatasi XP-nya (wilayah "main"). */
+  const mainXp = (jenis: 'pisang' | 'monkey_run', nilai?: number) => {
+    api('/api/xp/main', { body: { jenis, nilai } }).catch(() => undefined);
   };
+  const handlePisang = () => mainXp('pisang');
+  const handleMonkeyRun = (xp: number) => mainXp('monkey_run', xp);
 
   const gantiTema = () => {
     const baru: Tema = tema === 'gelap' ? 'terang' : 'gelap';
@@ -839,7 +900,7 @@ const App: React.FC = () => {
           onSetDialogue={setMonkeyDialogue}
           onPindah={(pos) => setGameState((p) => ({ ...p, monkeyPos: pos }))}
           pengguna={pengguna}
-          onGainXP={handleGainXP}
+          onGainXP={handlePisang}
           opsiRoster={boot.opsi.filter((o) => o.grup === 'roster')}
           notify={notify}
           statusTeks={gameState.statusText}
@@ -854,18 +915,30 @@ const App: React.FC = () => {
           daftarAlarm={daftarAlarm}
           sedangAlarm={Boolean(alarmAktif)}
           onBukaAlarm={() => setPanelAlarmBuka(true)}
-          onBukaNotif={() => pilihTab('notif')}
           onBukaMoney={bolehKelola ? () => pilihTab('money') : undefined}
           onBukaFire={() => pilihTab('fire')}
+          jumlahSuratBaru={suratBaru}
+          onBukaSurat={() => setSuratBuka(true)}
+          onTulisPesan={setTulisPesan}
         />
       )}
       {activeTab === 'pica' && <PicaScreen boot={boot} pengguna={pengguna} picaAwal={picaTerpilih} onBootUlang={bootUlang} notify={notify} fokus={fokus} onFokus={() => setFokus((f) => !f)} />}
       {activeTab === 'jadwal' && <KalenderScreen pengguna={pengguna} tim={boot.tim} opsiRoster={boot.opsi.filter((o) => o.grup === 'roster')} onBukaPica={bukaPica} notify={notify} fokus={fokus} onFokus={() => setFokus((f) => !f)} onPerubahanJadwal={() => api<{ jadwal: JadwalItem[] }>('/api/jadwal').then((d) => setSemuaJadwal(d.jadwal ?? [])).catch(() => undefined)} />}
       {activeTab === 'pengumuman' && <PengumumanScreen pengguna={pengguna} jumlahTim={boot.tim.length} notify={notify} />}
       {activeTab === 'roster' && <RosterScreen boot={boot} pengguna={pengguna} notify={notify} />}
-      {activeTab === 'memo' && <MemoScreen boot={boot} pengguna={pengguna} notify={notify} onBukaPica={bukaPica} onBukaRab={(id) => { if (bolehKelola) { setBukaRabId(id); setActiveTab('money'); } }} />}
+      {activeTab === 'memo' && <MemoScreen boot={boot} pengguna={pengguna} notify={notify} memoAwal={memoAwal} onMemoAwalTerpakai={() => setMemoAwal(null)} onBukaPica={bukaPica} onBukaRab={(id) => { if (bolehKelola) { setBukaRabId(id); setActiveTab('money'); } }} />}
       {activeTab === 'notif' && <NotifikasiScreen boot={boot} notify={notify} />}
-      {activeTab === 'team' && <TeamScreen pengguna={pengguna} onBootUlang={bootUlang} notify={notify} />}
+      {activeTab === 'team' && (
+        <>
+          <button
+            onClick={() => setPanelXpBuka(true)}
+            className="btn-retro btn-retro-sm mx-4 mt-3 bg-yellow-500 hover:bg-yellow-400 text-black font-bold flex items-center gap-2 self-start"
+          >
+            <Star size={14} className="fill-black" /> SKOR KEAKTIFAN TIM
+          </button>
+          <TeamScreen pengguna={pengguna} onBootUlang={bootUlang} notify={notify} onTulisPesan={setTulisPesan} />
+        </>
+      )}
       {activeTab === 'market' && <MarketScreen state={gameState} onBuy={handleBuySkin} onEquip={handleEquipSkin} />}
       {activeTab === 'missions' && <MissionsScreen state={gameState} admin={bolehKelola} onStart={handleMissionStart} onSimpan={handleMisiSimpan} onHapus={handleMisiHapus} />}
       {activeTab === 'reports' && <ReportsScreen state={gameState} picaTerbuka={picaTerbuka} onSubmit={handleReportSubmit} />}
@@ -913,7 +986,10 @@ const App: React.FC = () => {
             <div className="font-title text-[9px] text-white truncate">POKEMONKEY</div>
             <div className="text-[11px] text-yellow-200 uppercase truncate">{gameState.nickname} · {pengguna.peran}{demo ? ' · DEMO' : ''}</div>
           </div>
-          <div className="chip-retro border-yellow-400 bg-black/50 text-yellow-300"><Star size={11} className="fill-yellow-300" /> {gameState.xp.toLocaleString('id-ID')}</div>
+          <button onClick={() => setSuratBuka(true)} className="relative chip-retro border-blue-400 bg-black/50 text-blue-200" title="Kotak Surat" aria-label={suratBaru ? `Kotak surat, ${suratBaru} belum dibaca` : 'Kotak surat'}>
+            <Mail size={12} />{suratBaru > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] px-0.5 bg-red-600 text-white text-[9px] font-bold flex items-center justify-center">{suratBaru > 9 ? '9+' : suratBaru}</span>}
+          </button>
+          <button onClick={() => setPanelXpBuka(true)} className="chip-retro border-yellow-400 bg-black/50 text-yellow-300" title="Keaktifan & XP" aria-label="Buka panel keaktifan"><Star size={11} className="fill-yellow-300" /> Lv{gameState.level} · {gameState.xp.toLocaleString('id-ID')}</button>
           {antrean > 0 && <span className="chip-retro border-amber-400 bg-amber-900/60 text-amber-200"><CloudUpload size={11} /> {antrean}</span>}
           <span className={`w-2.5 h-2.5 border border-white ${gameState.isOnline ? 'bg-emerald-400' : 'bg-red-500'}`} title={gameState.isOnline ? 'Online' : 'Offline'} />
         </header>
@@ -973,13 +1049,18 @@ const App: React.FC = () => {
                 <div key={i}>{i < Math.floor(gameState.lives) ? <Heart size={20} className="text-red-500 fill-red-500" /> : <HeartOff size={20} className="text-zinc-600" />}</div>
               ))}
             </div>
-            <div className="retro-box !bg-zinc-900 border-yellow-500 min-w-[130px] flex items-center gap-3 px-4 !py-2">
+            <button onClick={() => setSuratBuka(true)} title="Kotak Surat" className="relative retro-box !bg-zinc-900 border-blue-500 flex items-center gap-2 px-3 !py-2 hover:border-blue-300 active:scale-95 transition-all" aria-label="Kotak surat">
+              <Mail size={18} className="text-blue-300" />
+              <span className="text-[11px] text-zinc-300 uppercase">Surat</span>
+              {suratBaru > 0 && <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 bg-red-600 border-2 border-black text-white text-[10px] font-bold flex items-center justify-center animate-bounce">{suratBaru > 9 ? '9+' : suratBaru}</span>}
+            </button>
+            <button onClick={() => setPanelXpBuka(true)} title="Keaktifan & XP" className="retro-box !bg-zinc-900 border-yellow-500 min-w-[130px] flex items-center gap-3 px-4 !py-2 text-left hover:border-yellow-300 active:scale-95 transition-all">
               <Star size={18} className="text-yellow-400 fill-yellow-400 animate-pulse" />
               <div>
                 <p className="text-[11px] text-zinc-300 uppercase leading-none mb-1">XP · Level {gameState.level}</p>
                 <p className="font-title text-[12px] text-white">{gameState.xp.toLocaleString('id-ID')}</p>
               </div>
-            </div>
+            </button>
           </div>
 
           <div className="flex gap-2 items-center px-2">
@@ -1123,7 +1204,7 @@ const App: React.FC = () => {
       {/* GAME: lapisan layar penuh di atas header & navigasi bawah */}
       {activeTab === 'game' && (
         <div className="fixed inset-0 z-[80] bg-black">
-          <MonkeyRun skin={skinAktif} onGainXP={handleGainXP} onKeluar={() => setActiveTab('habitat')} />
+          <MonkeyRun skin={skinAktif} onGainXP={handleMonkeyRun} onKeluar={() => setActiveTab('habitat')} />
         </div>
       )}
 
@@ -1137,6 +1218,42 @@ const App: React.FC = () => {
           notify={notify}
           onSelesai={() => setTokenHidupkan(null)}
         />
+      )}
+
+      {kabarXp && (
+        <div key={kabarXp.kunci} className="fixed inset-x-0 top-16 md:top-28 flex flex-col items-center gap-2 z-[126] px-4 pointer-events-none">
+          {kabarXp.prestasi && (
+            <div className="retro-box !bg-gradient-to-r !from-pink-600 !via-purple-600 !to-amber-500 border-white text-white font-title text-[11px] md:text-[13px] px-5 py-3 shadow-2xl animate-bounce text-center">
+              🏆 PRESTASI TERBUKA! 🏆<br /><span className="text-[10px] md:text-[11px]">{kabarXp.prestasi} — lihat di SHOP</span>
+            </div>
+          )}
+          {kabarXp.naik !== null && (
+            <div className="retro-box !bg-yellow-400 border-black text-black font-title text-[11px] md:text-[13px] px-5 py-3 shadow-2xl animate-bounce">
+              ★ LEVEL UP! LEVEL {kabarXp.naik} ★
+            </div>
+          )}
+          <div className="chip-retro border-yellow-400 bg-black/85 text-yellow-300 !text-[12px] md:!text-[13px] px-3 py-1.5 shadow-xl">
+            <Star size={12} className="fill-yellow-300" /> {kabarXp.teks}
+          </div>
+        </div>
+      )}
+
+      {suratBuka && sesi && (
+        <KotakSurat
+          pengguna={sesi.pengguna}
+          tim={sesi.boot.tim}
+          notify={notify}
+          onTutup={() => { setSuratBuka(false); muatJumlahSurat(); }}
+          onBuka={bukaTautanSurat}
+          onJumlah={setSuratBaru}
+        />
+      )}
+      {tulisPesan && sesi && (
+        <TulisPesan tim={sesi.boot.tim} pengguna={sesi.pengguna} awal={tulisPesan} notify={notify} onTutup={() => setTulisPesan(null)} />
+      )}
+
+      {panelXpBuka && sesi && (
+        <PanelKeaktifan pengguna={sesi.pengguna} notify={notify} onTutup={() => setPanelXpBuka(false)} onBerubah={() => muatGame().catch(() => undefined)} />
       )}
 
       {showNotification && (

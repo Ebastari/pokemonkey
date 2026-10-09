@@ -15,10 +15,10 @@ import * as W from './waktu';
 
 export type JenisBlok =
   | 'teks' | 'h1' | 'h2' | 'h3' | 'h4' | 'butir' | 'nomor' | 'ceklis' | 'toggle' | 'kutipan' | 'penting'
-  | 'garis' | 'gambar' | 'video' | 'tabel' | 'berkas' | 'data' | 'kode' | 'rumus' | 'daftarisi' | 'kolom' | 'penanda' | 'grafik';
+  | 'garis' | 'gambar' | 'video' | 'tabel' | 'berkas' | 'data' | 'kode' | 'rumus' | 'daftarisi' | 'kolom' | 'penanda' | 'grafik' | 'formulir';
 
 /** Blok khusus berawalan "!" yang dikenali uraiBlok (bukan teks yang diketik langsung). */
-const JENIS_KHUSUS: ReadonlySet<string> = new Set(['kode', 'rumus', 'daftarisi', 'kolom', 'penanda', 'gambar', 'grafik']);
+const JENIS_KHUSUS: ReadonlySet<string> = new Set(['kode', 'rumus', 'daftarisi', 'kolom', 'penanda', 'gambar', 'grafik', 'formulir']);
 
 /** Blok yang isinya diketik langsung (bukan garis, gambar, berkas). */
 export const BLOK_TEKS: ReadonlySet<JenisBlok> = new Set(['teks', 'h1', 'h2', 'h3', 'h4', 'butir', 'nomor', 'ceklis', 'toggle', 'kutipan', 'penting']);

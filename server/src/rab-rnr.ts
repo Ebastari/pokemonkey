@@ -6,6 +6,7 @@
  */
 
 import type { Env, Pengguna } from './tipe';
+import { beriXp } from './xp';
 import { sekarangUtcIso } from './waktu';
 
 function json(data: unknown, status = 200): Response {
@@ -91,6 +92,8 @@ export async function ruteRabRnr(jalur: string, req: Request, env: Env, pengguna
         pengguna.id,
       )
       .run();
+    const status = teks(rab.status, 20) || 'Draf';
+    if (status !== 'Draf' && status !== 'Ditolak') await beriXp(env, lama?.pemohon_id ?? pengguna.id, 'rab_ajukan', id, { pelaku: pengguna });
     return json({ ok: true });
   }
 

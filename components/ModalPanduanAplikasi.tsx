@@ -584,8 +584,8 @@ export const ModalPanduanAplikasi: React.FC<Props> = ({ isOpen, onClose }) => {
                 <div>
                   <p className="pg-h3 !mt-0">Rapi seperti ruang kerja, seru seperti game</p>
                   <p className="!mb-0">
-                    Setiap anggota punya monyet dengan XP, level, dan stamina. Laporan harian, PICA yang ditutup, dan misi tim menambah XP,
-                    sementara data kerja tersusun rapi seperti papan kerja tim.
+                    Setiap anggota punya monyet dengan XP, level, dan stamina. Aksi di semua menu menambah XP, paling besar menindaklanjuti
+                    dan menutup PICA, dan keaktifan harian menjadi Nilai Keaktifan (KPI) semester. Data kerja tetap tersusun rapi seperti papan kerja tim.
                   </p>
                 </div>
               </div>

@@ -40,6 +40,13 @@ import { ruteLaporanKarhutla } from './laporan-karhutla';
 import { ruteKatalogRab } from './katalog-rab';
 import { ruteRabRnr } from './rab-rnr';
 import { ruteHati } from './hati';
+import { beriXp, ruteXp, tempelXp } from './xp';
+import { ruteSurat, kirimSuratSistem, jawabMintaProgres, bersihkanKotakSurat } from './surat';
+import { ruteFolderDok } from './folder-dok';
+import { ruteFormulir, ruteFormulirPublik } from './formulir';
+import { rutePrestasi, periksaPrestasi } from './prestasi';
+import { ruteHitungUlangXp } from './xp-ulang';
+import { isoDari } from './xp-aturan';
 import { ruteDokumen } from './dokumen';
 import { ruteAi } from './ai';
 import { ruteNursery, ruteGeotag, ruteGeotagFoto } from './lapangan';
@@ -107,6 +114,10 @@ export default {
       // Papan PICA hanya-baca dari tautan di rekap WhatsApp (kunci berganti tiap Senin).
       if (jalur === '/lihat/pica' && req.method === 'GET') return halamanLihatPica(url, env);
 
+      // Formulir memo yang dibuka lewat tautan publik (/f/<token>): tampil dan kirim jawaban tanpa login.
+      const cocokFormPublik = jalur.match(/^\/f\/([\w-]+)$/);
+      if (cocokFormPublik) return ruteFormulirPublik(cocokFormPublik[1], req, env);
+
       // Memo yang dibagikan lewat tautan (seperti "Share to web" Notion), beserta gambarnya.
       const cocokLihatMemo = jalur.match(/^\/lihat\/memo\/([\w-]+)(\/berkas)?$/);
       if (cocokLihatMemo && req.method === 'GET') {
@@ -124,249 +135,9 @@ export default {
       const pengguna = await penggunaDariHeader(req, env);
       if (!pengguna) return galat('Sesi tidak sah. Silakan masuk kembali.', 401);
 
-      if (jalur === '/api/auth/logout' && req.method === 'POST') {
-        const h = req.headers.get('Authorization') ?? '';
-        await hapusSesi(env, h.slice(7));
-        return json({ ok: true });
-      }
-      if (jalur === '/api/me') return json({ pengguna });
-      if (jalur === '/api/bootstrap') return bootstrap(env, pengguna);
-      if (jalur === '/api/dasbor') return dasbor(env);
-
-      // Fitur game yang sudah ada: profil XP/skin, pemain lain di KEBUN, misi global.
-      const hasilGame = await ruteGame(jalur, req, env, pengguna);
-      if (hasilGame) return hasilGame;
-
-      // Roster bulanan dan memo pribadi.
-      const hasilPersonal = await rutePersonal(jalur, req, env, pengguna);
-      if (hasilPersonal) return hasilPersonal;
-
-      // Prakiraan cuaca BMKG untuk KEBUN (hujan di layar + panel prakiraan).
-      const hasilCuaca = await ruteCuaca(jalur, req, env);
-      if (hasilCuaca) return hasilCuaca;
-
-      // Titik api NASA FIRMS: daftar, ubah status hasil cek lapangan, periksa manual (Admin).
-      const hasilTitikApi = await ruteTitikApi(jalur, req, env, pengguna);
-      if (hasilTitikApi) return hasilTitikApi;
-
-      // FIRE: titik sebulan untuk tabel harian dan arsip laporan karhutla (PDF di R2).
-      const hasilKarhutla = await ruteLaporanKarhutla(jalur, req, env, pengguna);
-      if (hasilKarhutla) return hasilKarhutla;
-
-      // Money Monkey: katalog barang untuk form belanja RAB.
-      const hasilKatalog = await ruteKatalogRab(jalur, req, env, pengguna);
-      if (hasilKatalog) return hasilKatalog;
-
-      // Sistem hati: hari kerja tanpa membuka aplikasi mematikan hati; dihidupkan Admin/Supervisor.
-      const hasilHati = await ruteHati(jalur, req, env, pengguna, url.origin);
-      if (hasilHati) return hasilHati;
-
-      // Money Monkey: RAB RNR tersimpan di server (sinkron antar perangkat).
-      const hasilRabRnr = await ruteRabRnr(jalur, req, env, pengguna);
-      if (hasilRabRnr) return hasilRabRnr;
-
-      // Dokumen administrasi (nomor surat, Internal Memo dinas, MoM) dan foto profil.
-      const hasilDokumen = await ruteDokumen(jalur, req, env, pengguna);
-      if (hasilDokumen) return hasilDokumen;
-
-      // Google Gemini AI: asisten pengembangan kalimat PICA & resume eksekutif.
-      const hasilAi = await ruteAi(jalur, req, env, pengguna);
-      if (hasilAi) return hasilAi;
-
-      // Data Lapangan: Smart Nursery & Geotagging Pohon
-      if (jalur === '/api/lapangan/nursery' && req.method === 'GET') {
-        return ruteNursery(req, env, pengguna);
-      }
-      if (jalur === '/api/lapangan/geotag' && req.method === 'GET') {
-        return ruteGeotag(req, env, pengguna);
-      }
-      if (jalur.startsWith('/api/lapangan/geotag/foto/') && req.method === 'GET') {
-        const idFoto = jalur.slice('/api/lapangan/geotag/foto/'.length);
-        return ruteGeotagFoto(idFoto, env);
-      }
-
-      // Isi notifikasi terjadwal untuk pemakai ini: pagi (PICA Open), siang (Info), sore (XP).
-      // Dipakai Background Runner Android dan pratinjau di layar Notifikasi.
-      if (jalur === '/api/notif/ringkas' && req.method === 'GET') {
-        const slot = url.searchParams.get('slot');
-        if (slot !== 'pagi' && slot !== 'siang' && slot !== 'sore') return galat('slot harus pagi, siang, atau sore.');
-        return json(await siapkanNotif(env, pengguna, slot, tanggalWita()));
-      }
-
-      // Pengingat acara kalender pada satu tanggal WITA. Dipakai penjadwal di HP
-      // untuk memasang alarmnya sendiri, dan layar NOTIF untuk pratinjau.
-      if (jalur === '/api/notif/acara' && req.method === 'GET') {
-        const tanggal = url.searchParams.get('tanggal') || tanggalWita();
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal)) return galat('Format tanggal: YYYY-MM-DD');
-        return json({ acara: await acaraPengingat(env, pengguna, tanggal), tanggal });
-      }
-
-      // Rekap progres PICA untuk grup WhatsApp: ?dryRun=1 hanya menampilkan teksnya.
-      if (jalur === '/api/notify/rekap-pica' && req.method === 'POST') {
-        if (!adalahAdmin(pengguna)) return galat('Hanya Admin yang boleh mengirim rekap ke grup.', 403);
-        const jenis = url.searchParams.get('jenis') === 'mingguan' ? 'mingguan' : 'harian';
-        const tautan = await tautanLihatPica(env, tanggalWita(), url.origin);
-        const pesan = await siapkanRekapPica(env, jenis, tanggalWita(), tautan);
-        if (url.searchParams.get('dryRun') === '1') return json({ pesan, terkirim: false });
-
-        const grup = await ambilPengaturan(env, 'wa_grup_id');
-        if (!grup) return galat('ID grup WhatsApp belum diisi di Pengaturan.');
-        const waAktif = (await ambilPengaturan(env, 'wa_aktif')) === '1';
-        if (!waAktif) return galat('Pengiriman WhatsApp masih dimatikan (pengaturan wa_aktif = 0).', 409);
-
-        await antre(env, { tujuan: grup, isi: pesan, jenis: 'rekap', ref_id: `rekap-pica-manual-${Date.now()}` });
-        const hasil = await prosesAntrean(env, 3);
-        return json({ pesan, ...hasil, terkirim: hasil.terkirim > 0 });
-      }
-
-      // Web Push (iPhone PWA & browser): kunci publik, langganan, uji kirim.
-      const hasilPush = await rutePush(jalur, req, env, pengguna);
-      if (hasilPush) return hasilPush;
-
-      // --- PICA ---
-      if (jalur === '/api/pica' && req.method === 'GET') return daftarPica(url, env);
-      if (jalur === '/api/pica/impor' && req.method === 'POST') return imporPicaBatch(req, env, pengguna);
-      // Semua foto bukti per PICA (lampiran PICA + foto laporan FEED yang menjadi bukti PICA) — untuk Monkey Point.
-      if (jalur === '/api/pica/bukti' && req.method === 'GET') {
-        const { results } = await env.DB.prepare(
-          `SELECT m.entitas_id AS pica_id, m.kunci_r2 AS kunci, m.pada
-             FROM lampiran m JOIN pica p ON p.id = m.entitas_id
-            WHERE m.entitas = 'pica' AND m.tipe_mime LIKE 'image/%' AND p.dihapus = 0
-           UNION ALL
-           SELECT l.pica_id, m.kunci_r2, m.pada
-             FROM lampiran m JOIN laporan l ON l.id = m.entitas_id
-            WHERE m.entitas = 'laporan' AND l.pica_id IS NOT NULL AND m.tipe_mime LIKE 'image/%'
-            ORDER BY pada DESC LIMIT 2000`,
-        ).all();
-        return json({ bukti: results });
-      }
-      if (jalur === '/api/pica' && req.method === 'POST') return buatPica(req, env, pengguna);
-
-      const cocokPica = jalur.match(/^\/api\/pica\/([\w-]+)$/);
-      if (cocokPica) {
-        if (req.method === 'GET') return detailPica(cocokPica[1], env);
-        if (req.method === 'PATCH') return ubahPica(cocokPica[1], req, env, pengguna);
-        if (req.method === 'DELETE') return hapusPica(cocokPica[1], env, pengguna);
-      }
-
-      const cocokUpdate = jalur.match(/^\/api\/pica\/([\w-]+)\/update$/);
-      if (cocokUpdate && req.method === 'POST') return tambahUpdate(cocokUpdate[1], req, env, pengguna);
-
-      const cocokKunci = jalur.match(/^\/api\/periode\/([\w-]+)\/kunci$/);
-      if (cocokKunci && req.method === 'POST') return kunciPeriode(cocokKunci[1], env, pengguna);
-
-      // --- Kolom & pilihan dinamis ---
-      if (jalur === '/api/properti' && req.method === 'POST') return tambahProperti(req, env, pengguna);
-      const cocokPropertiId = jalur.match(/^\/api\/properti\/([\w-]+)$/);
-      if (cocokPropertiId && req.method === 'DELETE') return hapusProperti(cocokPropertiId[1], env, pengguna);
-      if (jalur === '/api/opsi' && req.method === 'POST') return tambahOpsi(req, env, pengguna);
-
-      // --- Pengumuman ---
-      if (jalur === '/api/pengumuman' && req.method === 'GET') return daftarPengumuman(env, pengguna);
-      if (jalur === '/api/pengumuman' && req.method === 'POST') return buatPengumuman(req, env, pengguna);
-      const cocokBaca = jalur.match(/^\/api\/pengumuman\/([\w-]+)\/baca$/);
-      if (cocokBaca && req.method === 'POST') {
-        await env.DB.prepare(
-          'INSERT OR IGNORE INTO pengumuman_baca (pengumuman_id, user_id) VALUES (?1, ?2)',
-        )
-          .bind(cocokBaca[1], pengguna.id)
-          .run();
-        return json({ ok: true });
-      }
-
-      // --- Jadwal ---
-      if (jalur === '/api/jadwal' && req.method === 'GET') return daftarJadwal(url, env);
-      if (jalur === '/api/jadwal' && req.method === 'POST') return buatJadwal(req, env, pengguna);
-      const cocokJadwal = jalur.match(/^\/api\/jadwal\/([\w-]+)$/);
-      if (cocokJadwal && req.method === 'PATCH') return ubahJadwal(cocokJadwal[1], req, env, pengguna);
-      if (cocokJadwal && req.method === 'DELETE') {
-        // Jadwal buatan ceklis memo: tugasnya tetap ada di memo, hanya tenggatnya dilepas.
-        const lama = await env.DB.prepare('SELECT memo_id, judul, tanggal, jam_mulai FROM jadwal WHERE id = ?1')
-          .bind(cocokJadwal[1]).first<{ memo_id: string | null; judul: string; tanggal: string; jam_mulai: string | null }>();
-        await env.DB.prepare('DELETE FROM jadwal WHERE id = ?1').bind(cocokJadwal[1]).run();
-        if (lama?.memo_id) await cerminkanJadwalKeMemo(env, lama, 'lepas');
-        return json({ ok: true });
-      }
-
-      // --- Laporan lapangan ---
-      if (jalur === '/api/laporan' && req.method === 'GET') return daftarLaporan(env);
-      if (jalur === '/api/laporan' && req.method === 'POST') return buatLaporan(req, env, pengguna);
-
-      // --- Lampiran ---
-      if (jalur === '/api/lampiran' && req.method === 'POST') return unggahLampiran(req, env, pengguna);
-      // Foto dokumentasi terbaru dari laporan FEED dan bukti PICA (untuk galeri Monkey Point).
-      if (jalur === '/api/galeri' && req.method === 'GET') {
-        const hari = Math.min(90, Math.max(1, Number(url.searchParams.get('hari')) || 30));
-        const { results } = await env.DB.prepare(
-          `SELECT m.kunci_r2 AS kunci, m.entitas AS sumber, m.pada,
-                  CASE WHEN m.entitas = 'pica' THEN p.id ELSE COALESCE(l.pica_id, l.jenis) END AS ref,
-                  CASE WHEN m.entitas = 'pica' THEN COALESCE(p.judul_singkat, p.judul) ELSE COALESCE(l.jenis, 'Laporan lapangan') END AS judul,
-                  CASE WHEN m.entitas = 'pica' THEN p.tindakan ELSE l.catatan END AS keterangan,
-                  CASE WHEN m.entitas = 'pica' THEN tp.nama ELSE tl.nama END AS oleh
-             FROM lampiran m
-             LEFT JOIN pica p ON m.entitas = 'pica' AND p.id = m.entitas_id
-             LEFT JOIN tim tp ON tp.id = p.pic_id
-             LEFT JOIN laporan l ON m.entitas = 'laporan' AND l.id = m.entitas_id
-             LEFT JOIN tim tl ON tl.id = l.user_id
-            WHERE m.tipe_mime LIKE 'image/%' AND m.entitas IN ('pica', 'laporan')
-              AND (m.entitas <> 'pica' OR p.dihapus = 0)
-              AND m.pada >= datetime('now', ?1)
-            ORDER BY m.pada DESC LIMIT 12`,
-        ).bind(`-${hari} days`).all();
-        return json({ foto: results });
-      }
-      const cocokBerkas = jalur.match(/^\/api\/berkas\/(.+)$/);
-      if (cocokBerkas && req.method === 'GET') return ambilBerkas(decodeURIComponent(cocokBerkas[1]), env);
-
-      // --- Tautan berbagi ---
-      if (jalur === '/api/bagi' && req.method === 'GET') return daftarTautanBagi(env, pengguna);
-      if (jalur === '/api/bagi' && req.method === 'POST') return buatTautanBagi(req, env, pengguna);
-      const cocokBagi = jalur.match(/^\/api\/bagi\/([\w-]+)$/);
-      if (cocokBagi && req.method === 'DELETE') {
-        if (!bolehUbahKunci(pengguna)) return galat('Hanya Admin/Supervisor.', 403);
-        await env.DB.prepare('UPDATE tautan_bagi SET aktif = 0 WHERE token = ?1').bind(cocokBagi[1]).run();
-        return json({ ok: true });
-      }
-
-      // --- Tim & pengaturan ---
-      if (jalur === '/api/tim' && req.method === 'GET') return daftarTim(env);
-      const cocokProfilTim = jalur.match(/^\/api\/tim\/([\w-]+)\/profil$/);
-      if (cocokProfilTim && req.method === 'GET') return profilAnggota(cocokProfilTim[1], env);
-      if (jalur === '/api/tim' && req.method === 'POST') return tambahTim(req, env, pengguna);
-      // Admin mengosongkan password anggota; login berikutnya membuat password baru dengan kode undangan.
-      const cocokReset = jalur.match(/^\/api\/tim\/([\w-]+)\/reset-password$/);
-      if (cocokReset && req.method === 'POST') {
-        if (!adalahAdmin(pengguna)) return galat('Hanya Admin yang boleh mereset password.', 403);
-        if (cocokReset[1] === pengguna.id) return galat('Password akun sendiri tidak bisa direset dari sini.', 400);
-        const r = await env.DB.prepare('UPDATE tim SET password_hash = NULL WHERE id = ?1').bind(cocokReset[1]).run();
-        if (!r.meta.changes) return galat('Anggota tidak ditemukan.', 404);
-        await env.DB.prepare('DELETE FROM sesi WHERE user_id = ?1').bind(cocokReset[1]).run();
-        return json({ ok: true, pesan: 'Password direset. Anggota membuat password baru saat login berikutnya dengan kode undangan.' });
-      }
-      const cocokTim = jalur.match(/^\/api\/tim\/([\w-]+)$/);
-      if (cocokTim && req.method === 'PATCH') return ubahTim(cocokTim[1], req, env, pengguna);
-      if (jalur === '/api/pengaturan' && req.method === 'GET') return daftarPengaturan(env, pengguna);
-      if (jalur === '/api/pengaturan' && req.method === 'POST') return simpanPengaturan(req, env, pengguna);
-
-      // --- WhatsApp ---
-      if (jalur === '/api/wa/uji' && req.method === 'POST') return ujiWa(req, env, pengguna);
-      if (jalur === '/api/wa/status' && req.method === 'GET') {
-        if (!adalahAdmin(pengguna)) return galat('Hanya Admin.', 403);
-        return json(await statusWa(env));
-      }
-      if (jalur === '/api/wa/grup' && req.method === 'GET') {
-        if (!adalahAdmin(pengguna)) return galat('Hanya Admin.', 403);
-        return json(await daftarGrupWa(env, url.searchParams.get('segarkan') === '1'));
-      }
-      if (jalur === '/api/wa/antrean' && req.method === 'GET') {
-        const { results } = await env.DB.prepare(
-          `SELECT id, tujuan, jenis, status, percobaan, galat, kirim_pada, substr(isi,1,90) AS cuplikan
-             FROM pesan_wa ORDER BY id DESC LIMIT 50`,
-        ).all();
-        return json({ antrean: results });
-      }
-
-      return galat('Rute tidak ditemukan: ' + jalur, 404);
+      const jawab = await rutePengguna(jalur, req, env, url, pengguna);
+      // XP yang didapat pemakai selama permintaan ini dikabarkan lewat header X-XP.
+      return tempelXp(jawab, pengguna);
     } catch (e) {
       console.error('Galat tak tertangani', e);
       return galat(e instanceof Error ? e.message : 'Galat server', 500);
@@ -378,6 +149,273 @@ export default {
     ctx.waitUntil(jalankanTerjadwal(env));
   },
 };
+
+// ============================================================
+// Rute yang membutuhkan login
+// ============================================================
+
+async function rutePengguna(jalur: string, req: Request, env: Env, url: URL, pengguna: Pengguna): Promise<Response> {
+  if (jalur === '/api/auth/logout' && req.method === 'POST') {
+    const h = req.headers.get('Authorization') ?? '';
+    await hapusSesi(env, h.slice(7));
+    return json({ ok: true });
+  }
+  if (jalur === '/api/me') return json({ pengguna });
+  if (jalur === '/api/bootstrap') return bootstrap(env, pengguna);
+  if (jalur === '/api/dasbor') return dasbor(env);
+
+  // Fitur game yang sudah ada: profil XP/skin, pemain lain di KEBUN, misi global.
+  const hasilGame = await ruteGame(jalur, req, env, pengguna);
+  if (hasilGame) return hasilGame;
+
+  // XP & Nilai Keaktifan (KPI): riwayat, skor, game, belanja skin, pembatalan, hitung ulang. Lihat docs/sistem-xp.md.
+  const hasilXp = (await ruteHitungUlangXp(jalur, req, env, pengguna)) ?? (await ruteXp(jalur, req, env, pengguna));
+  if (hasilXp) return hasilXp;
+
+  // Kotak Surat (pesan & pemberitahuan sistem), Folder Dokumen, Formulir memo, Skin Prestasi.
+  const hasilSurat = (await ruteSurat(jalur, req, env, pengguna))
+    ?? (await ruteFolderDok(jalur, req, env, pengguna))
+    ?? (await ruteFormulir(jalur, req, env, pengguna))
+    ?? (await rutePrestasi(jalur, req, env, pengguna));
+  if (hasilSurat) return hasilSurat;
+
+  // Roster bulanan dan memo pribadi.
+  const hasilPersonal = await rutePersonal(jalur, req, env, pengguna);
+  if (hasilPersonal) return hasilPersonal;
+
+  // Prakiraan cuaca BMKG untuk KEBUN (hujan di layar + panel prakiraan).
+  const hasilCuaca = await ruteCuaca(jalur, req, env);
+  if (hasilCuaca) return hasilCuaca;
+
+  // Titik api NASA FIRMS: daftar, ubah status hasil cek lapangan, periksa manual (Admin).
+  const hasilTitikApi = await ruteTitikApi(jalur, req, env, pengguna);
+  if (hasilTitikApi) return hasilTitikApi;
+
+  // FIRE: titik sebulan untuk tabel harian dan arsip laporan karhutla (PDF di R2).
+  const hasilKarhutla = await ruteLaporanKarhutla(jalur, req, env, pengguna);
+  if (hasilKarhutla) return hasilKarhutla;
+
+  // Money Monkey: katalog barang untuk form belanja RAB.
+  const hasilKatalog = await ruteKatalogRab(jalur, req, env, pengguna);
+  if (hasilKatalog) return hasilKatalog;
+
+  // Sistem hati: hari kerja tanpa membuka aplikasi mematikan hati; dihidupkan Admin/Supervisor.
+  const hasilHati = await ruteHati(jalur, req, env, pengguna, url.origin);
+  if (hasilHati) return hasilHati;
+
+  // Money Monkey: RAB RNR tersimpan di server (sinkron antar perangkat).
+  const hasilRabRnr = await ruteRabRnr(jalur, req, env, pengguna);
+  if (hasilRabRnr) return hasilRabRnr;
+
+  // Dokumen administrasi (nomor surat, Internal Memo dinas, MoM) dan foto profil.
+  const hasilDokumen = await ruteDokumen(jalur, req, env, pengguna);
+  if (hasilDokumen) return hasilDokumen;
+
+  // Google Gemini AI: asisten pengembangan kalimat PICA & resume eksekutif.
+  const hasilAi = await ruteAi(jalur, req, env, pengguna);
+  if (hasilAi) return hasilAi;
+
+  // Data Lapangan: Smart Nursery & Geotagging Pohon
+  if (jalur === '/api/lapangan/nursery' && req.method === 'GET') {
+    return ruteNursery(req, env, pengguna);
+  }
+  if (jalur === '/api/lapangan/geotag' && req.method === 'GET') {
+    return ruteGeotag(req, env, pengguna);
+  }
+  if (jalur.startsWith('/api/lapangan/geotag/foto/') && req.method === 'GET') {
+    const idFoto = jalur.slice('/api/lapangan/geotag/foto/'.length);
+    return ruteGeotagFoto(idFoto, env);
+  }
+
+  // Isi notifikasi terjadwal untuk pemakai ini: pagi (PICA Open), siang (Info), sore (XP).
+  // Dipakai Background Runner Android dan pratinjau di layar Notifikasi.
+  if (jalur === '/api/notif/ringkas' && req.method === 'GET') {
+    const slot = url.searchParams.get('slot');
+    if (slot !== 'pagi' && slot !== 'siang' && slot !== 'sore') return galat('slot harus pagi, siang, atau sore.');
+    return json(await siapkanNotif(env, pengguna, slot, tanggalWita()));
+  }
+
+  // Pengingat acara kalender pada satu tanggal WITA. Dipakai penjadwal di HP
+  // untuk memasang alarmnya sendiri, dan layar NOTIF untuk pratinjau.
+  if (jalur === '/api/notif/acara' && req.method === 'GET') {
+    const tanggal = url.searchParams.get('tanggal') || tanggalWita();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal)) return galat('Format tanggal: YYYY-MM-DD');
+    return json({ acara: await acaraPengingat(env, pengguna, tanggal), tanggal });
+  }
+
+  // Rekap progres PICA untuk grup WhatsApp: ?dryRun=1 hanya menampilkan teksnya.
+  if (jalur === '/api/notify/rekap-pica' && req.method === 'POST') {
+    if (!adalahAdmin(pengguna)) return galat('Hanya Admin yang boleh mengirim rekap ke grup.', 403);
+    const jenis = url.searchParams.get('jenis') === 'mingguan' ? 'mingguan' : 'harian';
+    const tautan = await tautanLihatPica(env, tanggalWita(), url.origin);
+    const pesan = await siapkanRekapPica(env, jenis, tanggalWita(), tautan);
+    if (url.searchParams.get('dryRun') === '1') return json({ pesan, terkirim: false });
+
+    const grup = await ambilPengaturan(env, 'wa_grup_id');
+    if (!grup) return galat('ID grup WhatsApp belum diisi di Pengaturan.');
+    const waAktif = (await ambilPengaturan(env, 'wa_aktif')) === '1';
+    if (!waAktif) return galat('Pengiriman WhatsApp masih dimatikan (pengaturan wa_aktif = 0).', 409);
+
+    await antre(env, { tujuan: grup, isi: pesan, jenis: 'rekap', ref_id: `rekap-pica-manual-${Date.now()}` });
+    const hasil = await prosesAntrean(env, 3);
+    return json({ pesan, ...hasil, terkirim: hasil.terkirim > 0 });
+  }
+
+  // Web Push (iPhone PWA & browser): kunci publik, langganan, uji kirim.
+  const hasilPush = await rutePush(jalur, req, env, pengguna);
+  if (hasilPush) return hasilPush;
+
+  // --- PICA ---
+  if (jalur === '/api/pica' && req.method === 'GET') return daftarPica(url, env);
+  if (jalur === '/api/pica/impor' && req.method === 'POST') return imporPicaBatch(req, env, pengguna);
+  // Semua foto bukti per PICA (lampiran PICA + foto laporan FEED yang menjadi bukti PICA) — untuk Monkey Point.
+  if (jalur === '/api/pica/bukti' && req.method === 'GET') {
+    const { results } = await env.DB.prepare(
+      `SELECT m.entitas_id AS pica_id, m.kunci_r2 AS kunci, m.pada
+         FROM lampiran m JOIN pica p ON p.id = m.entitas_id
+        WHERE m.entitas = 'pica' AND m.tipe_mime LIKE 'image/%' AND p.dihapus = 0
+       UNION ALL
+       SELECT l.pica_id, m.kunci_r2, m.pada
+         FROM lampiran m JOIN laporan l ON l.id = m.entitas_id
+        WHERE m.entitas = 'laporan' AND l.pica_id IS NOT NULL AND m.tipe_mime LIKE 'image/%'
+        ORDER BY pada DESC LIMIT 2000`,
+    ).all();
+    return json({ bukti: results });
+  }
+  if (jalur === '/api/pica' && req.method === 'POST') return buatPica(req, env, pengguna);
+
+  const cocokPica = jalur.match(/^\/api\/pica\/([\w-]+)$/);
+  if (cocokPica) {
+    if (req.method === 'GET') return detailPica(cocokPica[1], env);
+    if (req.method === 'PATCH') return ubahPica(cocokPica[1], req, env, pengguna);
+    if (req.method === 'DELETE') return hapusPica(cocokPica[1], env, pengguna);
+  }
+
+  const cocokUpdate = jalur.match(/^\/api\/pica\/([\w-]+)\/update$/);
+  if (cocokUpdate && req.method === 'POST') return tambahUpdate(cocokUpdate[1], req, env, pengguna);
+
+  const cocokKunci = jalur.match(/^\/api\/periode\/([\w-]+)\/kunci$/);
+  if (cocokKunci && req.method === 'POST') return kunciPeriode(cocokKunci[1], env, pengguna);
+
+  // --- Kolom & pilihan dinamis ---
+  if (jalur === '/api/properti' && req.method === 'POST') return tambahProperti(req, env, pengguna);
+  const cocokPropertiId = jalur.match(/^\/api\/properti\/([\w-]+)$/);
+  if (cocokPropertiId && req.method === 'DELETE') return hapusProperti(cocokPropertiId[1], env, pengguna);
+  if (jalur === '/api/opsi' && req.method === 'POST') return tambahOpsi(req, env, pengguna);
+
+  // --- Pengumuman ---
+  if (jalur === '/api/pengumuman' && req.method === 'GET') return daftarPengumuman(env, pengguna);
+  if (jalur === '/api/pengumuman' && req.method === 'POST') return buatPengumuman(req, env, pengguna);
+  const cocokBaca = jalur.match(/^\/api\/pengumuman\/([\w-]+)\/baca$/);
+  if (cocokBaca && req.method === 'POST') {
+    await env.DB.prepare(
+      'INSERT OR IGNORE INTO pengumuman_baca (pengumuman_id, user_id) VALUES (?1, ?2)',
+    )
+      .bind(cocokBaca[1], pengguna.id)
+      .run();
+    // XP bila dibaca dalam 24 jam sejak diumumkan (penting: dua kali lipat).
+    const peng = await env.DB.prepare('SELECT dibuat_pada, penting FROM pengumuman WHERE id = ?1').bind(cocokBaca[1])
+      .first<{ dibuat_pada: string; penting: number }>();
+    if (peng && Date.now() - Date.parse(isoDari(peng.dibuat_pada)) <= 24 * 3_600_000) {
+      await beriXp(env, pengguna, 'info_baca', cocokBaca[1], { nilai: peng.penting ? 40 : undefined, pelaku: pengguna });
+    }
+    return json({ ok: true });
+  }
+
+  // --- Jadwal ---
+  if (jalur === '/api/jadwal' && req.method === 'GET') return daftarJadwal(url, env);
+  if (jalur === '/api/jadwal' && req.method === 'POST') return buatJadwal(req, env, pengguna);
+  const cocokJadwal = jalur.match(/^\/api\/jadwal\/([\w-]+)$/);
+  if (cocokJadwal && req.method === 'PATCH') return ubahJadwal(cocokJadwal[1], req, env, pengguna);
+  if (cocokJadwal && req.method === 'DELETE') {
+    // Jadwal buatan ceklis memo: tugasnya tetap ada di memo, hanya tenggatnya dilepas.
+    const lama = await env.DB.prepare('SELECT memo_id, judul, tanggal, jam_mulai FROM jadwal WHERE id = ?1')
+      .bind(cocokJadwal[1]).first<{ memo_id: string | null; judul: string; tanggal: string; jam_mulai: string | null }>();
+    await env.DB.prepare('DELETE FROM jadwal WHERE id = ?1').bind(cocokJadwal[1]).run();
+    if (lama?.memo_id) await cerminkanJadwalKeMemo(env, lama, 'lepas');
+    return json({ ok: true });
+  }
+
+  // --- Laporan lapangan ---
+  if (jalur === '/api/laporan' && req.method === 'GET') return daftarLaporan(env);
+  if (jalur === '/api/laporan' && req.method === 'POST') return buatLaporan(req, env, pengguna);
+
+  // --- Lampiran ---
+  if (jalur === '/api/lampiran' && req.method === 'POST') return unggahLampiran(req, env, pengguna);
+  // Foto dokumentasi terbaru dari laporan FEED dan bukti PICA (untuk galeri Monkey Point).
+  if (jalur === '/api/galeri' && req.method === 'GET') {
+    const hari = Math.min(90, Math.max(1, Number(url.searchParams.get('hari')) || 30));
+    const { results } = await env.DB.prepare(
+      `SELECT m.kunci_r2 AS kunci, m.entitas AS sumber, m.pada,
+              CASE WHEN m.entitas = 'pica' THEN p.id ELSE COALESCE(l.pica_id, l.jenis) END AS ref,
+              CASE WHEN m.entitas = 'pica' THEN COALESCE(p.judul_singkat, p.judul) ELSE COALESCE(l.jenis, 'Laporan lapangan') END AS judul,
+              CASE WHEN m.entitas = 'pica' THEN p.tindakan ELSE l.catatan END AS keterangan,
+              CASE WHEN m.entitas = 'pica' THEN tp.nama ELSE tl.nama END AS oleh
+         FROM lampiran m
+         LEFT JOIN pica p ON m.entitas = 'pica' AND p.id = m.entitas_id
+         LEFT JOIN tim tp ON tp.id = p.pic_id
+         LEFT JOIN laporan l ON m.entitas = 'laporan' AND l.id = m.entitas_id
+         LEFT JOIN tim tl ON tl.id = l.user_id
+        WHERE m.tipe_mime LIKE 'image/%' AND m.entitas IN ('pica', 'laporan')
+          AND (m.entitas <> 'pica' OR p.dihapus = 0)
+          AND m.pada >= datetime('now', ?1)
+        ORDER BY m.pada DESC LIMIT 12`,
+    ).bind(`-${hari} days`).all();
+    return json({ foto: results });
+  }
+  const cocokBerkas = jalur.match(/^\/api\/berkas\/(.+)$/);
+  if (cocokBerkas && req.method === 'GET') return ambilBerkas(decodeURIComponent(cocokBerkas[1]), env, pengguna);
+
+  // --- Tautan berbagi ---
+  if (jalur === '/api/bagi' && req.method === 'GET') return daftarTautanBagi(env, pengguna);
+  if (jalur === '/api/bagi' && req.method === 'POST') return buatTautanBagi(req, env, pengguna);
+  const cocokBagi = jalur.match(/^\/api\/bagi\/([\w-]+)$/);
+  if (cocokBagi && req.method === 'DELETE') {
+    if (!bolehUbahKunci(pengguna)) return galat('Hanya Admin/Supervisor.', 403);
+    await env.DB.prepare('UPDATE tautan_bagi SET aktif = 0 WHERE token = ?1').bind(cocokBagi[1]).run();
+    return json({ ok: true });
+  }
+
+  // --- Tim & pengaturan ---
+  if (jalur === '/api/tim' && req.method === 'GET') return daftarTim(env);
+  const cocokProfilTim = jalur.match(/^\/api\/tim\/([\w-]+)\/profil$/);
+  if (cocokProfilTim && req.method === 'GET') return profilAnggota(cocokProfilTim[1], env);
+  if (jalur === '/api/tim' && req.method === 'POST') return tambahTim(req, env, pengguna);
+  // Admin mengosongkan password anggota; login berikutnya membuat password baru dengan kode undangan.
+  const cocokReset = jalur.match(/^\/api\/tim\/([\w-]+)\/reset-password$/);
+  if (cocokReset && req.method === 'POST') {
+    if (!adalahAdmin(pengguna)) return galat('Hanya Admin yang boleh mereset password.', 403);
+    if (cocokReset[1] === pengguna.id) return galat('Password akun sendiri tidak bisa direset dari sini.', 400);
+    const r = await env.DB.prepare('UPDATE tim SET password_hash = NULL WHERE id = ?1').bind(cocokReset[1]).run();
+    if (!r.meta.changes) return galat('Anggota tidak ditemukan.', 404);
+    await env.DB.prepare('DELETE FROM sesi WHERE user_id = ?1').bind(cocokReset[1]).run();
+    return json({ ok: true, pesan: 'Password direset. Anggota membuat password baru saat login berikutnya dengan kode undangan.' });
+  }
+  const cocokTim = jalur.match(/^\/api\/tim\/([\w-]+)$/);
+  if (cocokTim && req.method === 'PATCH') return ubahTim(cocokTim[1], req, env, pengguna);
+  if (jalur === '/api/pengaturan' && req.method === 'GET') return daftarPengaturan(env, pengguna);
+  if (jalur === '/api/pengaturan' && req.method === 'POST') return simpanPengaturan(req, env, pengguna);
+
+  // --- WhatsApp ---
+  if (jalur === '/api/wa/uji' && req.method === 'POST') return ujiWa(req, env, pengguna);
+  if (jalur === '/api/wa/status' && req.method === 'GET') {
+    if (!adalahAdmin(pengguna)) return galat('Hanya Admin.', 403);
+    return json(await statusWa(env));
+  }
+  if (jalur === '/api/wa/grup' && req.method === 'GET') {
+    if (!adalahAdmin(pengguna)) return galat('Hanya Admin.', 403);
+    return json(await daftarGrupWa(env, url.searchParams.get('segarkan') === '1'));
+  }
+  if (jalur === '/api/wa/antrean' && req.method === 'GET') {
+    const { results } = await env.DB.prepare(
+      `SELECT id, tujuan, jenis, status, percobaan, galat, kirim_pada, substr(isi,1,90) AS cuplikan
+         FROM pesan_wa ORDER BY id DESC LIMIT 50`,
+    ).all();
+    return json({ antrean: results });
+  }
+
+  return galat('Rute tidak ditemukan: ' + jalur, 404);
+}
 
 // ============================================================
 // Auth
@@ -667,6 +705,14 @@ async function buatPica(req: Request, env: Env, pengguna: Pengguna): Promise<Res
     jenis: 'buat',
     pica: { id, nomor, judul: b.judul, bidang: b.bidang, status: b.status ?? 'Open' },
   });
+  await beriXp(env, pengguna, 'pica_buat', id, { pelaku: pengguna });
+  if (b.pic_id && b.pic_id !== pengguna.id) {
+    await kirimSuratSistem(env, b.pic_id, {
+      jenis: 'pica_baru', judul: `PICA baru untuk Anda: ${b.judul_singkat || b.judul}`,
+      isi: `${pengguna.nama} menunjuk Anda sebagai PIC${b.due_date ? ` · tenggat ${b.due_date}` : ''}.`,
+      tautan: { jenis: 'pica', id, label: String(b.judul_singkat || b.judul).slice(0, 120) },
+    });
+  }
 
   return json({ id, nomor }, 201);
 }
@@ -838,7 +884,26 @@ async function ubahPica(id: string, req: Request, env: Env, pengguna: Pengguna):
   );
   await env.DB.batch(batch);
 
+  // Kotak Surat: PIC baru ditunjuk; PIC diberi tahu perubahan status oleh orang lain.
+  const picBaru = perubahan.find((p) => p.kolom === 'pic_id')?.ke;
+  const labelPica = String(lama.judul_singkat || lama.judul).slice(0, 120);
+  if (picBaru && picBaru !== pengguna.id) {
+    await kirimSuratSistem(env, String(picBaru), {
+      jenis: 'pica_baru', judul: `Anda ditunjuk sebagai PIC: ${labelPica}`,
+      isi: `${pengguna.nama} menunjuk Anda sebagai penanggung jawab PICA ini.`, tautan: { jenis: 'pica', id, label: labelPica },
+    });
+  }
   const statusUbah = perubahan.find((p) => p.kolom === 'status');
+  const picSekarang = String(picBaru ?? lama.pic_id ?? '') || null;
+  if (statusUbah && picSekarang && picSekarang !== pengguna.id) {
+    const ke = String(statusUbah.ke);
+    await kirimSuratSistem(env, picSekarang, {
+      jenis: 'pica_status',
+      judul: ke === 'Closed' ? `PICA Anda ditutup: ${labelPica}` : `Status PICA Anda: ${String(statusUbah.dari)} → ${ke}`,
+      isi: `${pengguna.nama} mengubah status${alasan ? ` · ${alasan}` : ''}.`,
+      tautan: { jenis: 'pica', id, label: labelPica },
+    });
+  }
   if (statusUbah) {
     await kirimNotifikasiAktivitasPica(env, pengguna, {
       jenis: 'status',
@@ -847,9 +912,35 @@ async function ubahPica(id: string, req: Request, env: Env, pengguna: Pengguna):
       statusBaru: String(statusUbah.ke),
       catatan: alasan,
     });
+
+    // XP: mulai dikerjakan, ajukan verifikasi, dan penutupan (PIC + verifikator).
+    const ke = String(statusUbah.ke);
+    if (ke === 'In Progress') await beriXp(env, pengguna, 'pica_mulai', id, { pelaku: pengguna });
+    if (ke === 'Verifikasi') await beriXp(env, pengguna, 'pica_ajukan', id, { pelaku: pengguna });
+    if (ke === 'Closed') {
+      const nilaiBaru = (kolom: string) => perubahan.find((p) => p.kolom === kolom)?.ke;
+      const pic = String(nilaiBaru('pic_id') ?? lama.pic_id ?? '') || null;
+      const tenggat = String(nilaiBaru('due_date') ?? lama.due_date ?? '') || null;
+      await hadiahTutupPica(env, pengguna, id, pic, tenggat);
+    }
   }
 
   return json({ ok: true, perubahan: perubahan.length });
+}
+
+/** PICA ditutup: PIC mendapat XP penutupan (+ tepat waktu), yang memverifikasi mendapat XP verifikasi. */
+async function hadiahTutupPica(env: Env, pengguna: Pengguna, id: string, pic: string | null, tenggat: string | null): Promise<void> {
+  if (pic) {
+    await beriXp(env, pic, 'pica_tutup', id, { pelaku: pengguna });
+    if (tenggat && tanggalWita() <= tenggat) await beriXp(env, pic, 'pica_tepat_waktu', id, { pelaku: pengguna });
+  }
+  if (pengguna.id !== pic) await beriXp(env, pengguna, 'pica_verifikasi', id, { pelaku: pengguna });
+  // Pemburu PICA (PIC) dan Penyelamat Tim (yang membantu PICA telat orang lain).
+  await periksaPrestasi(env, pic, pengguna);
+  const { results: penolong } = await env.DB.prepare(
+    `SELECT DISTINCT oleh FROM pica_update WHERE pica_id = ?1 AND oleh IS NOT NULL AND oleh <> COALESCE(?2, '')`,
+  ).bind(id, pic).all<{ oleh: string }>();
+  for (const r of penolong) await periksaPrestasi(env, r.oleh, pengguna);
 }
 
 async function hapusPica(id: string, env: Env, pengguna: Pengguna): Promise<Response> {
@@ -889,6 +980,9 @@ async function tambahUpdate(id: string, req: Request, env: Env, pengguna: Penggu
       pica: picaData,
       catatan: b.catatan,
     });
+    // Catatan bermakna dihargai sekali per PICA per hari.
+    if (b.catatan.trim().length >= 15) await beriXp(env, pengguna, 'pica_update', `${id}:${tanggalWita()}`, { pelaku: pengguna });
+    await jawabMintaProgres(env, pengguna, id, b.catatan);
   }
 
   return json({ ok: true }, 201);
@@ -1120,6 +1214,7 @@ async function buatPengumuman(req: Request, env: Env, pengguna: Pengguna): Promi
       });
     }
   }
+  await beriXp(env, pengguna, 'info_buat', id, { pelaku: pengguna });
 
   return json({ id }, 201);
 }
@@ -1178,6 +1273,7 @@ async function buatJadwal(req: Request, env: Env, pengguna: Pengguna): Promise<R
       b.ingatkan_menit ? Number(b.ingatkan_menit) : null,
     )
     .run();
+  await beriXp(env, pengguna, 'jadwal_buat', id, { pelaku: pengguna });
 
   return json({ id }, 201);
 }
@@ -1214,6 +1310,10 @@ async function ubahJadwal(id: string, req: Request, env: Env, pengguna: Pengguna
 
   const set = kolom.map((k, i) => `${k} = ?${i + 2}`).join(', ');
   await env.DB.prepare(`UPDATE jadwal SET ${set} WHERE id = ?1`).bind(id, ...kolom.map((k) => b[k] ?? null)).run();
+  // XP bila diselesaikan paling lambat pada tanggalnya.
+  if (b.selesai === 1 && !lama.selesai && tanggalWita() <= String(lama.tanggal_selesai ?? lama.tanggal)) {
+    await beriXp(env, pengguna, 'jadwal_selesai', `${id}:${lama.tanggal}`, { pelaku: pengguna });
+  }
   // Centang di Kalender dicerminkan ke teks memo asalnya.
   if (lama.memo_id && 'selesai' in b) {
     await cerminkanJadwalKeMemo(env, { memo_id: lama.memo_id, judul: lama.judul, tanggal: lama.tanggal, jam_mulai: lama.jam_mulai }, { selesai: Boolean(b.selesai) });
@@ -1239,7 +1339,6 @@ async function daftarLaporan(env: Env): Promise<Response> {
 async function buatLaporan(req: Request, env: Env, pengguna: Pengguna): Promise<Response> {
   const b = (await req.json()) as Record<string, any>;
   const capaian = Number(b.capaian ?? 0);
-  const xp = 500 + Math.floor(capaian * 10);
   const id = idBaru('lap');
 
   await env.DB.prepare(
@@ -1247,7 +1346,7 @@ async function buatLaporan(req: Request, env: Env, pengguna: Pengguna): Promise<
      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)`,
   )
     .bind(id, pengguna.id, b.pica_id ?? null, b.jenis ?? 'Pekerjaan Rutin', capaian,
-          b.satuan ?? 'ha', b.catatan ?? '', b.lat ?? null, b.lon ?? null, xp)
+          b.satuan ?? 'ha', b.catatan ?? '', b.lat ?? null, b.lon ?? null, 0)
     .run();
 
   // Capaian dijumlah di server: dua orang melapor bersamaan tidak saling menimpa.
@@ -1282,6 +1381,13 @@ async function buatLaporan(req: Request, env: Env, pengguna: Pengguna): Promise<
     }
   }
 
+  // XP dihitung di server (aturan FEED); foto laporan dihargai saat diunggah.
+  let xp = await beriXp(env, pengguna, 'laporan_kirim', id, { pelaku: pengguna });
+  if (capaian > 0) xp += await beriXp(env, pengguna, 'laporan_capaian', id, { pelaku: pengguna });
+  if (b.pica_id) xp += await beriXp(env, pengguna, 'laporan_pica', id, { pelaku: pengguna });
+  if (jamWita() < '12:00') xp += await beriXp(env, pengguna, 'laporan_pagi', tanggalWita(), { pelaku: pengguna });
+  if (xp > 0) await env.DB.prepare('UPDATE laporan SET xp = ?2 WHERE id = ?1').bind(id, xp).run();
+
   return json({ id, xp }, 201);
 }
 
@@ -1301,17 +1407,22 @@ async function unggahLampiran(req: Request, env: Env, pengguna: Pengguna): Promi
 
   // Foto laporan lapangan (termasuk yang dilengkapi belakangan dari LOG) hanya boleh
   // ditambahkan pembuat laporan, Admin, atau Supervisor.
+  let pemilikLaporan: { user_id: string; dibuat_pada: string } | null = null;
   if (entitas === 'laporan') {
-    const lap = await env.DB.prepare('SELECT user_id FROM laporan WHERE id = ?1').bind(entitasId).first<{ user_id: string }>();
+    const lap = await env.DB.prepare('SELECT user_id, dibuat_pada FROM laporan WHERE id = ?1').bind(entitasId).first<{ user_id: string; dibuat_pada: string }>();
     if (!lap) return galat('Laporan tidak ditemukan.', 404);
+    pemilikLaporan = lap;
     if (lap.user_id !== pengguna.id && pengguna.peran !== 'admin' && pengguna.peran !== 'supervisor') {
       return galat('Hanya pembuat laporan, Admin, atau Supervisor yang boleh menambah foto laporan ini.', 403);
     }
   }
 
+  // Lampiran pesan Kotak Surat: disimpan atas nama pengunggahnya sendiri.
+  if (entitas === 'pesan' && entitasId !== pengguna.id) return galat('Lampiran pesan hanya atas nama Anda sendiri.', 403);
+
   // Gambar dan berkas memo: hanya yang berhak mengubah memo itu (aturan sama dengan /api/memo/:id).
   if (entitas === 'memo') {
-    const memo = await env.DB.prepare('SELECT user_id, lingkup, akses FROM memo WHERE id = ?1 AND dihapus_pada IS NULL').bind(entitasId).first<{ user_id: string; lingkup: string; akses: string | null }>();
+    const memo = await env.DB.prepare('SELECT user_id, lingkup, akses, izin FROM memo WHERE id = ?1 AND dihapus_pada IS NULL').bind(entitasId).first<{ user_id: string; lingkup: string; akses: string | null; izin: string | null }>();
     const hak = memo ? hakMemo(memo, pengguna) : null;
     if (!memo || !hak) return galat('Memo tidak ditemukan.', 404);
     if (hak === 'baca') return galat('Memo ini diatur "Baca saja" oleh pembuatnya.', 403);
@@ -1340,13 +1451,49 @@ async function unggahLampiran(req: Request, env: Env, pengguna: Pengguna): Promi
         pica: picaData,
         namaBerkas: berkas.name,
       });
+      await beriXp(env, pengguna, 'pica_bukti', `${entitasId}:${tanggalWita()}`, { pelaku: pengguna });
     }
+  }
+
+  // Foto laporan: hari yang sama = foto laporan; hari sesudahnya (dari LOG) = melengkapi foto.
+  if (pemilikLaporan && (berkas.type || '').startsWith('image/')) {
+    const hariLaporan = tanggalWita(new Date(isoDari(pemilikLaporan.dibuat_pada)));
+    await beriXp(env, pemilikLaporan.user_id, hariLaporan === tanggalWita() ? 'laporan_foto' : 'laporan_foto_susulan', entitasId, { pelaku: pengguna });
+    await periksaPrestasi(env, pemilikLaporan.user_id, pengguna);
   }
 
   return json({ id, kunci, url: `/api/berkas/${encodeURIComponent(kunci)}` }, 201);
 }
 
-async function ambilBerkas(kunci: string, env: Env): Promise<Response> {
+/**
+ * Siapa boleh mengambil berkas: lampiran memo mengikuti hak memo (memo pribadi/rahasia
+ * orang lain tertutup), berkas Folder Dokumen pribadi hanya pemiliknya, lampiran pesan
+ * hanya pengirim/penerimanya. Lampiran lain (PICA, laporan, profil, …) milik tim.
+ */
+async function bolehAmbilBerkas(env: Env, pengguna: Pengguna, kunci: string): Promise<boolean> {
+  const [jenis, id] = kunci.split('/');
+  if (jenis === 'memo' && id) {
+    const memo = await env.DB.prepare('SELECT user_id, lingkup, akses, izin FROM memo WHERE id = ?1')
+      .bind(id).first<{ user_id: string; lingkup: string; akses: string | null; izin: string | null }>();
+    return !memo || Boolean(hakMemo(memo, pengguna));
+  }
+  if (jenis === 'dok') {
+    const b = await env.DB.prepare('SELECT lingkup, user_id FROM berkas_dok WHERE kunci = ?1').bind(kunci).first<{ lingkup: string; user_id: string }>();
+    return !b || b.lingkup !== 'pribadi' || b.user_id === pengguna.id;
+  }
+  if (jenis === 'pesan') {
+    if (id === pengguna.id) return true;
+    const r = await env.DB.prepare(
+      `SELECT 1 FROM pesan p LEFT JOIN pesan_penerima r ON r.pesan_id = p.id
+        WHERE instr(COALESCE(p.lampiran, ''), ?1) > 0 AND (p.pengirim = ?2 OR r.user_id = ?2) LIMIT 1`,
+    ).bind(kunci, pengguna.id).first();
+    return Boolean(r);
+  }
+  return true;
+}
+
+async function ambilBerkas(kunci: string, env: Env, pengguna: Pengguna): Promise<Response> {
+  if (!(await bolehAmbilBerkas(env, pengguna, kunci))) return galat('Berkas tidak ditemukan.', 404);
   const objek = await env.BUKET.get(kunci);
   if (!objek) return galat('Berkas tidak ditemukan.', 404);
 
@@ -1466,6 +1613,8 @@ async function daftarTim(env: Env): Promise<Response> {
   const hariIni = tanggalWita();
   const { results } = await env.DB.prepare(
     `SELECT t.id, t.nama, t.jabatan, t.bidang, t.peran, t.aktif, t.foto,
+            (SELECT COALESCE(g.skin_aktif, 'classic') FROM profil_game g WHERE g.user_id = t.id) AS skin_aktif,
+            (SELECT g.level FROM profil_game g WHERE g.user_id = t.id) AS level,
             CASE WHEN t.wa IS NULL OR t.wa = '' THEN 0 ELSE 1 END AS punya_wa,
             (SELECT COUNT(*) FROM pica p WHERE p.pic_id = t.id AND p.dihapus = 0 AND p.status <> 'Closed') AS pica_terbuka,
             (SELECT COUNT(*) FROM pica p WHERE p.pic_id = t.id AND p.dihapus = 0 AND p.status <> 'Closed' AND p.due_date < ?1) AS pica_telat,
@@ -1750,6 +1899,7 @@ async function jalankanTerjadwal(env: Env): Promise<void> {
   if (Number(jam.split(':')[1]) < 15) {
     try {
       await bersihkanSampahMemo(env);
+      await bersihkanKotakSurat(env);
     } catch (e) {
       console.error('Pembersihan Sampah memo gagal:', e);
     }
@@ -1778,7 +1928,7 @@ async function profilAnggota(id: string, env: Env): Promise<Response> {
   if (!anggota) return galat('Anggota tidak ditemukan.', 404);
 
   const [profil, pica, roster, memo, laporan] = await Promise.all([
-    env.DB.prepare('SELECT xp, level, luas_tanam, stamina, terakhir_aktif FROM profil_game WHERE user_id = ?1').bind(id).first(),
+    env.DB.prepare('SELECT xp, level, luas_tanam, stamina, terakhir_aktif, skin_aktif FROM profil_game WHERE user_id = ?1').bind(id).first(),
     env.DB.prepare(
       `SELECT id, judul, status, due_date, bidang FROM pica
         WHERE pic_id = ?1 AND dihapus = 0 AND status <> 'Closed'

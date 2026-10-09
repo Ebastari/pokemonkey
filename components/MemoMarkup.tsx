@@ -7,6 +7,9 @@ import { GrafikReklamasi } from './GrafikReklamasi';
 import type { AnggotaRingkas } from '../lib/tipe-api';
 import { useFotoProfil } from '../lib/foto';
 import { unduhBerkasMemo } from '../lib/memo-gambar';
+import { bacaAngka, formatNilai, hitungKolom, LABEL_HITUNG, terapkanRumus, tercentang } from '../lib/rumus-tabel';
+import type { FungsiHitung, KolomTabel } from '../server/src/memo-blok';
+import { BlokFormulir } from './BlokFormulir';
 import * as W from '../lib/waktu';
 import { infoHalaman, type PetaHalaman } from '../lib/memo-dom';
 import { KartuDataLapangan } from './KartuDataLapangan';
@@ -242,8 +245,14 @@ export const TabelBaca: React.FC<{
   kepala: boolean;
   pica?: InfoPicaLive;
   grafik?: OpsiGrafikTabel;
-} & Konteks> = ({ baris, kepala, pica, grafik, ...ctx }) => {
-  const [dataBaris, setDataBaris] = useState(baris);
+  /** Tipe kolom (ceklis, rupiah, rumus, …) dan baris hitung di bawah tabel. */
+  kolom?: (KolomTabel | null)[];
+  hitung?: (FungsiHitung | null)[];
+} & Konteks> = ({ baris, kepala, pica, grafik, kolom, hitung, ...ctx }) => {
+  const [dataBarisMentah, setDataBaris] = useState(baris);
+  const adaTipe = Boolean(kolom?.some(Boolean));
+  // Kolom rumus dihitung saat tampil.
+  const dataBaris = useMemo(() => terapkanRumus(dataBarisMentah, kepala, kolom), [dataBarisMentah, kepala, kolom]);
 
   const infoProgres = useMemo(() => hitungRingkasanTabel(dataBaris), [dataBaris]);
   const lebarKolom = useMemo(() => lebarKolomTabel(dataBaris), [dataBaris]);
@@ -331,8 +340,26 @@ export const TabelBaca: React.FC<{
                     );
                   }
 
+                  // Kolom bertipe Ceklis: kotak centang (baca saja).
+                  if ((kepala ? i > 0 : true) && kolom?.[j]?.t === 'ceklis') {
+                    return (
+                      <td key={j} className="border-2 border-white/20 px-1.5 py-1 align-middle text-center bg-white/[0.02]">
+                        <span className={`inline-flex w-4 h-4 border-2 items-center justify-center text-[11px] ${tercentang(c) ? 'bg-lime-500 border-lime-300 text-black' : 'border-white/40'}`}>{tercentang(c) ? '✓' : ''}</span>
+                      </td>
+                    );
+                  }
+                  // Sel angka bertipe (rupiah, persen, rumus): rata kanan.
+                  if ((kepala ? i > 0 : true) && (kolom?.[j]?.t === 'rupiah' || kolom?.[j]?.t === 'persen' || kolom?.[j]?.t === 'angka' || kolom?.[j]?.t === 'rumus')) {
+                    const n = bacaAngka(c);
+                    return (
+                      <td key={j} className={`border-2 border-white/20 px-2.5 py-1.5 align-top text-right tabular-nums ${c.startsWith('#galat') ? 'text-red-300' : kolom?.[j]?.t === 'rumus' ? 'text-sky-500 font-bold' : 'text-zinc-100'}`}>
+                        {n !== null && kolom?.[j]?.t !== 'rumus' ? formatNilai(n, kolom?.[j]?.t) : c}
+                      </td>
+                    );
+                  }
+
                   // Sel Ceklis Interaktif (pada kolom status)
-                  if (i > 0 && infoProgres && j === infoProgres.idxStatus) {
+                  if (!adaTipe && i > 0 && infoProgres && j === infoProgres.idxStatus) {
                     return (
                       <td key={j} className="border-2 border-white/20 px-1.5 py-1 align-middle text-center bg-white/[0.02]">
                         <LencanaStatus
@@ -369,6 +396,19 @@ export const TabelBaca: React.FC<{
                 })}
               </tr>
             ))}
+            {hitung?.some(Boolean) && (
+              <tr className="bg-white/[0.05]">
+                {dataBaris[0].map((_, j) => {
+                  const f = hitung[j];
+                  const nilai = dataBaris.slice(kepala ? 1 : 0).map((r) => r[j] ?? '');
+                  return (
+                    <td key={j} className="border-2 border-white/20 px-2.5 py-1 text-right text-[12px] tabular-nums">
+                      {f && <><span className="text-zinc-500 mr-1">{LABEL_HITUNG[f]}</span><b className="text-lime-300">{hitungKolom(nilai, f, kolom?.[j]?.t)}</b></>}
+                    </td>
+                  );
+                })}
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -441,12 +481,15 @@ const BlokMemo: React.FC<{
         kepala={b.kepala}
         pica={b.pica}
         grafik={b.grafik}
+        kolom={b.kolom}
+        hitung={b.hitung}
         {...ctx}
       />
     );
     case 'data': return <KartuDataLapangan blok={b} />;
     case 'berkas': return <BerkasMemo kunci={b.kunci} nama={b.nama} blok />;
     case 'kosong': return <div className="h-2" />;
+    case 'formulir': return <BlokFormulir id={b.id} judul={b.judul} notify={() => undefined} />;
     default: return <p className="text-zinc-100 py-[3px]"><TeksInline teks={b.teks} {...ctx} /></p>;
   }
 };

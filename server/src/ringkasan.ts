@@ -89,21 +89,24 @@ export function susunNotifPagi(p: {
 }
 
 /** 12.00 — pengumuman yang belum dibaca pemakai. */
-export function susunNotifSiang(p: { belum: { judul: string; penting?: number | boolean }[] }): NotifSiap {
+export function susunNotifSiang(p: { belum: { judul: string; penting?: number | boolean }[]; surat?: number }): NotifSiap {
   const penting = p.belum.filter((x) => x.penting);
   const urut = [...penting, ...p.belum.filter((x) => !x.penting)];
   const baris = urut.slice(0, 3).map((x) => `${x.penting ? 'PENTING · ' : ''}${potong(x.judul, 60)}`);
   if (urut.length > 3) baris.push(`+${urut.length - 3} lainnya`);
+  // Surat biasa di Kotak Surat ikut ringkasan siang (surat Penting sudah langsung dikirim).
+  const surat = p.surat ?? 0;
+  if (surat > 0) baris.push(`✉ ${surat} surat belum dibaca di Kotak Surat`);
 
   return {
     slot: 'siang',
     judul: p.belum.length > 0
       ? `Info: ${p.belum.length} pengumuman belum dibaca${penting.length ? ` (${penting.length} penting)` : ''}`
-      : 'Semua pengumuman sudah dibaca',
+      : surat > 0 ? `Kotak Surat: ${surat} surat belum dibaca` : 'Semua pengumuman sudah dibaca',
     isi: baris.join('\n'),
-    jumlah: p.belum.length,
-    tampil: p.belum.length > 0,
-    tab: 'pengumuman',
+    jumlah: p.belum.length + surat,
+    tampil: p.belum.length > 0 || surat > 0,
+    tab: p.belum.length > 0 ? 'pengumuman' : 'habitat',
   };
 }
 

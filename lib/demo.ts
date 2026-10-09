@@ -9,6 +9,7 @@
  */
 
 import { GalatApi } from './galat';
+import { rutePlusDemo, kabariIzinDemo, suratSistemDemo, periksaPrestasiDemo, izinMemo, pastikanPanduanDemo } from './demo-plus';
 import { hariIniWita, geserHari, selisihHari, jamWita } from './waktu';
 import { LIBUR_BAWAAN } from './libur';
 import { dataContohDemo, barisContoh, AWALAN_CONTOH } from './demo-contoh';
@@ -22,6 +23,8 @@ import {
   susunJadwalMemo, tandaJadwalMemo, setCentangTugas, lepasTenggatTugas, hakMemo, hanyaCentangTugasSendiri, type BarisJadwalMemo,
   kepalaSampah, pohonMemo, memoKosong, gantiLabelHalaman, HARI_SAMPAH, pisahIndent, rakitTabel,
 } from '../server/src/memo-blok';
+import { ambilTugas } from '../server/src/memo-blok';
+import { beriXpDemo, ruteXpDemo, sahkanSkinDemo } from './demo-xp';
 
 const KUNCI_DEMO = 'pokemonkey_demo';
 const KUNCI_DB = 'pokemonkey_demo_db';
@@ -128,6 +131,8 @@ interface Db {
   misi: Baris[];
   roster: Baris[];
   memo: Baris[];
+  /** Buku besar XP (sama dengan tabel xp_log di server). */
+  xpLog: Baris[];
   /** Dokumen administrasi (sejak 0017): nomor surat, Internal Memo dinas, MoM. */
   /** Alarm tenggat PICA (sejak 0018). */
   picaAlarm: Baris[];
@@ -136,6 +141,18 @@ interface Db {
   mom: Baris[];
   /** Komentar memo (sejak 0029); bisa tidak ada di data demo lama. */
   memoKomentar?: Baris[];
+  /** Putaran 2 (0032): sematan, dilihat, suka, Kotak Surat, Folder Dokumen, Formulir, Prestasi. */
+  memoSematan?: Baris[];
+  memoLihat?: Baris[];
+  memoSuka?: Baris[];
+  pesan?: Baris[];
+  pesanPenerima?: Baris[];
+  kotakSurat?: Baris[];
+  folderDok?: Baris[];
+  berkasDok?: Baris[];
+  formulir?: Baris[];
+  formulirJawaban?: Baris[];
+  prestasi?: Baris[];
   /** Foto profil demo: data URL per user, tidak pernah ke server mana pun. */
   foto: Record<string, string>;
   libur: Baris[];
@@ -215,6 +232,7 @@ function bentukAwal(): Db {
     misi: c.misi,
     roster: c.roster,
     memo: c.memo,
+    xpLog: [],
     picaAlarm: [],
     surat: c.surat,
     memoDinas: [],
@@ -452,6 +470,24 @@ const bacaSebagaiDataUrl = (f: File): Promise<string> =>
     r.readAsDataURL(f);
   });
 
+// ---------- XP dari memo dan roster (tiruan server/src/personal.ts) ----------
+
+function hadiahIsiMemoDemo(d: Db, sayaId: string, memoId: string, isiLama: string, isiBaru: string, hariIni: string): void {
+  if (isiBaru.trim().length >= 50 && isiBaru !== isiLama) beriXpDemo(d, sayaId, 'memo_tulis', `${memoId}:${hariIni}`, sayaId);
+  const selesaiLama = new Set(ambilTugas(isiLama).filter((t) => t.selesai).map((t) => t.judul));
+  const baru = new Set(ambilTugas(isiBaru).filter((t) => t.selesai && t.judul && !selesaiLama.has(t.judul)).map((t) => t.judul));
+  for (const judul of baru) beriXpDemo(d, sayaId, 'memo_ceklis', `${memoId}:${judul.slice(0, 100)}`, sayaId);
+}
+
+function hadiahRosterDemo(d: Db, saya: Baris, dari?: string, sampai?: string): void {
+  if (!dari || !bolehKelola(saya)) return;
+  const hariIni = hariIniWita();
+  if (hariIni.slice(8, 10) > '25') return;
+  const [y, mo] = hariIni.split('-').map(Number);
+  const bulanDepan = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`;
+  if (dari.slice(0, 7) <= bulanDepan && (sampai ?? dari).slice(0, 7) >= bulanDepan) beriXpDemo(d, saya.id, 'roster_tim', bulanDepan, saya.id);
+}
+
 // ---------- Notifikasi & rekap: tiruan server/src/sumber.ts ----------
 
 /** Tanggal WITA dari cap waktu ISO (UTC). */
@@ -548,6 +584,8 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   if (path === '/api/me') return { pengguna: { ...saya, foto: d.foto[saya.id] ?? null } };
 
   if (path === '/api/bootstrap') {
+    // Mode demo tidak memakai sistem hati: membuka aplikasi langsung dihitung hadir.
+    if (beriXpDemo(d, saya.id, 'hadir', hariIni, saya.id)) simpan();
     return {
       pengguna: { ...saya, foto: d.foto[saya.id] ?? null },
       opsi: d.opsi,
@@ -557,6 +595,14 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
       periode: d.periode, pengaturan: d.pengaturan, hariIni,
     };
   }
+
+  // ----- XP & Nilai Keaktifan (tiruan server/src/xp.ts) -----
+  const hasilXp = ruteXpDemo(d, path, method, body, q, saya);
+  if (hasilXp !== null) { simpan(); return hasilXp; }
+
+  // ----- Putaran 2: sosial memo, Kotak Surat, Folder Dokumen, Formulir, Prestasi -----
+  const hasilPlus = await rutePlusDemo(d, path, method, body, q, form, saya, bacaSebagaiDataUrl);
+  if (hasilPlus !== null) { simpan(); return hasilPlus; }
 
   // ----- lapisan kalender (layar + widget) -----
   if (path === "/api/kalender/lapisan" && method === "GET") {
@@ -628,6 +674,8 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
       const isi = { ...body, dibuatPada: body?.dibuatPada ?? kini(), dibuatOleh: saya.id, dibuatOlehNama: saya.nama };
       const ada = dok.daftar().some((x) => x.id === isi.id);
       dok.pasang(ada ? dok.daftar().map((x) => (x.id === isi.id ? isi : x)) : [isi, ...dok.daftar()]);
+      const tabel = jalurDok === '/api/surat' ? 'surat' : jalurDok === '/api/mom' ? 'mom' : 'memo_dinas';
+      beriXpDemo(d, saya.id, 'dokumen_buat', `${tabel}:${isi.id}`, saya.id);
       simpan(); return { ok: true, id: isi.id };
     }
     if (path === jalurDok + '/impor' && method === 'POST') {
@@ -645,6 +693,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
 
   if (path === '/api/profil/foto' && method === 'POST') {
     d.foto[saya.id] = String(body?.foto ?? '');
+    beriXpDemo(d, saya.id, 'profil_foto', 'sekali', saya.id);
     simpan(); return { foto: d.foto[saya.id] };
   }
   if (path === '/api/profil/foto' && method === 'DELETE') {
@@ -657,6 +706,10 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   if (path === '/api/profil' && method === 'POST') {
     const isi = { ...body };
     if ('status_teks' in isi) isi.status_teks = String(isi.status_teks ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) || null;
+    // XP dan level dihitung buku besar XP; skin baru hanya diterima bila saldo cukup (sama dengan server).
+    delete isi.xp; delete isi.level; delete isi.xp_terpakai;
+    if ('skin_dimiliki' in isi) isi.skin_dimiliki = sahkanSkinDemo(d, saya.id, isi.skin_dimiliki);
+    if (isi.skin_aktif && !sahkanSkinDemo(d, saya.id, []).includes(isi.skin_aktif)) delete isi.skin_aktif;
     d.profil[saya.id] = { ...(d.profil[saya.id] ?? { user_id: saya.id, xp: 0, level: 1, skin_aktif: 'classic', skin_dimiliki: ['classic'], luas_tanam: 0 }), ...isi, terakhir_aktif: kini() };
     simpan(); return { ok: true };
   }
@@ -680,12 +733,16 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   }
   if ((m = path.match(/^\/api\/misi\/([\w-]+)\/tambah$/))) {
     const s = d.misi.find((x) => x.id === m![1]);
+    const statusSebelum = s?.status;
     if (s) {
       s.current = Math.min(Number(body.target ?? s.target), s.current + Number(body.nilai ?? 0));
       if (s.current >= Number(body.target ?? s.target)) s.status = 'COMPLETED';
     }
     const p = d.profil[saya.id];
-    if (p) { p.xp += Math.floor(body.xp ?? 0); p.level = Math.floor(p.xp / 1000) + 1; p.luas_tanam += Number(body.luas ?? 0); }
+    if (p) p.luas_tanam = Number(p.luas_tanam ?? 0) + Number(body.luas ?? 0);
+    if (s && s.status === 'COMPLETED' && statusSebelum !== 'COMPLETED') {
+      for (const t of d.tim) if (t.aktif !== 0 && t.peran !== 'pemantau') beriXpDemo(d, t.id, 'quest_selesai', s.id, saya.id);
+    }
     simpan(); return { ok: true, misi: s };
   }
   if ((m = path.match(/^\/api\/misi\/([\w-]+)$/))) {
@@ -706,6 +763,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     if (!bolehKelola(saya) && body.user_id !== saya.id) gagal('Hanya boleh mengubah roster sendiri.', 403);
     d.roster = d.roster.filter((r) => !(r.user_id === body.user_id && r.tanggal === body.tanggal));
     if (body.kode) d.roster.push({ user_id: body.user_id, tanggal: body.tanggal, kode: body.kode, catatan: body.catatan ?? null });
+    hadiahRosterDemo(d, saya, body.tanggal);
     simpan(); return { ok: true };
   }
   if (path === '/api/roster/isi' && method === 'POST') {
@@ -725,6 +783,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
         d.roster.push({ user_id: body.user_id, tanggal: t, kode, catatan: null });
         jumlah++;
       }
+      hadiahRosterDemo(d, saya, body.dari, body.sampai);
       simpan(); return { ok: true, jumlah };
     }
     for (let t = body.dari; t <= body.sampai && jumlah < 400; t = geserHari(t, 1)) {
@@ -735,6 +794,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
       d.roster.push({ user_id: body.user_id, tanggal: t, kode: body.kode, catatan: null });
       jumlah++;
     }
+    hadiahRosterDemo(d, saya, body.dari, body.sampai);
     simpan(); return { ok: true, jumlah };
   }
 
@@ -760,36 +820,42 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
 
   // ----- memo: pribadi & Memo Internal tim -----
   if (path === '/api/memo' && method === 'GET') {
-    const lingkup = q.get('lingkup') === 'tim' ? 'tim' : 'pribadi';
+    if (pastikanPanduanDemo(d, saya.id)) simpan();
+    const lingkup = q.get('lingkup') === 'tim' ? 'tim' : q.get('lingkup') === 'rahasia' ? 'rahasia' : 'pribadi';
     const daftar = d.memo
-      .filter((x) => !x.dihapus_pada && (x.lingkup ?? 'pribadi') === lingkup && (lingkup === 'tim' || x.user_id === saya.id))
+      .filter((x) => !x.dihapus_pada && (x.lingkup ?? 'pribadi') === lingkup
+        && (lingkup === 'tim' || x.user_id === saya.id || (lingkup === 'rahasia' && izinMemo(x.izin).includes(saya.id))))
       .map((x): Baris => {
         const p = x.pica_id ? d.pica.find((y) => y.id === x.pica_id) : null;
         return {
           lingkup: 'pribadi', kategori: null, tipe: null, status: null, ringkasan: null, tanggal: null, pica_id: null, props: '{}',
           ...x, penulis: namaTim(d, x.user_id),
           pica_no: p?.no_urut ?? null, pica_judul: p?.judul ?? null, pica_status: p?.status ?? null,
+          sematan_saya: (d.memoSematan ?? []).some((s) => s.memo_id === x.id && s.user_id === saya.id) ? 1 : null,
         };
       })
       .sort((a, b) => (lingkup === 'tim'
         ? String(b.tanggal ?? b.dibuat_pada).localeCompare(String(a.tanggal ?? a.dibuat_pada))
         : (b.disematkan - a.disematkan) || String(b.diubah_pada ?? b.dibuat_pada).localeCompare(String(a.diubah_pada ?? a.dibuat_pada))));
-    return { memo: daftar, lingkup };
+    return { memo: daftar, lingkup, ...(lingkup === 'rahasia' ? { sandi: false } : {}) };
   }
   if (path === '/api/memo' && method === 'POST') {
-    let lingkup = body.lingkup === 'tim' ? 'tim' : 'pribadi';
+    let lingkup = body.lingkup === 'tim' ? 'tim' : body.lingkup === 'rahasia' ? 'rahasia' : 'pribadi';
     let akses = body.akses === 'baca' ? 'baca' : 'edit';
+    let izin: string[] = lingkup === 'rahasia' ? izinMemo(body.izin) : [];
     // Sub-halaman: ikut lingkup & akses induknya; butuh hak edit di induk (sama dengan server).
     let indukId: string | null = null;
     if (typeof body.induk_id === 'string' && body.induk_id) {
       const induk = d.memo.find((y) => y.id === body.induk_id && !y.dihapus_pada) as Baris | undefined;
-      const hakInduk = induk ? hakMemo({ user_id: induk.user_id, lingkup: induk.lingkup ?? 'pribadi', akses: induk.akses }, saya) : null;
+      const hakInduk = induk ? hakMemo({ user_id: induk.user_id, lingkup: induk.lingkup ?? 'pribadi', akses: induk.akses, izin: induk.izin }, saya) : null;
       if (!induk || !hakInduk) gagal('Halaman induk tidak ditemukan.', 404);
       if (hakInduk === 'baca') gagal('Halaman induk diatur "Baca saja": sub-halaman tidak bisa ditambahkan.', 403);
       indukId = induk!.id;
-      lingkup = induk!.lingkup === 'tim' ? 'tim' : 'pribadi';
+      lingkup = induk!.lingkup === 'tim' ? 'tim' : induk!.lingkup === 'rahasia' ? 'rahasia' : 'pribadi';
       if (!('akses' in body)) akses = induk!.akses === 'baca' ? 'baca' : 'edit';
+      if (lingkup === 'rahasia') izin = [...izinMemo(induk!.izin), induk!.user_id];
     }
+    izin = [...new Set(izin)].filter((u) => u && u !== saya.id);
     if (lingkup === 'tim' && saya.peran === 'pemantau') gagal('Peran Pemantau hanya bisa membaca memo tim.', 403);
     const id = idBaru('memo');
     const baru: Baris = {
@@ -798,11 +864,13 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
       tanggal: body.tanggal ?? (lingkup === 'tim' ? hariIni : null), disematkan: 0, warna: body.warna ?? null,
       pica_id: picaSahDemo(d, body.pica_id), props: bersihkanPropsDemo(body.props),
       akses, induk_id: indukId, dihapus_pada: null, dihapus_oleh: null,
-      dibuat_pada: kini(), diubah_pada: null,
+      dibuat_pada: kini(), diubah_pada: null, izin: lingkup === 'rahasia' ? JSON.stringify(izin) : null,
     };
     d.memo.push(baru);
+    if (lingkup === 'rahasia' && !indukId) kabariIzinDemo(d, saya, id, baru.judul, izin);
     if (baru.isi) sinkronJadwalMemoDemo(d, baru);
-    simpan(); return { id, lingkup, akses, induk_id: indukId };
+    if (String(baru.isi).trim().length >= 50) beriXpDemo(d, saya.id, 'memo_tulis', `${id}:${hariIni}`, saya.id);
+    simpan(); return { id, lingkup, akses, induk_id: indukId, izin: lingkup === 'rahasia' ? izin : null };
   }
   // ----- Sampah memo (sama dengan server/src/personal.ts) -----
   if (path === '/api/memo/sampah' && method === 'GET') {
@@ -815,7 +883,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     }
     const terbuang = d.memo.filter((y) => y.dihapus_pada && ((y.lingkup ?? 'pribadi') === 'tim' || y.user_id === saya.id)) as (Baris & { id: string })[];
     const daftar = kepalaSampah(terbuang)
-      .filter((y) => hakMemo({ user_id: y.user_id, lingkup: y.lingkup ?? 'pribadi', akses: y.akses }, saya) === 'penuh')
+      .filter((y) => hakMemo({ user_id: y.user_id, lingkup: y.lingkup ?? 'pribadi', akses: y.akses, izin: y.izin }, saya) === 'penuh')
       .map((y): Baris => {
         const induk = y.induk_id ? d.memo.find((z) => z.id === y.induk_id && !z.dihapus_pada) : null;
         return { ...y, penulis: namaTim(d, y.user_id), penghapus: y.dihapus_oleh ? namaTim(d, y.dihapus_oleh) : null, induk_judul: induk?.judul ?? null };
@@ -825,7 +893,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   }
   if ((m = path.match(/^\/api\/memo\/([\w-]+)\/(pulihkan|permanen)$/))) {
     const x = d.memo.find((y) => y.id === m![1] && y.dihapus_pada) as Baris | undefined;
-    const hak = x ? hakMemo({ user_id: x.user_id, lingkup: x.lingkup ?? 'pribadi', akses: x.akses }, saya) : null;
+    const hak = x ? hakMemo({ user_id: x.user_id, lingkup: x.lingkup ?? 'pribadi', akses: x.akses, izin: x.izin }, saya) : null;
     if (!x || !hak) gagal('Memo tidak ada di Sampah.', 404);
     if (hak !== 'penuh') gagal('Hanya pembuat memo, Supervisor, atau Admin yang boleh mengatur memo ini di Sampah.', 403);
     if (m[2] === 'pulihkan' && method === 'POST') {
@@ -904,7 +972,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   // ----- Komentar memo (sama dengan server/src/personal.ts ruteKomentar) -----
   if ((m = path.match(/^\/api\/memo\/([\w-]+)\/komentar(?:\/([\w-]+))?$/))) {
     const x = d.memo.find((y) => y.id === m![1] && !y.dihapus_pada) as Baris | undefined;
-    const hak = x ? hakMemo({ user_id: x.user_id, lingkup: x.lingkup ?? 'pribadi', akses: x.akses }, saya) : null;
+    const hak = x ? hakMemo({ user_id: x.user_id, lingkup: x.lingkup ?? 'pribadi', akses: x.akses, izin: x.izin }, saya) : null;
     if (!x || !hak) gagal('Memo tidak ditemukan.', 404);
     d.memoKomentar ??= [];
     const kid = m[2];
@@ -923,6 +991,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
       const kutipan = !induk && typeof body.kutipan === 'string' && body.kutipan.trim() ? body.kutipan.trim().slice(0, 300) : null;
       const baru: Baris = { id: idBaru('kom'), memo_id: x!.id, induk_id: induk, user_id: saya.id, kutipan, isi, selesai: 0, dibuat_pada: kini(), diubah_pada: null };
       d.memoKomentar.push(baru);
+      beriXpDemo(d, saya.id, 'memo_komentar', baru.id, saya.id);
       simpan(); return { ...baru, nama: namaTim(d, saya.id) };
     }
     const k = d.memoKomentar.find((y) => y.id === kid && y.memo_id === x!.id);
@@ -947,7 +1016,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   }
   if ((m = path.match(/^\/api\/memo\/([\w-]+)$/))) {
     const x = d.memo.find((y) => y.id === m![1] && !y.dihapus_pada) as Baris | undefined;
-    const hak = x ? hakMemo({ user_id: x.user_id, lingkup: x.lingkup ?? 'pribadi', akses: x.akses }, saya) : null;
+    const hak = x ? hakMemo({ user_id: x.user_id, lingkup: x.lingkup ?? 'pribadi', akses: x.akses, izin: x.izin }, saya) : null;
     if (!x || !hak) gagal('Memo tidak ditemukan.', 404);
     if (method === 'GET') {
       const pc = x!.pica_id ? d.pica.find((y) => y.id === x!.pica_id) : null;
@@ -980,6 +1049,17 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
       gagal('Memo ini diatur "Baca saja" oleh pembuatnya. Anda hanya bisa mencentang tugas Anda sendiri.', 403);
     }
     if ('akses' in body && hak !== 'penuh') gagal('Hanya pembuat memo, Supervisor, atau Admin yang boleh mengatur akses.', 403);
+    if ('izin' in body) {
+      if (x!.lingkup !== 'rahasia') gagal('Daftar orang yang dituju hanya untuk memo rahasia.');
+      if (hak !== 'penuh') gagal('Hanya pembuat memo rahasia yang boleh mengatur siapa yang dituju.', 403);
+      const lama = izinMemo(x!.izin);
+      const baru = [...new Set(izinMemo(body.izin))].filter((u) => u !== x!.user_id);
+      x!.izin = JSON.stringify(baru);
+      for (const y of pohonMemo(d.memo as (Baris & { id: string })[], x!.id)) if (y.id !== x!.id) y.izin = JSON.stringify([...baru, x!.user_id]);
+      kabariIzinDemo(d, saya, x!.id, String(x!.judul ?? ''), baru.filter((u) => !lama.includes(u)));
+      delete body.izin;
+    }
+    const isiLama = String(x!.isi ?? '');
     for (const k of ['judul', 'isi', 'disematkan', 'warna', 'ringkasan', 'kategori', 'tipe', 'status', 'tanggal', 'pica_id', 'props', 'akses']) {
       if (!(k in body)) continue;
       x![k] = k === 'disematkan' ? (body[k] ? 1 : 0) : k === 'pica_id' ? picaSahDemo(d, body[k]) : k === 'props' ? bersihkanPropsDemo(body[k])
@@ -988,6 +1068,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     x!.diubah_pada = kini();
     if ('isi' in body || 'judul' in body) sinkronJadwalMemoDemo(d, x!);
     if (typeof body.judul === 'string') for (const y of d.memo) y.isi = gantiLabelHalaman(String(y.isi ?? ''), x!.id, body.judul);
+    if (typeof body.isi === 'string') hadiahIsiMemoDemo(d, saya.id, x!.id, isiLama, body.isi, hariIni);
     simpan(); return { ok: true, diubah_pada: x!.diubah_pada };
   }
 
@@ -1013,12 +1094,17 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     const no_urut = Math.max(0, ...d.pica.map((p) => Number(p.no_urut) || 0)) + 1;
     d.pica.push({ id, nomor, no_urut, periode_id: periode, bidang: body.bidang, prioritas: body.prioritas ?? 'Sedang', judul: body.judul, akar: body.akar ?? null, tindakan: body.tindakan ?? null, pic_id: body.pic_id ?? null, due_date: body.due_date ?? null, status: body.status ?? 'Open', terkait_id: body.terkait_id ?? null, target: body.target ?? null, realisasi: body.realisasi ?? null, satuan: body.satuan ?? null, terkunci: 0, props: body.props ?? {}, ditutup_pada: null, dibuat_oleh: saya.id, dibuat_pada: kini(), diubah_oleh: null, diubah_pada: null, dihapus: 0 });
     d.riwayat.push({ id: ++d.urut, pica_id: id, kolom: 'dibuat', nilai_lama: null, nilai_baru: body.judul, alasan: null, oleh: saya.id, pada: kini() });
+    beriXpDemo(d, saya.id, 'pica_buat', id, saya.id);
+    if (body.pic_id && body.pic_id !== saya.id) {
+      suratSistemDemo(d, body.pic_id, { jenis: 'pica_baru', judul: `PICA baru untuk Anda: ${body.judul}`, isi: `${saya.nama} menunjuk Anda sebagai PIC${body.due_date ? ` · tenggat ${body.due_date}` : ''}.`, tautan: { jenis: 'pica', id, label: String(body.judul).slice(0, 120) } });
+    }
     simpan(); return { id, nomor };
   }
   if ((m = path.match(/^\/api\/pica\/([\w-]+)\/update$/))) {
     if (!body.catatan) gagal('Catatan perkembangan tidak boleh kosong.');
     d.updates.push({ id: ++d.urut, pica_id: m[1], periode_id: d.pengaturan.periode_aktif, catatan: body.catatan, realisasi: body.realisasi ?? null, oleh: saya.id, pada: kini() });
     if (typeof body.realisasi === 'number') { const p = d.pica.find((x) => x.id === m![1]); if (p) p.realisasi = body.realisasi; }
+    if (String(body.catatan).trim().length >= 15) beriXpDemo(d, saya.id, 'pica_update', `${m[1]}:${hariIni}`, saya.id);
     simpan(); return { ok: true };
   }
   if ((m = path.match(/^\/api\/pica\/([\w-]+)$/))) {
@@ -1063,6 +1149,22 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
         d.riwayat.push({ id: ++d.urut, pica_id: pica.id, kolom: x.k, nilai_lama: x.dari == null ? null : String(typeof x.dari === 'object' ? JSON.stringify(x.dari) : x.dari), nilai_baru: x.ke == null ? null : String(typeof x.ke === 'object' ? JSON.stringify(x.ke) : x.ke), alasan: body.alasan ?? null, oleh: saya.id, pada: kini() });
       }
       pica.diubah_oleh = saya.id; pica.diubah_pada = kini();
+      // XP status (sama dengan server): mulai, ajukan verifikasi, penutupan untuk PIC + verifikator.
+      const keStatus = perubahan.find((x) => x.k === 'status')?.ke;
+      const picBaru = perubahan.find((x) => x.k === 'pic_id')?.ke as string | undefined;
+      if (picBaru && picBaru !== saya.id) suratSistemDemo(d, picBaru, { jenis: 'pica_baru', judul: `Anda ditunjuk sebagai PIC: ${pica.judul}`, isi: `${saya.nama} menunjuk Anda sebagai penanggung jawab PICA ini.`, tautan: { jenis: 'pica', id: pica.id, label: String(pica.judul).slice(0, 120) } });
+      if (keStatus && pica.pic_id && pica.pic_id !== saya.id) suratSistemDemo(d, pica.pic_id, { jenis: 'pica_status', judul: keStatus === 'Closed' ? `PICA Anda ditutup: ${pica.judul}` : `Status PICA Anda → ${keStatus}`, isi: `${saya.nama} mengubah status.`, tautan: { jenis: 'pica', id: pica.id, label: String(pica.judul).slice(0, 120) } });
+      if (keStatus === 'In Progress') beriXpDemo(d, saya.id, 'pica_mulai', pica.id, saya.id);
+      if (keStatus === 'Verifikasi') beriXpDemo(d, saya.id, 'pica_ajukan', pica.id, saya.id);
+      if (keStatus === 'Closed') {
+        if (pica.pic_id) {
+          beriXpDemo(d, pica.pic_id, 'pica_tutup', pica.id, saya.id);
+          if (pica.due_date && hariIni <= pica.due_date) beriXpDemo(d, pica.pic_id, 'pica_tepat_waktu', pica.id, saya.id);
+        }
+        if (pica.pic_id !== saya.id) beriXpDemo(d, saya.id, 'pica_verifikasi', pica.id, saya.id);
+        periksaPrestasiDemo(d, pica.pic_id, saya.id);
+        for (const u of new Set(d.updates.filter((x) => x.pica_id === pica.id && x.oleh !== pica.pic_id).map((x) => x.oleh))) periksaPrestasiDemo(d, u, saya.id);
+      }
       simpan(); return { ok: true, perubahan: perubahan.length };
     }
   }
@@ -1096,10 +1198,15 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     if (!bolehKelola(saya)) gagal('Hanya Admin/Supervisor yang boleh membuat pengumuman.', 403);
     const id = idBaru('peng');
     d.pengumuman.push({ id, judul: body.judul, isi: body.isi, penting: body.penting ? 1 : 0, kirim_wa: body.kirim_wa === false ? 0 : 1, oleh: saya.id, dibuat_pada: kini() });
+    beriXpDemo(d, saya.id, 'info_buat', id, saya.id);
     simpan(); return { id };
   }
   if ((m = path.match(/^\/api\/pengumuman\/([\w-]+)\/baca$/))) {
     if (!d.baca.some((b) => b.pengumuman_id === m![1] && b.user_id === saya.id)) d.baca.push({ pengumuman_id: m[1], user_id: saya.id });
+    const peng = d.pengumuman.find((p) => p.id === m![1]);
+    if (peng && Date.now() - Date.parse(String(peng.dibuat_pada)) <= 24 * 3_600_000) {
+      beriXpDemo(d, saya.id, 'info_baca', m[1], saya.id, peng.penting ? 40 : undefined);
+    }
     simpan(); return { ok: true };
   }
 
@@ -1110,6 +1217,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     const id = idBaru('jdw');
     if (body.tanggal_selesai && body.tanggal_selesai < body.tanggal) gagal('Tanggal selesai tidak boleh sebelum tanggal mulai.');
     d.jadwal.push({ id, judul: body.judul, keterangan: body.keterangan ?? null, tanggal: body.tanggal, tanggal_selesai: body.tanggal_selesai && body.tanggal_selesai !== body.tanggal ? body.tanggal_selesai : null, jam_mulai: body.jam_mulai ?? null, jam_selesai: body.jam_selesai ?? null, jenis: body.jenis ?? 'rencana', pica_id: body.pica_id ?? null, pemilik_id: body.untuk_semua ? null : (body.pemilik_id ?? saya.id), rrule: body.rrule ?? null, ingatkan_menit: body.ingatkan_menit ? Number(body.ingatkan_menit) : null, gcal_id: null, selesai: 0, dibuat_pada: kini() });
+    beriXpDemo(d, saya.id, 'jadwal_buat', id, saya.id);
     simpan(); return { id };
   }
   if ((m = path.match(/^\/api\/jadwal\/([\w-]+)$/))) {
@@ -1127,6 +1235,9 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     if ('untuk_semua' in body) { jd.pemilik_id = body.untuk_semua ? null : (jd.pemilik_id ?? saya.id); }
     for (const k of ['judul', 'keterangan', 'tanggal', 'tanggal_selesai', 'jam_mulai', 'jam_selesai', 'jenis', 'rrule', 'ingatkan_menit']) if (k in body) jd[k] = body[k] ?? null;
     if ('selesai' in body) {
+      if (body.selesai && !jd.selesai && hariIni <= String(jd.tanggal_selesai ?? jd.tanggal)) {
+        beriXpDemo(d, saya.id, 'jadwal_selesai', `${jd.id}:${jd.tanggal}`, saya.id);
+      }
       jd.selesai = body.selesai ? 1 : 0;
       // Centang di Kalender dicerminkan ke teks memo asal (judul/tanggal/jam belum diubah di atas).
       if (jd.memo_id) cerminkanJadwalKeMemoDemo(d, jd, { selesai: Boolean(body.selesai) });
@@ -1171,7 +1282,8 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
   if (path === '/api/laporan' && method === 'POST') {
     const capaian = Number(body.capaian ?? 0);
     const id = idBaru('lap');
-    d.laporan.push({ id, user_id: saya.id, user_nama: saya.nama, pica_id: body.pica_id ?? null, jenis: body.jenis ?? 'Pekerjaan Rutin', capaian, satuan: body.satuan ?? 'ha', catatan: body.catatan ?? '', xp: 500 + Math.floor(capaian * 10), dibuat_pada: kini() });
+    const barisLaporan: Baris = { id, user_id: saya.id, user_nama: saya.nama, pica_id: body.pica_id ?? null, jenis: body.jenis ?? 'Pekerjaan Rutin', capaian, satuan: body.satuan ?? 'ha', catatan: body.catatan ?? '', xp: 0, dibuat_pada: kini() };
+    d.laporan.push(barisLaporan);
     const pica = body.pica_id ? d.pica.find((x) => x.id === body.pica_id) : null;
     if (pica && capaian > 0) {
       const lama = Number(pica.realisasi ?? 0);
@@ -1181,7 +1293,13 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
       d.updates.push({ id: ++d.urut, pica_id: pica.id, periode_id: pica.periode_id, catatan, realisasi: pica.realisasi, oleh: saya.id, pada: kini() });
       d.riwayat.push({ id: ++d.urut, pica_id: pica.id, kolom: 'realisasi', nilai_lama: String(lama), nilai_baru: String(pica.realisasi), alasan: 'laporan lapangan', oleh: saya.id, pada: kini() });
     }
-    simpan(); return { id, xp: 500 + Math.floor(capaian * 10) };
+    // XP laporan (sama dengan server); foto laporan dihargai saat diunggah.
+    let xp = beriXpDemo(d, saya.id, 'laporan_kirim', id, saya.id);
+    if (capaian > 0) xp += beriXpDemo(d, saya.id, 'laporan_capaian', id, saya.id);
+    if (body.pica_id) xp += beriXpDemo(d, saya.id, 'laporan_pica', id, saya.id);
+    if (new Date(Date.now() + 8 * 3_600_000).getUTCHours() < 12) xp += beriXpDemo(d, saya.id, 'laporan_pagi', hariIni, saya.id);
+    barisLaporan.xp = xp;
+    simpan(); return { id, xp };
   }
   if (path === '/api/lampiran' && method === 'POST') {
     const berkas = form?.get('berkas');
@@ -1191,8 +1309,17 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     const kunci = `demo/${form?.get('entitas_id')}/${Date.now()}`;
     if (berkas instanceof File && berkas.size > 8 * 1024 * 1024) gagal('Ukuran berkas maksimal 8 MB.');
     // Lampiran memo disimpan utuh di database demo supaya gambarnya tetap tampil.
-    const data = entitas === 'memo' && berkas instanceof File ? await bacaSebagaiDataUrl(berkas) : undefined;
-    d.lampiran.push({ id, entitas, entitas_id: String(form?.get('entitas_id') ?? ''), kunci_r2: kunci, nama, tipe_mime: berkas instanceof File ? berkas.type : null, ukuran: berkas instanceof File ? berkas.size : null, oleh: saya.id, pada: kini(), ...(data ? { data } : {}) });
+    const data = (entitas === 'memo' || entitas === 'pesan' || entitas === 'formulir') && berkas instanceof File ? await bacaSebagaiDataUrl(berkas) : undefined;
+    const entitasId = String(form?.get('entitas_id') ?? '');
+    d.lampiran.push({ id, entitas, entitas_id: entitasId, kunci_r2: kunci, nama, tipe_mime: berkas instanceof File ? berkas.type : null, ukuran: berkas instanceof File ? berkas.size : null, oleh: saya.id, pada: kini(), ...(data ? { data } : {}) });
+    if (entitas === 'pica') beriXpDemo(d, saya.id, 'pica_bukti', `${entitasId}:${hariIni}`, saya.id);
+    if (entitas === 'laporan' && berkas instanceof File && berkas.type.startsWith('image/')) {
+      const lap = d.laporan.find((x) => x.id === entitasId);
+      if (lap) {
+        const hariLaporan = new Date(Date.parse(String(lap.dibuat_pada)) + 8 * 3_600_000).toISOString().slice(0, 10);
+        beriXpDemo(d, lap.user_id, hariLaporan === hariIni ? 'laporan_foto' : 'laporan_foto_susulan', entitasId, saya.id);
+      }
+    }
     simpan(); return { id, kunci, url: `/api/berkas/${encodeURIComponent(kunci)}` };
   }
 
@@ -1326,7 +1453,7 @@ export async function demoApi(jalur: string, method: string, body: any, form?: F
     return { ok: true, pesan: 'Mode demo: password tidak disimpan, reset tidak berpengaruh.' };
   }
   if (path === '/api/tim' && method === 'GET') {
-    return { tim: d.tim.map((t) => { const milik = d.pica.filter((p) => p.pic_id === t.id && !p.dihapus && p.status !== 'Closed'); return { id: t.id, nama: t.nama, jabatan: t.jabatan, bidang: t.bidang, peran: t.peran, aktif: 1, punya_wa: t.wa ? 1 : 0, pica_terbuka: milik.length, pica_telat: milik.filter((p) => p.due_date && p.due_date < hariIni).length, xp: d.profil[t.id]?.xp ?? 0 }; }).sort((a, b) => b.pica_telat - a.pica_telat || b.pica_terbuka - a.pica_terbuka) };
+    return { tim: d.tim.map((t) => { const milik = d.pica.filter((p) => p.pic_id === t.id && !p.dihapus && p.status !== 'Closed'); return { id: t.id, nama: t.nama, jabatan: t.jabatan, bidang: t.bidang, peran: t.peran, aktif: 1, punya_wa: t.wa ? 1 : 0, pica_terbuka: milik.length, pica_telat: milik.filter((p) => p.due_date && p.due_date < hariIni).length, xp: d.profil[t.id]?.xp ?? 0, foto: d.foto[t.id] ?? null, skin_aktif: d.profil[t.id]?.skin_aktif ?? 'classic', level: d.profil[t.id]?.level ?? 1 }; }).sort((a, b) => b.pica_telat - a.pica_telat || b.pica_terbuka - a.pica_terbuka) };
   }
   if (path === '/api/tim' && method === 'POST') {
     if (saya.peran !== 'admin') gagal('Hanya Admin yang boleh menambah anggota.', 403);

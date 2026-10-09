@@ -11,13 +11,13 @@
 import {
   AlertCircle, AtSign, BarChart3, Bookmark, CalendarCheck, CalendarClock, Columns2, Columns3, FileSpreadsheet, FileSymlink, FileText, Heading1, Heading2, Heading3, Heading4, Highlighter,
   ImagePlus, Info, List, ListChecks, ListCollapse, ListOrdered, ListTree, MapPin, Minus, Palette, Paperclip, Quote, Sigma, Smile,
-  Sparkles, SquareCode, Sprout, Table2, Type, Video,
+  Sparkles, SquareCode, Sprout, Table2, Type, Video, ClipboardPen, SlidersHorizontal,
 } from 'lucide-react';
 import { WARNA_LATAR, WARNA_TEKS } from '../server/src/tampil-memo';
 import type { ComponentType } from 'react';
 import type { JenisBlok } from './memo-dom';
 
-export type GrupBlok = 'AI' | 'Blok dasar' | 'Media' | 'Data lapangan' | 'Lanjutan' | 'Sebaris' | 'Warna';
+export type GrupBlok = 'AI' | 'Blok dasar' | 'Halaman' | 'Media' | 'Data lapangan' | 'Lanjutan' | 'Sebaris' | 'Warna';
 
 export interface DefinisiBlok {
   /** Id perintah menu "/"; untuk blok teks sama dengan jenisnya. */
@@ -55,6 +55,8 @@ export const DAFTAR_BLOK: DefinisiBlok[] = [
   { id: 'tabel', grup: 'Blok dasar', label: 'Tabel', ket: 'Kisi baris dan kolom', ikon: Table2, kata: ['tabel', 'table', 'kisi', 'kolom', 'baris'] },
   { id: 'impor_tabel', grup: 'Blok dasar', label: 'Impor Excel / CSV', ket: 'Sisipkan tabel dari berkas .xlsx, .xls, atau .csv & grafik otomatis', ikon: FileSpreadsheet, kata: ['impor', 'excel', 'csv', 'xlsx', 'xls', 'spreadsheet', 'tabel', 'upload'] },
   { id: 'garis', grup: 'Blok dasar', label: 'Divider', ket: 'Garis pemisah bagian', pintasan: '---', ikon: Minus, kata: ['divider', 'garis', 'pemisah'] },
+  { id: 'formulir', grup: 'Blok dasar', label: 'Formulir', ket: 'Kumpulkan jawaban: anggota, atau siapa saja lewat tautan', ikon: ClipboardPen, kata: ['formulir', 'form', 'kuesioner', 'isian', 'survei', 'survey', 'jawaban', 'vendor'] },
+  { id: 'properti', grup: 'Halaman', label: 'Properti halaman', ket: 'Status, kategori, tanggal, PICA, ringkasan, …', ikon: SlidersHorizontal, kata: ['properti', 'property', 'status', 'kategori', 'tipe', 'tanggal', 'pica', 'ringkasan', 'atribut'] },
   { id: 'tautan_halaman', grup: 'Blok dasar', label: 'Tautan ke halaman', ket: 'Tautkan memo lain', ikon: FileSymlink, kata: ['tautan', 'halaman', 'link', 'page', 'memo'] },
   { id: 'habit', grup: 'Blok dasar', label: 'Habit', ket: 'Lacak / ubah kebiasaan 1 bulan: contoh CSV, prompt AI, unggah CSV & grafik progres', ikon: CalendarCheck, kata: ['habit', 'kebiasaan', 'tracker', 'ceklis', 'harian', 'bulan', 'rutin', 'progres', 'target'] },
   { id: 'pica', grup: 'Blok dasar', label: 'Tabel PICA', ket: 'Sisipkan tabel data PICA (Open, Continue, Selesai) & buat grafik', ikon: AlertCircle, kata: ['pica', 'tabel', 'masalah', 'temuan', 'tindakan', 'korektif', 'link'] },

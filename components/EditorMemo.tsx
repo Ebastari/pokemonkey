@@ -8,6 +8,7 @@ import {
 import {
   INDENT, MAKS_BARIS_TABEL, MAKS_KOLOM_TABEL, ambilTugas, bacaTabel, daftarJudul, jamSah, pisahIndent, rakitData, rakitGambar, rakitKode,
   rakitGrafik, rakitPenanda, rakitRumus, rakitTabel, tanggalSah, toggleBaris, ubahTenggatBaris, uraiBlok, uraiInline, type Inline, type RataGambar,
+  type FungsiHitung, type KolomTabel, type TipeKolom, rakitFormulir,
   type InfoPicaLive,
 } from '../server/src/memo-blok';
 import { BAHASA_KODE, WARNA_KODE, WARNA_LATAR, WARNA_TEKS, sorotKode } from '../server/src/tampil-memo';
@@ -24,6 +25,8 @@ import type { AnggotaRingkas } from '../lib/tipe-api';
 import * as W from '../lib/waktu';
 import { BlokRumus, DaftarIsi, IsiMemo, KartuPenanda, KartuVideo, gayaGambar } from './MemoMarkup';
 import { KartuDataLapangan } from './KartuDataLapangan';
+import { CONTOH_RUMUS, LABEL_HITUNG, hitungKolom, terapkanRumus, tercentang } from '../lib/rumus-tabel';
+import { BlokFormulir } from './BlokFormulir';
 import { DAFTAR_BLOK, UBAH_JADI, cocokKueri, skorKueri, type DefinisiBlok } from '../lib/blok-jenis';
 import { GrafikTabelMemo, LencanaStatus, RingkasanProgres } from './GrafikTabelMemo';
 import { GrafikReklamasi } from './GrafikReklamasi';
@@ -86,6 +89,10 @@ interface Props {
   /** Memo "Baca saja": pembaca tetap boleh mencentang tugas yang menyebut dirinya (`@idSaya`). */
   idSaya?: string;
   onCentangBaca?: (baru: string) => void;
+  /** Perintah "/properti": buka pemilih properti halaman (halaman baru bersih, properti ditambah saat perlu). */
+  onProperti?: () => void;
+  /** Berkas di memo dibuka di penampil (tanpa unduh). */
+  onPratinjauBerkas?: (b: { nama: string; kunci: string }) => void;
 }
 
 type Ikon = React.ComponentType<{ size?: number; className?: string }>;
@@ -232,6 +239,8 @@ interface Penangan {
   lompat: (indeks: number) => void;
   /** Buka PICA (dari nomor "PICA-006" di tabel PICA) di menu PICA. */
   bukaPica: (nomor: string) => void;
+  /** Pesan singkat di layar (blok formulir). */
+  notify: (m: string) => void;
 }
 
 /**
@@ -289,6 +298,14 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void; onBuk
   const t = bacaTabel(raw);
   if (!t) return null;
   const { baris, kepala, grafik, pica } = t;
+  // Tipe kolom & baris hitung (seperti properti database + "Calculate" di Notion), sepanjang lebar tabel.
+  const lebarTabel = baris[0].length;
+  const kolom: (KolomTabel | null)[] = Array.from({ length: lebarTabel }, (_, j) => t.kolom?.[j] ?? null);
+  const hitung: (FungsiHitung | null)[] = Array.from({ length: lebarTabel }, (_, j) => t.hitung?.[j] ?? null);
+  const adaTipe = kolom.some(Boolean);
+  // Nilai rumus selalu dihitung saat tampil (tabel lama/diimpor yang belum pernah disunting ikut benar).
+  const barisRumus = useMemo(() => terapkanRumus(baris, kepala, kolom), [raw]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [menuKolom, setMenuKolom] = useState<number | null>(null);
   const [modalPicaBuka, setModalPicaBuka] = useState(false);
   const [modalImporBuka, setModalImporBuka] = useState(false);
   const [kolomLebar, setKolomLebar] = useState(false);
@@ -298,8 +315,20 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void; onBuk
   const lebarKolom = useMemo(() => lebarKolomTabel(baris, kolomLebar), [baris, kolomLebar]);
   const mendatang = useMemo(() => (grafik ? barisMendatang(baris, kepala, grafik) : new Set<number>()), [baris, kepala, grafik]);
   // Grafik yang sudah ada ikut menunjuk kolom yang sama walau kolom dihapus/disisip/diimpor ulang.
-  const kirim = (b: string[][], k = kepala, g = grafik, p = pica) =>
-    onUbah(rakitTabel(b, k, g && g === grafik ? sesuaikanGrafik(baris, b, k, g) : g, p));
+  const kirim = (b: string[][], k = kepala, g = grafik, p = pica, ext: { kolom?: (KolomTabel | null)[]; hitung?: (FungsiHitung | null)[] } = { kolom, hitung }) => {
+    // Tipe kolom mengikuti lebar tabel (kolom baru = teks); rumus dihitung ulang setiap tabel berubah.
+    const lebar = b[0]?.length ?? 0;
+    const kol = Array.from({ length: lebar }, (_, j) => ext.kolom?.[j] ?? null);
+    const hit = Array.from({ length: lebar }, (_, j) => ext.hitung?.[j] ?? null);
+    const dihitung = terapkanRumus(b, k, kol);
+    onUbah(rakitTabel(dihitung, k, g && g === grafik ? sesuaikanGrafik(baris, dihitung, k, g) : g, p, { kolom: kol, hitung: hit }));
+  };
+  const aturKolom = (j: number, k: KolomTabel | null) => kirim(baris, kepala, grafik, pica, { kolom: kolom.map((x, i) => (i === j ? k : x)), hitung });
+  const aturHitung = (j: number, f: FungsiHitung | null) => kirim(baris, kepala, grafik, pica, { kolom, hitung: hitung.map((x, i) => (i === j ? f : x)) });
+  const tambahKolomCeklis = () => {
+    if (lebarTabel >= MAKS_KOLOM_TABEL) return;
+    kirim(baris.map((r, i) => [...r, kepala && i === 0 ? 'Selesai' : '']), kepala, grafik, pica, { kolom: [...kolom, { t: 'ceklis' }], hitung: [...hitung, 'persen_centang'] });
+  };
 
   // Selalu update otomatis jika tabel dalam mode Live Sync PICA
   useEffect(() => {
@@ -520,8 +549,71 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void; onBuk
             {baris.map((r, i) => (
               <tr key={i} className="group/baris">
                 {r.map((c, j) => {
+                  const tipe = kolom[j]?.t;
+                  const judulSel = kepala && i === 0;
+                  // Judul kolom bertipe: tombol pengaturan kolom (tipe, rumus, hitung).
+                  if (judulSel) {
+                    return (
+                      <td key={j} className="border-2 border-white/20 p-0 align-top bg-white/[0.07] relative">
+                        <div className="flex items-start">
+                          <div className="flex-1 min-w-0">
+                            <SelTabel
+                              nilai={c}
+                              judul
+                              lebarMin={lebarKolom[j] ?? 96}
+                              sel={`${i}-${j}`}
+                              label={`Kolom ${j + 1}`}
+                              onIsi={(v) => isiSel(i, j, v)}
+                              onTombol={(e) => pindahSel(e, i, j)}
+                              onEnter={() => { if (i + 1 < baris.length) fokusSel(i + 1, j); }}
+                              onTempel={(e) => tempelSel(e, i, j)}
+                            />
+                          </div>
+                          <button type="button" tabIndex={-1} onClick={() => setMenuKolom(menuKolom === j ? null : j)} className={`shrink-0 px-1 py-1.5 text-[10px] ${tipe ? 'text-sky-300' : 'text-zinc-500'} hover:text-white`} title="Tipe kolom, rumus, dan hitung" aria-label={`Atur kolom ${j + 1}`}>
+                            {tipe === 'ceklis' ? '☑' : tipe === 'rumus' ? 'ƒx' : tipe === 'rupiah' ? 'Rp' : tipe === 'persen' ? '%' : tipe === 'angka' ? '#' : tipe === 'tanggal' ? '📅' : '⚙'}
+                          </button>
+                        </div>
+                        {menuKolom === j && (
+                          <MenuKolomTabel
+                            nama={c || `Kolom ${j + 1}`}
+                            kolom={kolom[j]}
+                            hitung={hitung[j]}
+                            namaKolom={baris[0].map((x, n) => x || `K${n + 1}`)}
+                            onKolom={(k) => aturKolom(j, k)}
+                            onHitung={(fh) => aturHitung(j, fh)}
+                            onTutup={() => setMenuKolom(null)}
+                          />
+                        )}
+                      </td>
+                    );
+                  }
+                  // Kolom Ceklis: setiap sel kotak centang.
+                  if (tipe === 'ceklis') {
+                    const ya = tercentang(c);
+                    return (
+                      <td key={j} className="border-2 border-white/20 px-1.5 py-1 align-middle text-center bg-white/[0.02]">
+                        <input type="checkbox" checked={ya} onChange={() => isiSel(i, j, ya ? '' : '✓')} className="accent-lime-500 w-4 h-4 cursor-pointer" aria-label={`Centang baris ${i + 1}`} />
+                      </td>
+                    );
+                  }
+                  // Kolom Rumus: dihitung otomatis, tidak diketik.
+                  if (tipe === 'rumus') {
+                    return (
+                      <td key={j} className={`border-2 border-white/20 px-2 py-1.5 align-top text-right tabular-nums text-[0.95em] ${(barisRumus[i]?.[j] ?? c).startsWith('#galat') ? 'text-red-400' : 'text-sky-500 font-bold'} bg-sky-500/[0.06]`} title={kolom[j]?.rumus}>
+                        {barisRumus[i]?.[j] ?? c}
+                      </td>
+                    );
+                  }
+                  if (tipe === 'tanggal') {
+                    return (
+                      <td key={j} className="border-2 border-white/20 p-0 align-top">
+                        <input type="date" value={/^\d{4}-\d{2}-\d{2}$/.test(c) ? c : ''} onChange={(e) => isiSel(i, j, e.target.value)} className="bg-transparent px-2 py-1.5 text-zinc-100 outline-none w-full min-w-[8.5rem]" aria-label={`Tanggal baris ${i + 1}`} />
+                      </td>
+                    );
+                  }
+
                   // Sel Ceklis Interaktif (pada kolom status)
-                  if (i > 0 && infoProgres && j === infoProgres.idxStatus) {
+                  if (!adaTipe && i > 0 && infoProgres && j === infoProgres.idxStatus) {
                     return (
                       <td key={j} className="border-2 border-white/20 px-1.5 py-1 align-middle text-center bg-white/[0.02]">
                         <LencanaStatus
@@ -536,7 +628,7 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void; onBuk
                   }
 
                   // Sel Kumulatif Angka (highlight rapi)
-                  if (i > 0 && infoProgres && j === infoProgres.idxKumulatif) {
+                  if (!adaTipe && i > 0 && infoProgres && j === infoProgres.idxKumulatif) {
                     return (
                       <td key={j} className="border-2 border-white/20 px-2 py-1 align-middle text-center font-mono font-bold text-lime-300 bg-white/[0.02]">
                         {c}
@@ -545,7 +637,7 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void; onBuk
                   }
 
                   return (
-                    <td key={j} className={`border-2 border-white/20 p-0 align-top ${kepala && i === 0 ? 'bg-white/[0.07]' : ''}`}>
+                    <td key={j} className={`border-2 border-white/20 p-0 align-top ${tipe === 'angka' || tipe === 'rupiah' || tipe === 'persen' ? 'text-right [&_textarea]:text-right' : ''}`}>
                       <SelTabel
                         nilai={c}
                         judul={kepala && i === 0}
@@ -565,10 +657,30 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void; onBuk
                 </td>
               </tr>
             ))}
+            {hitung.some(Boolean) && (
+              <tr className="bg-white/[0.05]">
+                {baris[0].map((_, j) => {
+                  const fh = hitung[j];
+                  return (
+                    <td key={j} className="border-2 border-white/20 px-2 py-1 text-right text-[12px] tabular-nums">
+                      {fh && <><span className="text-zinc-500 mr-1">{LABEL_HITUNG[fh]}</span><b className="text-lime-300">{hitungKolom(barisRumus.slice(kepala ? 1 : 0).map((r) => r[j] ?? ''), fh, kolom[j]?.t)}</b></>}
+                    </td>
+                  );
+                })}
+              </tr>
+            )}
             <tr>
               {baris[0].map((_, j) => (
                 <td key={j} className="text-center pt-0.5">
-                  <button type="button" tabIndex={-1} disabled={baris[0].length <= 1} onClick={() => kirim(baris.map((r) => r.filter((__, x) => x !== j)))} className="text-[11px] text-zinc-600 hover:text-red-300 disabled:hidden" title="Hapus kolom" aria-label={`Hapus kolom ${j + 1}`}>hapus kolom</button>
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    disabled={baris[0].length <= 1}
+                    onClick={() => kirim(baris.map((r) => r.filter((__, x) => x !== j)), kepala, grafik, pica, { kolom: kolom.filter((__, x) => x !== j), hitung: hitung.filter((__, x) => x !== j) })}
+                    className="text-[11px] text-zinc-600 hover:text-red-300 disabled:hidden"
+                    title="Hapus kolom"
+                    aria-label={`Hapus kolom ${j + 1}`}
+                  >hapus kolom</button>
                 </td>
               ))}
             </tr>
@@ -580,6 +692,7 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void; onBuk
       <div className="flex flex-wrap items-center gap-1.5 mt-1">
         <button type="button" disabled={baris.length >= MAKS_BARIS_TABEL} onClick={() => kirim([...baris, baris[0].map(() => '')])} className={tombol}>+ Baris</button>
         <button type="button" disabled={baris[0].length >= MAKS_KOLOM_TABEL} onClick={() => kirim(baris.map((r) => [...r, '']))} className={tombol}>+ Kolom</button>
+        <button type="button" disabled={baris[0].length >= MAKS_KOLOM_TABEL} onClick={tambahKolomCeklis} className={`${tombol} border-lime-500/50 text-lime-200`} title="Kolom baru yang setiap selnya kotak centang">+ Kolom ☑</button>
         <button
           type="button"
           onClick={() => setKolomLebar(!kolomLebar)}
@@ -661,6 +774,59 @@ const TabelSunting: React.FC<{ raw: string; onUbah: (raw: string) => void; onBuk
         />
       )}
     </div>
+  );
+};
+
+/** Menu judul kolom tabel: tipe kolom, rumus (kalkulator), dan fungsi baris hitung. */
+const TIPE_KOLOM_MENU: { t: TipeKolom; label: string; ket: string }[] = [
+  { t: 'teks', label: 'Teks', ket: 'Bebas' },
+  { t: 'angka', label: 'Angka', ket: '1.250,5' },
+  { t: 'rupiah', label: 'Rupiah', ket: 'Rp 12.500.000' },
+  { t: 'persen', label: 'Persen', ket: '85%' },
+  { t: 'ceklis', label: 'Ceklis', ket: 'Kotak centang' },
+  { t: 'tanggal', label: 'Tanggal', ket: 'Pemilih tanggal' },
+  { t: 'rumus', label: 'Rumus ƒx', ket: 'Dihitung otomatis' },
+];
+const MenuKolomTabel: React.FC<{
+  nama: string; kolom: KolomTabel | null; hitung: FungsiHitung | null; namaKolom: string[];
+  onKolom: (k: KolomTabel | null) => void; onHitung: (f: FungsiHitung | null) => void; onTutup: () => void;
+}> = ({ nama, kolom, hitung, namaKolom, onKolom, onHitung, onTutup }) => {
+  const [rumus, setRumus] = useState(kolom?.rumus ?? '');
+  const tipe = kolom?.t ?? 'teks';
+  return (
+    <>
+      <span className="fixed inset-0 z-30" onClick={onTutup} aria-hidden="true" />
+      <div className="absolute left-0 top-full mt-1 z-40 w-72 retro-box !bg-zinc-900 border-sky-500 !p-2 text-left text-[12px] text-zinc-100 font-normal" onClick={(e) => e.stopPropagation()}>
+        <p className="text-[11px] uppercase text-zinc-500 font-bold mb-1">Tipe kolom “{nama}”</p>
+        <div className="grid grid-cols-2 gap-1 mb-2">
+          {TIPE_KOLOM_MENU.map((x) => (
+            <button key={x.t} type="button" onClick={() => onKolom(x.t === 'teks' ? null : x.t === 'rumus' ? { t: 'rumus', rumus: rumus || '' } : { t: x.t })} className={`px-1.5 py-1 border text-left leading-tight ${tipe === x.t ? 'border-sky-400 bg-sky-500/20' : 'border-white/15 hover:border-white/40'}`}>
+              <b className="block">{x.label}</b><span className="text-[10px] text-zinc-400">{x.ket}</span>
+            </button>
+          ))}
+        </div>
+        {tipe === 'rumus' && (
+          <div className="mb-2">
+            <p className="text-[11px] text-zinc-400 mb-1">Rumus per baris — sebut kolom dengan [Nama Kolom]:</p>
+            <div className="flex gap-1">
+              <input value={rumus} onChange={(e) => setRumus(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onKolom({ t: 'rumus', rumus }); } }} placeholder="[Anggaran] - [Realisasi]" className="input-retro !py-1 !text-[12px] font-mono flex-1" autoFocus />
+              <button type="button" onClick={() => onKolom({ t: 'rumus', rumus })} className="btn-retro btn-retro-sm bg-sky-600">OK</button>
+            </div>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {namaKolom.filter((n) => n !== nama).slice(0, 8).map((n) => (
+                <button key={n} type="button" onClick={() => setRumus((r) => `${r}${r && !/[\s(+\-*/]$/.test(r) ? ' ' : ''}[${n}]`)} className="px-1 border border-white/20 text-[10px] text-zinc-300 hover:border-sky-400">[{n}]</button>
+              ))}
+            </div>
+            <p className="text-[10px] text-zinc-500 mt-1 leading-snug">Contoh: {CONTOH_RUMUS.slice(0, 3).join(' · ')}. Fungsi: jumlah, rata, min, maks, bulat, jika.</p>
+          </div>
+        )}
+        <p className="text-[11px] uppercase text-zinc-500 font-bold mb-1">Hitung di bawah kolom</p>
+        <select value={hitung ?? ''} onChange={(e) => onHitung((e.target.value || null) as FungsiHitung | null)} className="input-retro !py-1 !text-[12px]">
+          <option value="">Tidak dihitung</option>
+          {(Object.keys(LABEL_HITUNG) as FungsiHitung[]).map((fh) => <option key={fh} value={fh}>{LABEL_HITUNG[fh]}</option>)}
+        </select>
+      </div>
+    </>
   );
 };
 
@@ -856,6 +1022,7 @@ const BlokBaris = React.memo<{
           )}
           {blok.jenis === 'penanda' && <KartuPenanda url={blok.url} judul={blok.judul} ket={blok.ket} situs={blok.situs} />}
           {blok.jenis === 'grafik' && <div data-sunting><GrafikReklamasi blok={blok} onUbah={(g) => h.current.ubahRaw(b.id, rakitGrafik(g))} /></div>}
+          {blok.jenis === 'formulir' && <div data-sunting><BlokFormulir id={blok.id} judul={blok.judul} notify={(m) => h.current.notify(m)} /></div>}
           {blok.jenis === 'video' && <KartuVideo url={blok.url} judul={blok.judul} />}
           {blok.jenis === 'tabel' && <TabelSunting raw={b.raw} onUbah={(raw) => h.current.ubahRaw(b.id, raw)} onBukaPica={(nomor) => h.current.bukaPica(nomor)} />}
           {blok.jenis === 'data' && (
@@ -866,7 +1033,7 @@ const BlokBaris = React.memo<{
             />
           )}
           {blok.jenis === 'berkas' && (
-            <button type="button" data-unduh={blok.kunci} data-nama={blok.nama} className="flex items-center gap-1.5 px-2 py-1 border-2 border-white/25 hover:border-lime-400 bg-white/5 text-[13px] font-bold text-zinc-100" title="Simpan atau bagikan berkas">
+            <button type="button" data-unduh={blok.kunci} data-nama={blok.nama} className="flex items-center gap-1.5 px-2 py-1 border-2 border-white/25 hover:border-lime-400 bg-white/5 text-[13px] font-bold text-zinc-100" title="Buka dokumen (tanpa unduh)">
               <FileText size={13} />{blok.nama}
             </button>
           )}
@@ -922,7 +1089,7 @@ BlokBaris.displayName = 'BlokBaris';
 const EditorBlok: React.FC<Props> = ({
   memoId, isi, onIsi, tim, notify, bolehSebutOrang = false, onBukaPica, tinggi = 220, kecil = false,
   font = 'sans', latar = 'putih', halaman = [], onBukaHalaman,
-  onBuatHalaman, onKomentar, onAi,
+  onBuatHalaman, onKomentar, onAi, onProperti, onPratinjauBerkas,
 }) => {
   const [blok, setBlokState] = useState<Blok[]>(() => dariTeks(isi));
   const blokRef = useRef(blok);
@@ -1447,12 +1614,12 @@ const EditorBlok: React.FC<Props> = ({
       ] as Perintah[]).filter(cocok);
     }
     return DAFTAR_BLOK
-      .filter((p) => (orangAktif || p.id !== 'orang') && (halamanLain.length > 0 || p.id !== 'tautan_halaman') && (onBuatHalaman || p.id !== 'halaman') && (onAi || p.id !== 'ai'))
+      .filter((p) => (orangAktif || p.id !== 'orang') && (halamanLain.length > 0 || p.id !== 'tautan_halaman') && (onBuatHalaman || p.id !== 'halaman') && (onAi || p.id !== 'ai') && (onProperti || p.id !== 'properti'))
       .filter((p) => cocokKueri(p, q))
       .map((p, i) => ({ p, i, n: skorKueri(p, q) }))
       .sort((a, b) => b.n - a.n || a.i - b.i)
       .map((x) => x.p);
-  }, [slash, orangAktif, tim, halamanLain.length, onBuatHalaman, onAi]);
+  }, [slash, orangAktif, tim, halamanLain.length, onBuatHalaman, onAi, onProperti]);
 
   const bukaTenggat = (id: string, pos: number) => {
     const b = blokRef.current.find((x) => x.id === id);
@@ -1533,6 +1700,18 @@ const EditorBlok: React.FC<Props> = ({
     if (pid === 'rumus') { void muatKatex(); sisipBlokKhusus(id, rakitRumus('')); return; }
     if (pid === 'daftarisi') { sisipBlokKhusus(id, '!daftarisi'); return; }
     if (pid === 'grafik_reklamasi') { sisipBlokKhusus(id, rakitGrafik({ sumber: 'reklamasi', tampil: 'tahun' })); return; }
+    if (pid === 'formulir') {
+      // Formulir disimpan di server (pertanyaan & jawaban); di memo cukup satu baris penunjuk.
+      api<{ id: string }>('/api/formulir', { body: { memo_id: memoId, judul: 'Formulir' } })
+        .then((d) => { sisipBlokKhusus(id, rakitFormulir(d.id, 'Formulir')); notify('FORMULIR DIBUAT — ATUR PERTANYAAN DI TAB "ATUR"'); })
+        .catch((e) => notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUAT FORMULIR'));
+      return;
+    }
+    if (pid === 'properti') {
+      // Teks "/properti" sudah dibuang pilihPerintah; pemilih properti dibuka di kepala halaman.
+      onProperti?.();
+      return;
+    }
     if (pid === 'kolom2' || pid === 'kolom3') { sisipKolom(id, pid === 'kolom2' ? 2 : 3); return; }
     if (pid === 'penanda') { setUrlPenanda(''); setPanel({ jenis: 'penanda', id, pos }); return; }
     if (pid === 'rumus_sebaris') { void muatKatex(); chipRumus.current = null; setTeksRumus(''); setPanel({ jenis: 'rumus', id, pos }); }
@@ -2231,7 +2410,8 @@ const EditorBlok: React.FC<Props> = ({
     const t = e.target as HTMLElement;
     const unduh = t.closest('[data-unduh]') as HTMLElement | null;
     if (unduh) {
-      unduhBerkasMemo(unduh.dataset.unduh ?? '', unduh.dataset.nama ?? 'berkas').catch(() => notify('BERKAS TIDAK DAPAT DIMUAT'));
+      if (onPratinjauBerkas) onPratinjauBerkas({ kunci: unduh.dataset.unduh ?? '', nama: unduh.dataset.nama ?? 'berkas' });
+      else unduhBerkasMemo(unduh.dataset.unduh ?? '', unduh.dataset.nama ?? 'berkas').catch(() => notify('BERKAS TIDAK DAPAT DIMUAT'));
       return;
     }
     const media = idDari(t, 'media');
@@ -2247,7 +2427,8 @@ const EditorBlok: React.FC<Props> = ({
       setTgl(chip.dataset.tenggat);
       setJam(chip.dataset.jam ?? '');
     } else if (chip.dataset.berkas) {
-      unduhBerkasMemo(chip.dataset.berkas, chip.dataset.nama ?? 'berkas').catch(() => notify('BERKAS TIDAK DAPAT DIMUAT'));
+      if (onPratinjauBerkas) onPratinjauBerkas({ kunci: chip.dataset.berkas, nama: chip.dataset.nama ?? 'berkas' });
+      else unduhBerkasMemo(chip.dataset.berkas, chip.dataset.nama ?? 'berkas').catch(() => notify('BERKAS TIDAK DAPAT DIMUAT'));
     } else if (chip.dataset.halaman) {
       onBukaHalaman?.(chip.dataset.halaman);
     } else if (chip.dataset.pica) {
@@ -2283,8 +2464,9 @@ const EditorBlok: React.FC<Props> = ({
 
   // ---- penangan untuk BlokBaris (ref tetap agar BlokBaris tidak dirender ulang) ----------
 
-  const h = useRef<Penangan>({ daftar: () => undefined, centang: () => undefined, pegang: () => undefined, tambahDi: () => undefined, lipat: () => undefined, ubahRaw: () => undefined, lompat: () => undefined, bukaPica: () => undefined });
+  const h = useRef<Penangan>({ daftar: () => undefined, centang: () => undefined, pegang: () => undefined, tambahDi: () => undefined, lipat: () => undefined, ubahRaw: () => undefined, lompat: () => undefined, bukaPica: () => undefined, notify: () => undefined });
   h.current = {
+    notify,
     daftar: (id, el) => { if (el) elRef.current.set(id, el); else elRef.current.delete(id); },
     centang,
     pegang,

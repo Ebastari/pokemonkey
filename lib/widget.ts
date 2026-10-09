@@ -43,9 +43,19 @@ export interface WidgetPayload {
 interface WidgetBridgePlugin {
   perbaruiDataWidget(data: WidgetPayload): Promise<void>;
   ambilTabAwal(): Promise<{ tab?: string }>;
+  layarAman(opsi: { aktif: boolean }): Promise<void>;
 }
 
 const WidgetBridge = registerPlugin<WidgetBridgePlugin>('WidgetBridge');
+
+/**
+ * Memo Rahasia: blokir tangkapan & rekam layar di APK Android (FLAG_SECURE).
+ * Di peramban tidak ada cara menolak tangkapan layar; aplikasi memakai watermark nama.
+ */
+export async function layarAman(aktif: boolean): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false;
+  try { await WidgetBridge.layarAman({ aktif }); return true; } catch { return false; }
+}
 
 let cacheWidget: WidgetPayload = {};
 

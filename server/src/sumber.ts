@@ -69,16 +69,19 @@ export async function pengumumanBelumDibaca(env: Env, userId: string, hariIni: s
 
 export async function xpHariIni(env: Env, userId: string, hariIni: string) {
   const { awal, akhir } = rentangHari(hariIni);
-  const [lap, profil] = await Promise.all([
+  const [lap, xpLog, profil] = await Promise.all([
     env.DB.prepare(
-      `SELECT COALESCE(SUM(xp), 0) AS xp, COUNT(*) AS jumlah FROM laporan
+      `SELECT COUNT(*) AS jumlah FROM laporan
         WHERE user_id = ?1 AND ${W('dibuat_pada')} >= ?2 AND ${W('dibuat_pada')} < ?3`,
-    ).bind(userId, awal, akhir).first<{ xp: number; jumlah: number }>(),
+    ).bind(userId, awal, akhir).first<{ jumlah: number }>(),
+    // XP hari ini dari buku besar XP (semua menu), bukan hanya laporan.
+    env.DB.prepare('SELECT COALESCE(SUM(xp), 0) AS xp FROM xp_log WHERE user_id = ?1 AND hari = ?2 AND dibatalkan_pada IS NULL')
+      .bind(userId, hariIni).first<{ xp: number }>(),
     env.DB.prepare('SELECT xp, level, stamina FROM profil_game WHERE user_id = ?1')
       .bind(userId).first<{ xp: number; level: number; stamina: number | null }>(),
   ]);
   return {
-    xpHariIni: lap?.xp ?? 0,
+    xpHariIni: xpLog?.xp ?? 0,
     laporanHariIni: lap?.jumlah ?? 0,
     xp: profil?.xp ?? 0,
     level: profil?.level ?? 1,
@@ -93,6 +96,19 @@ export async function liburPada(env: Env, tanggal: string): Promise<string | nul
   return r?.nama ?? null;
 }
 
+/** Surat Kotak Surat yang belum dibaca (pesan anggota + pemberitahuan sistem). */
+async function suratBelumDibaca(env: Env, userId: string): Promise<number> {
+  try {
+    const r = await env.DB.prepare(
+      `SELECT (SELECT COUNT(*) FROM pesan_penerima WHERE user_id = ?1 AND dibaca_pada IS NULL AND diarsip = 0)
+            + (SELECT COUNT(*) FROM kotak_surat WHERE user_id = ?1 AND dibaca_pada IS NULL) AS n`,
+    ).bind(userId).first<{ n: number }>();
+    return Number(r?.n ?? 0);
+  } catch {
+    return 0; // database belum dimigrasi 0032
+  }
+}
+
 // ---------- Alur lengkap ----------
 
 /** Isi satu notifikasi terjadwal untuk satu pemakai. */
@@ -105,7 +121,8 @@ export async function siapkanNotif(env: Env, pengguna: Pengguna, slot: Slot, har
     return susunNotifPagi({ milik, hariIni, tim: tim ? { open: tim.open, telat: tim.telat } : undefined });
   }
   if (slot === 'siang') {
-    return susunNotifSiang({ belum: await pengumumanBelumDibaca(env, pengguna.id, hariIni) });
+    const [belum, surat] = await Promise.all([pengumumanBelumDibaca(env, pengguna.id, hariIni), suratBelumDibaca(env, pengguna.id)]);
+    return susunNotifSiang({ belum, surat });
   }
   return susunNotifSore(await xpHariIni(env, pengguna.id, hariIni));
 }

@@ -4,6 +4,7 @@ import {
   CircleDot, Tags, Lock, Pin, PinOff, ChevronLeft, ChevronDown, User, ImageDown, FileSpreadsheet,
   FileText, ClipboardList, Download, Clock, MapPin, Hash, Sun, Moon, Send, ListChecks, CalendarDays, Target,
   MoreHorizontal, MoveHorizontal, Smile, Image as ImageIcon, Type, AlignLeft, Menu, Users, Sparkles, MessageSquare, X,
+  ShieldCheck, FolderOpen, FileDown, BookOpen, SlidersHorizontal,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { unduhGambar } from '../lib/gambar';
@@ -40,6 +41,13 @@ import {
   muatMom, simpanMomKeServer, hapusMomDiServer,
 } from '../lib/dokumen';
 import { bacaTema, pasangTema, type Tema } from '../lib/tema';
+import { PapanRahasia, PilihOrangRahasia, AvatarIzin, useLayarAman, WatermarkRahasia } from './MemoRahasia';
+import { SosialMemo } from './SosialMemo';
+import { FolderDokumen, PohonFolder, type ArahFolder } from './FolderDokumen';
+import { PenampilBerkas } from './PenampilBerkas';
+import { tersemat } from './SidebarMemo';
+import { eksporDocxMemo } from '../lib/ekspor-docx-memo';
+import { izinMemo } from '../server/src/memo-blok';
 
 /**
  * MEMO — papan "Memo Internal" tim bergaya Notion, plus catatan pribadi.
@@ -49,7 +57,7 @@ import { bacaTema, pasangTema, type Tema } from '../lib/tema';
  */
 
 // 'ikhtisar' = papan "Memo Kerja" (id lama dipertahankan agar tab yang tersimpan di perangkat tetap cocok).
-type Tab = 'ikhtisar' | 'pribadi' | 'internal_memo' | 'mom' | 'nomor_surat' | 'sampah';
+type Tab = 'ikhtisar' | 'pribadi' | 'rahasia' | 'internal_memo' | 'mom' | 'nomor_surat' | 'folder' | 'sampah';
 type Urut = 'tanggal' | 'judul' | 'diubah';
 
 const KUNCI_TAB = 'pokemonkey_memo_tab';
@@ -59,9 +67,13 @@ const TAB: { id: Tab; label: string; pendek?: string; ikon: React.ReactElement }
   { id: 'ikhtisar', label: 'Memo Kerja', ikon: <KanbanSquare size={14} /> },
   // Catatan pribadi tersimpan di server, hanya terlihat oleh akun pemiliknya.
   { id: 'pribadi', label: 'Memo Pribadi', ikon: <Lock size={14} /> },
+  // Hanya pembuat dan orang yang dituju (semuanya menyunting); disandikan, tanpa tautan/AI/unduh.
+  { id: 'rahasia', label: 'Memo Rahasia', pendek: 'Rahasia', ikon: <ShieldCheck size={14} /> },
   { id: 'internal_memo', label: 'Internal Memo', ikon: <FileText size={14} /> },
   { id: 'mom', label: 'Minutes of Meeting', pendek: 'MoM', ikon: <ClipboardList size={14} /> },
   { id: 'nomor_surat', label: 'Nomor Surat', ikon: <Hash size={14} /> },
+  // Dokumen kerja (PDF, Word, Excel, PowerPoint) tim & pribadi, dibaca tanpa unduh.
+  { id: 'folder', label: 'Folder Dokumen', pendek: 'Folder', ikon: <FolderOpen size={14} /> },
   // Memo yang dihapus (beserta sub-halamannya) menunggu 30 hari di sini, seperti Trash di Notion.
   { id: 'sampah', label: 'Sampah', ikon: <Trash2 size={14} /> },
 ];
@@ -91,12 +103,15 @@ interface Props {
   onBukaRab?: (idRab: string) => void;
   /** Buka PICA yang ditautkan memo (pindah ke tab PICA). */
   onBukaPica?: (idPica: string) => void;
+  /** Memo yang diminta dibuka (mis. dari tautan di Kotak Surat). */
+  memoAwal?: string | null;
+  onMemoAwalTerpakai?: () => void;
 }
 
 /** Tab yang menampilkan papan Memo Internal tim (dengan bilah saring/cari/ekspor). */
 const TAB_PAPAN: readonly Tab[] = ['ikhtisar'];
 
-export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab, onBukaPica }) => {
+export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab, onBukaPica, memoAwal, onMemoAwalTerpakai }) => {
   const [tab, setTabState] = useState<Tab>(() => {
     // Tab yang tersimpan bisa jadi sudah tidak ada (Status, Kategori, Tabel, Tugas, Kalender dihapus).
     try { const t = localStorage.getItem(KUNCI_TAB); return TAB.some((x) => x.id === t) ? t as Tab : 'ikhtisar'; } catch { return 'ikhtisar'; }
@@ -320,6 +335,14 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
   // Catatan pribadi dimuat di sini juga, supaya Tugas dan Kalender mencakup keduanya.
   const [memoPribadi, setMemoPribadi] = useState<Memo[]>([]);
   const [memuatPribadi, setMemuatPribadi] = useState(true);
+  // Memo rahasia yang boleh saya buka (pembuat atau orang yang dituju).
+  const [memoRahasia, setMemoRahasia] = useState<Memo[]>([]);
+  const [memuatRahasia, setMemuatRahasia] = useState(true);
+  const [sandiRahasia, setSandiRahasia] = useState<boolean | null>(null);
+  // Folder Dokumen: null = tertutup; arah = folder yang dibuka (dari pohon folder atau tab).
+  const [folderBuka, setFolderBuka] = useState<ArahFolder | null>(null);
+  const [muatUlangFolder, setMuatUlangFolder] = useState(0);
+  const [pilihRahasiaBuka, setPilihRahasiaBuka] = useState(false);
   const [propertiMemo, setPropertiMemo] = useState<DefProperti[]>(boot.propertiMemo ?? []);
   useEffect(() => { setPropertiMemo(boot.propertiMemo ?? []); }, [boot.propertiMemo]);
 
@@ -340,15 +363,28 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
     } finally {
       setMemuatPribadi(false);
     }
+    try {
+      const d = await api<{ memo: Memo[]; sandi?: boolean }>('/api/memo?lingkup=rahasia');
+      setMemoRahasia(d.memo);
+      setSandiRahasia(d.sandi ?? null);
+    } catch { /* server lama tanpa memo rahasia: biarkan kosong */ }
+    finally { setMemuatRahasia(false); }
   }, [notify]);
 
   useEffect(() => { muat(); }, [muat]);
+  useEffect(() => {
+    if (!memoAwal || memuat || memuatPribadi || memuatRahasia) return;
+    if ([...memo, ...memoPribadi, ...memoRahasia].some((m) => m.id === memoAwal)) setTerpilihId(memoAwal);
+    else notify('MEMO TIDAK DITEMUKAN ATAU ANDA TIDAK PUNYA AKSES');
+    onMemoAwalTerpakai?.();
+  }, [memoAwal, memuat, memuatPribadi, memuatRahasia]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Perubahan satu memo (tim atau pribadi) di daftar yang tampil. */
   const perbaruiDimana = useCallback((id: string, patch: Partial<Memo>) => {
     const ganti = (d: Memo[]) => (d.some((x) => x.id === id) ? d.map((x) => (x.id === id ? { ...x, ...patch } : x)) : d);
     setMemo(ganti);
     setMemoPribadi(ganti);
+    setMemoRahasia(ganti);
   }, []);
 
   // Perubahan yang tertahan karena sinyal hilang dikirim ulang sendiri.
@@ -371,7 +407,7 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
       .filter((m) => (!q || `${m.judul} ${m.ringkasan ?? ''} ${m.isi}`.toLowerCase().includes(q))
         && (!saring.tipe || m.tipe === saring.tipe)
         && (!saring.status || m.status === saring.status))
-      .sort((a, b) => (urut === 'judul'
+      .sort((a, b) => (Number(tersemat(b)) - Number(tersemat(a))) || (urut === 'judul'
         ? a.judul.localeCompare(b.judul)
         : urut === 'diubah'
           ? String(b.diubah_pada ?? b.dibuat_pada).localeCompare(String(a.diubah_pada ?? a.dibuat_pada))
@@ -384,9 +420,10 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
       judul: '',
       isi: '',
       ringkasan: '',
-      kategori: awal.kategori ?? kategori[0]?.nilai ?? null,
+      // Halaman baru bersih: properti hanya terisi bila dibuat dari kolom papan (kategori) atau ditambah lewat "/".
+      kategori: awal.kategori ?? null,
       tipe: null,
-      status: awal.status ?? 'Draf',
+      status: awal.status ?? null,
       tanggal: W.hariIniWita(),
       // Halaman baru langsung bersampul, seperti Notion; bisa diganti atau dihapus.
       props: JSON.stringify({ sampul: SAMPUL_BAWAAN }),
@@ -420,6 +457,21 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
     } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUAT CATATAN'); }
   };
 
+  /** Memo rahasia baru untuk orang yang dituju (semuanya bisa menyunting), lalu dibuka. */
+  const buatRahasia = async (izin: string[]) => {
+    const props = JSON.stringify({ sampul: SAMPUL_BAWAAN, ikon: '🔒' });
+    try {
+      const d = await api<{ id: string; izin: string[] | null }>('/api/memo', { body: { lingkup: 'rahasia', judul: '', isi: '', props, izin } });
+      const baru: Memo = {
+        id: d.id, user_id: pengguna.id, penulis: pengguna.nama, lingkup: 'rahasia', izin: JSON.stringify(d.izin ?? izin), judul: '', isi: '', ringkasan: null,
+        kategori: null, tipe: null, status: null, tanggal: null, disematkan: 0, warna: null, props, dibuat_pada: new Date().toISOString(), diubah_pada: null,
+      };
+      setMemoRahasia((x) => [baru, ...x]);
+      setTerpilihId(d.id);
+      if (sandiRahasia === false) notify('MEMO RAHASIA DIBUAT — KUNCI SANDI SERVER BELUM DIPASANG');
+    } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MEMBUAT MEMO RAHASIA'); }
+  };
+
   /**
    * Sub-halaman baru di dalam `induk` (blok "Halaman" di menu "/" atau "+" di sidebar).
    * `tambahBlok`: blok halamannya ditambahkan di akhir isi induk (dari sidebar, induk sedang tidak dibuka).
@@ -427,15 +479,16 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
   const buatAnak = async (induk: Memo, tambahBlok: boolean): Promise<Memo | null> => {
     const props = JSON.stringify({ sampul: SAMPUL_BAWAAN });
     try {
-      const d = await api<{ id: string; lingkup: 'tim' | 'pribadi'; akses: 'edit' | 'baca' }>('/api/memo', {
+      const d = await api<{ id: string; lingkup: 'tim' | 'pribadi' | 'rahasia'; akses: 'edit' | 'baca'; izin?: string[] | null }>('/api/memo', {
         body: { lingkup: induk.lingkup, induk_id: induk.id, judul: '', isi: '', props },
       });
       const baru: Memo = {
         id: d.id, user_id: pengguna.id, penulis: pengguna.nama, lingkup: d.lingkup, judul: '', isi: '', ringkasan: null,
         kategori: null, tipe: null, status: null, tanggal: d.lingkup === 'tim' ? W.hariIniWita() : null, disematkan: 0, warna: null,
         props, akses: d.akses, induk_id: induk.id, dibuat_pada: new Date().toISOString(), diubah_pada: null,
+        izin: d.izin ? JSON.stringify(d.izin) : null,
       };
-      (baru.lingkup === 'tim' ? setMemo : setMemoPribadi)((x) => [baru, ...x]);
+      (baru.lingkup === 'tim' ? setMemo : baru.lingkup === 'rahasia' ? setMemoRahasia : setMemoPribadi)((x) => [baru, ...x]);
       if (tambahBlok) {
         const blok = `[[memo:${baru.id}|Tanpa judul]]`;
         const isiBaru = induk.isi.trim() ? `${induk.isi.replace(/\s+$/, '')}\n${blok}` : blok;
@@ -454,7 +507,7 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
   }, [pengguna]);
 
 
-  const terpilih = memo.find((m) => m.id === terpilihId) ?? memoPribadi.find((m) => m.id === terpilihId) ?? null;
+  const terpilih = memo.find((m) => m.id === terpilihId) ?? memoPribadi.find((m) => m.id === terpilihId) ?? memoRahasia.find((m) => m.id === terpilihId) ?? null;
   const adaSaring = Boolean(saring.tipe || saring.status || cari);
 
   // Ekspor Excel seperti tab yang dibuka: Tabel = tabel biasa; Ikhtisar/Kategori/Status = dikelompokkan dengan judul berwarna.
@@ -669,6 +722,31 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
             notify={notify}
           />
         )}
+        {tab === 'folder' && (
+          <div className="h-full overflow-auto custom-scrollbar">
+            <div className="max-w-xl retro-box !bg-zinc-900/80 border-amber-500/60 !p-3">
+              <p className="text-[12px] text-zinc-300 mb-2 leading-relaxed">
+                Dokumen kerja tim & pribadi — PDF, Word, Excel, PowerPoint — tersimpan di server dan bisa dibaca tanpa diunduh.
+                Ketuk folder untuk membuka isinya; <b className="text-white">+</b> untuk membuat sub-folder.
+              </p>
+              <PohonFolder pengguna={pengguna} notify={notify} muatUlang={muatUlangFolder} onBuka={setFolderBuka} />
+              <button type="button" onClick={() => setTab('sampah')} className="mt-1 flex items-center gap-2 px-2 h-7 text-[13px] text-zinc-400 hover:text-white">
+                <Trash2 size={14} /> Sampah · 30 hari
+              </button>
+            </div>
+          </div>
+        )}
+        {tab === 'rahasia' && (
+          <PapanRahasia
+            daftar={memoRahasia}
+            memuat={memuatRahasia}
+            sandi={sandiRahasia}
+            tim={boot.tim}
+            pengguna={pengguna}
+            onBuka={setTerpilihId}
+            onBuat={(izin) => { void buatRahasia(izin); }}
+          />
+        )}
         {tab === 'sampah' && (
           <SampahMemo
             tim={boot.tim}
@@ -743,9 +821,10 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
           onHapus={() => {
             const id = terpilih.id;
             // Sub-halamannya ikut pindah ke Sampah.
-            const buang = new Set(pohonMemo([...memo, ...memoPribadi], id).map((x) => x.id));
+            const buang = new Set(pohonMemo([...memo, ...memoPribadi, ...memoRahasia], id).map((x) => x.id));
             setMemo((m) => m.filter((x) => !buang.has(x.id)));
             setMemoPribadi((m) => m.filter((x) => !buang.has(x.id)));
+            setMemoRahasia((m) => m.filter((x) => !buang.has(x.id)));
             // Saat pindah halaman lewat sidebar, halaman kosong yang ditinggal ikut dibuang tanpa menutup halaman tujuan.
             setTerpilihId((t) => (t === id ? null : t));
           }}
@@ -753,9 +832,14 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
           notify={notify}
           memoTim={memo}
           memoPribadi={memoPribadi}
+          memoRahasia={memoRahasia}
+          sandiRahasia={sandiRahasia}
+          namaSaya={pengguna.nama}
           bolehBuatTim={bolehBuat}
           onPindah={setTerpilihId}
-          onBaru={(l) => { if (l === 'tim') void buat(); else void buatPribadi(); }}
+          onBaru={(l) => { if (l === 'tim') void buat(); else if (l === 'rahasia') setPilihRahasiaBuka(true); else void buatPribadi(); }}
+          onFolder={(arah) => setFolderBuka(arah ?? { lingkup: 'tim', folder: null })}
+          muatUlangFolder={muatUlangFolder}
           onBuatAnak={buatAnak}
           bolehAnak={bolehAnak}
           onSampah={() => { setTerpilihId(null); setTab('sampah'); }}
@@ -768,6 +852,24 @@ export const MemoScreen: React.FC<Props> = ({ boot, pengguna, notify, onBukaRab,
           tim={boot.tim}
           onBuka={(id) => { setTanyaBuka(false); setTerpilihId(id); }}
           onTutup={() => setTanyaBuka(false)}
+        />
+      )}
+      {folderBuka && (
+        <FolderDokumen
+          key={`${folderBuka.lingkup}:${folderBuka.folder ?? ''}`}
+          pengguna={pengguna}
+          notify={notify}
+          awal={folderBuka}
+          onBerubah={() => setMuatUlangFolder((n) => n + 1)}
+          onTutup={() => setFolderBuka(null)}
+        />
+      )}
+      {pilihRahasiaBuka && (
+        <PilihOrangRahasia
+          tim={boot.tim}
+          pengguna={pengguna}
+          onTutup={() => setPilihRahasiaBuka(false)}
+          onSimpan={(ids) => { setPilihRahasiaBuka(false); setTerpilihId(null); void buatRahasia(ids); }}
         />
       )}
 
@@ -975,9 +1077,9 @@ const KartuMemo: React.FC<{ memo: Memo; tipe: Opsi[]; status: Opsi[]; onBuka: (i
   {/* Kartu sendiri sebuah tombol, jadi tombol unduh ditumpuk di pojoknya (bukan di dalamnya). */}
   <div className="absolute top-1.5 right-1.5 z-[1]"><TombolGambarMemo memo={m} kecil /></div>
   <button onClick={() => onBuka(m.id)} className="w-full text-left bg-zinc-950 border-[3px] border-white/25 p-3 shadow-[3px_3px_0_#000] hover:border-white/60 transition-colors flex flex-col gap-2">
-    <p className={`text-[15px] font-bold leading-snug pr-8 ${m.judul ? 'text-white' : 'text-zinc-500 italic'}`}>{ikonMemo(m) && <span className="mr-1.5">{ikonMemo(m)}</span>}{m.judul || 'Tanpa judul'}</p>
+    <p className={`text-[15px] font-bold leading-snug pr-8 ${m.judul ? 'text-white' : 'text-zinc-500 italic'}`}>{tersemat(m) && <Pin size={13} className={`inline mr-1 ${m.disematkan ? 'text-red-400' : 'text-lime-300'}`} />}{ikonMemo(m) && <span className="mr-1.5">{ikonMemo(m)}</span>}{m.judul || 'Tanpa judul'}</p>
     {(m.ringkasan || cuplikanMemo(m.isi)) && <p className="text-[13px] text-zinc-300 leading-snug line-clamp-3">{m.ringkasan || cuplikanMemo(m.isi)}</p>}
-    {(m.tipe || m.pica_id || m.isi.includes('- [')) && (
+    {(m.tipe || m.pica_id || hitungTugas(m.isi).total > 0) && (
       <div className="flex flex-wrap gap-1"><ChipOpsi nilai={m.tipe} opsi={tipe} /><ChipPica memo={m} /><ChipTugas isi={m.isi} /></div>
     )}
     <p className="text-[12px] text-zinc-400">{tglMemo(m.tanggal)}{m.penulis ? ` · ${m.penulis.split(' ')[0]}` : ''}</p>
@@ -1447,6 +1549,8 @@ interface TampilanHalaman {
   lipatProperti: boolean;
   font: JenisFontMemo;
   latar: LatarMemo;
+  /** Mode Word: menyunting di atas lembar A4 seperti Microsoft Word. */
+  word: boolean;
 }
 
 export const DAFTAR_FONT: { id: JenisFontMemo; label: string; contoh: string; ket: string; kelas: string }[] = [
@@ -1470,6 +1574,7 @@ const bacaTampilan = (): TampilanHalaman => {
     lipatProperti: false,
     font: 'sans',
     latar: 'putih',
+    word: false,
   };
   try {
     const raw = JSON.parse(localStorage.getItem(KUNCI_TAMPILAN) || '{}');
@@ -1491,10 +1596,17 @@ const LembarMemo: React.FC<{
   onUbah: (patch: Partial<Memo>) => void; onHapus: () => void; onTutup: () => void; notify: (m: string) => void;
   /** Sidebar ala Notion: semua halaman memo tim & pribadi, pindah halaman, dan halaman baru. */
   memoTim: Memo[]; memoPribadi: Memo[]; bolehBuatTim: boolean;
+  /** Memo rahasia yang boleh saya buka; sandiRahasia = kunci sandi server terpasang. */
+  memoRahasia: Memo[]; sandiRahasia: boolean | null;
+  namaSaya: string;
   /** Akses penuh (pembuat/Admin/SPV): hapus, bagikan, atur akses. */
   penuh: boolean;
   idSaya: string;
-  onPindah: (id: string) => void; onBaru: (lingkup: 'tim' | 'pribadi') => void;
+  onPindah: (id: string) => void; onBaru: (lingkup: 'tim' | 'pribadi' | 'rahasia') => void;
+  /** Folder Dokumen (pohon di sidebar, di atas Sampah); `arah` = folder yang langsung dibuka. */
+  onFolder: (arah?: ArahFolder) => void;
+  /** Naik setiap isi folder berubah, agar pohon folder dimuat ulang. */
+  muatUlangFolder: number;
   /** Sub-halaman baru di dalam `induk`; `tambahBlok` = blok halamannya ditambahkan ke isi induk oleh pemanggil. */
   onBuatAnak: (induk: Memo, tambahBlok: boolean) => Promise<Memo | null>;
   bolehAnak: (m: Memo) => boolean;
@@ -1502,12 +1614,20 @@ const LembarMemo: React.FC<{
   onSampah: () => void;
 }> = ({
   memo, boleh, penuh, idSaya, kelola, kategori, tipe, status, tim, properti, onPropertiBaru, onBukaPica, onUbah, onHapus, onTutup, notify,
-  memoTim, memoPribadi, bolehBuatTim, onPindah, onBaru, onBuatAnak, bolehAnak, onSampah,
+  memoTim, memoPribadi, memoRahasia, sandiRahasia, namaSaya, bolehBuatTim, onPindah, onBaru, onBuatAnak, bolehAnak, onSampah, onFolder, muatUlangFolder,
 }) => {
   const pribadi = memo.lingkup === 'pribadi';
+  // Rahasia: hanya pembuat + orang yang dituju; tanpa tautan/AI/unduh/ekspor, layar aman di APK.
+  const rahasia = memo.lingkup === 'rahasia';
+  const tim_ = memo.lingkup === 'tim';
+  useLayarAman(rahasia);
+  const [pratinjau, setPratinjau] = useState<{ nama: string; kunci: string } | null>(null);
+  const [aturIzin, setAturIzin] = useState(false);
+  const [menuSemat, setMenuSemat] = useState(false);
+  const [mengeksporWord, setMengeksporWord] = useState(false);
   // Sub-halaman: tanpa properti papan (seperti halaman di dalam halaman Notion) dan tidak dibuang otomatis saat kosong.
   const subHalaman = Boolean(memo.induk_id);
-  const semuaHalaman = useMemo(() => new Map([...memoTim, ...memoPribadi].map((m) => [m.id, m])), [memoTim, memoPribadi]);
+  const semuaHalaman = useMemo(() => new Map([...memoTim, ...memoPribadi, ...memoRahasia].map((m) => [m.id, m])), [memoTim, memoPribadi, memoRahasia]);
   /** Jalur induk → … → halaman ini (breadcrumb). */
   const leluhur = useMemo(() => {
     const hasil: Memo[] = [];
@@ -1522,8 +1642,8 @@ const LembarMemo: React.FC<{
   }, [memo.induk_id, semuaHalaman]);
   // "Tautan ke halaman" & judul chip terkini: memo tim hanya menautkan memo tim, agar judul catatan pribadi tidak terbaca orang lain.
   const daftarHalaman = useMemo(
-    () => (pribadi ? [...memoTim, ...memoPribadi] : memoTim).map((m) => ({ id: m.id, judul: m.judul, ikon: ikonMemo(m) })),
-    [pribadi, memoTim, memoPribadi],
+    () => (pribadi ? [...memoTim, ...memoPribadi] : rahasia ? [...memoTim, ...memoRahasia] : memoTim).map((m) => ({ id: m.id, judul: m.judul, ikon: ikonMemo(m) })),
+    [pribadi, rahasia, memoTim, memoPribadi, memoRahasia],
   );
   /** Sub-halaman yang baru dibuat di sesi ini (bisa belum masuk daftar saat langsung dibuka). */
   const baruDibuat = useRef(new Set<string>());
@@ -1681,7 +1801,7 @@ const LembarMemo: React.FC<{
     await siapPindah();
     onPindah(id);
   };
-  const halamanBaru = async (lingkup: 'tim' | 'pribadi') => {
+  const halamanBaru = async (lingkup: 'tim' | 'pribadi' | 'rahasia') => {
     await siapPindah();
     onBaru(lingkup);
   };
@@ -1780,6 +1900,35 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
     }
   };
 
+  // Properti yang sengaja ditampilkan (lewat "/properti" atau "+ Tambah properti") walau masih kosong.
+  const [propTampil, setPropTampil] = useState<ReadonlySet<string>>(new Set());
+  const [pilihProp, setPilihProp] = useState(false);
+  const areaProperti = useRef<HTMLDivElement>(null);
+  /** Tanggal memo tim terisi otomatis saat dibuat: baru tampil bila diubah atau sengaja ditambahkan. */
+  const tanggalBuat = new Date(Date.parse(memo.dibuat_pada) + 480 * 60000).toISOString().slice(0, 10);
+  const tampilProp = (k: string): boolean => {
+    if (propTampil.has(k)) return true;
+    if (k === 'kategori' || k === 'tipe' || k === 'status') return Boolean(memo[k]);
+    if (k === 'tanggal') return Boolean(memo.tanggal && memo.tanggal !== tanggalBuat);
+    if (k === 'pica') return Boolean(memo.pica_id);
+    if (k === 'ringkasan') return Boolean(ringkasan.trim());
+    const v = nilaiProps[k];
+    return !(v === undefined || v === null || v === '' || v === false);
+  };
+  const daftarProp: { k: string; label: string; ikon: React.ReactNode }[] = [
+    { k: 'status', label: 'Status', ikon: <CircleDot size={14} /> },
+    { k: 'kategori', label: 'Kategori', ikon: <Tags size={14} /> },
+    { k: 'tipe', label: 'Tipe', ikon: <FileText size={14} /> },
+    { k: 'tanggal', label: 'Tanggal', ikon: <CalendarDays size={14} /> },
+    { k: 'pica', label: 'PICA', ikon: <Target size={14} /> },
+    { k: 'ringkasan', label: 'Ringkasan', ikon: <AlignLeft size={14} /> },
+    ...properti.map((p) => ({ k: p.id, label: p.label, ikon: <Hash size={14} /> })),
+  ];
+  const bukaPilihProp = () => {
+    setPilihProp(true);
+    areaProperti.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
   const ikon = typeof nilaiProps.ikon === 'string' ? nilaiProps.ikon : '';
   const sampul = typeof nilaiProps.sampul === 'string' ? nilaiProps.sampul : '';
   const pasangIkon = (v: string | null) => { setMenu(null); simpanProps({ ...bacaProps(memo), ikon: v }, true); };
@@ -1834,7 +1983,28 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
     }
   };
 
-  const asal = pribadi ? 'Catatan Pribadi' : 'Memo Internal';
+  const asal = pribadi ? 'Catatan Pribadi' : rahasia ? 'Memo Rahasia' : 'Memo Internal';
+
+  /** Sematkan: 'saya' = hanya untuk saya; 'semua' = untuk semua orang (pembuat/Admin/SPV; catatan pribadi memakai ini). */
+  const sematkan = async (untuk: 'saya' | 'semua', nilai: boolean) => {
+    setMenuSemat(false);
+    try {
+      await api(`/api/memo/${memo.id}/sematkan`, { body: { untuk, nilai } });
+      onUbah(untuk === 'semua' ? { disematkan: nilai ? 1 : 0 } : { sematan_saya: nilai ? 1 : 0 });
+      notify(nilai ? (untuk === 'semua' ? 'DISEMATKAN UNTUK SEMUA — SELALU DI ATAS' : 'DISEMATKAN — SELALU DI ATAS') : 'SEMATAN DILEPAS');
+    } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENYEMATKAN'); }
+  };
+  const tersematIni = Boolean(memo.sematan_saya || memo.disematkan);
+  const eksporWord = async () => {
+    setMenu(null);
+    setMengeksporWord(true);
+    try {
+      await kirim();
+      const h = await eksporDocxMemo({ judul, isi, penulis: memo.penulis }, tim);
+      notify(h === 'diunduh' ? 'DOKUMEN WORD DIUNDUH' : 'DOKUMEN WORD SIAP DIBAGIKAN');
+    } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL EKSPOR WORD'); }
+    finally { setMengeksporWord(false); }
+  };
   const diedit = teksDiedit(memo.diubah_pada ?? memo.dibuat_pada);
   const kotakMenu = 'absolute z-30 retro-box !bg-zinc-900 border-lime-500 !p-1';
 
@@ -1860,11 +2030,13 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
         onSembunyi={alihSidebar}
         memoTim={memoTim}
         memoPribadi={memoPribadi}
+        memoRahasia={memoRahasia}
         aktifId={memo.id}
-        lingkupAktif={pribadi ? 'pribadi' : 'tim'}
+        lingkupAktif={memo.lingkup}
         bolehBuatTim={bolehBuatTim}
         onPilih={(id) => { void pindahKe(id); }}
         onBaru={(l) => { void halamanBaru(l); }}
+        folder={<PohonFolder pengguna={{ id: idSaya, nama: namaSaya, peran: kelola ? 'admin' : 'anggota' } as Pengguna} notify={notify} muatUlang={muatUlangFolder} onBuka={onFolder} />}
         onBeranda={tutup}
         onBaruAnak={(m) => { void tambahAnakSidebar(m); }}
         bolehAnak={bolehAnak}
@@ -1877,11 +2049,13 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
             className="flex max-w-[85vw] shadow-[4px_0_0_#000]"
             memoTim={memoTim}
             memoPribadi={memoPribadi}
+            memoRahasia={memoRahasia}
             aktifId={memo.id}
-            lingkupAktif={pribadi ? 'pribadi' : 'tim'}
+            lingkupAktif={memo.lingkup}
             bolehBuatTim={bolehBuatTim}
             onPilih={(id) => { void pindahKe(id); }}
             onBaru={(l) => { void halamanBaru(l); }}
+            folder={<PohonFolder pengguna={{ id: idSaya, nama: namaSaya, peran: kelola ? 'admin' : 'anggota' } as Pengguna} notify={notify} muatUlang={muatUlangFolder} onBuka={(a) => { setLaci(false); onFolder(a); }} />}
             onBeranda={() => { setLaci(false); tutup(); }}
             onTutup={() => setLaci(false)}
             onBaruAnak={(m) => { void tambahAnakSidebar(m); }}
@@ -1928,7 +2102,7 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
       }`}>
         <button type="button" onClick={alihSidebar} className={`${tampilan.sidebar ? 'lg:hidden' : ''} btn-ikon !w-9 !h-9 ${tampilan.latar === 'putih' ? '!bg-zinc-100 hover:!bg-zinc-200 !text-zinc-800 !border-zinc-300' : 'bg-zinc-800'} shrink-0`} title="Tampilkan daftar halaman (Ctrl+\)" aria-label="Tampilkan daftar halaman"><Menu size={17} /></button>
         <button type="button" onClick={tutup} className={`btn-ikon !w-9 !h-9 ${tampilan.latar === 'putih' ? '!bg-zinc-100 hover:!bg-zinc-200 !text-zinc-800 !border-zinc-300' : 'bg-zinc-800'} shrink-0`} title="Kembali ke papan memo" aria-label="Kembali"><ChevronLeft size={18} /></button>
-        <nav className="flex items-center gap-1.5 min-w-0 text-[13px]" aria-label="Jalur halaman">
+        <nav className="flex items-center gap-1.5 min-w-0 overflow-hidden text-[13px]" aria-label="Jalur halaman">
           {/* Induk → … → halaman ini; di HP hanya induk terdekat yang tampil. */}
           {leluhur.length > 1 && <span className="sm:hidden text-zinc-500">…/</span>}
           {leluhur.map((m, i) => {
@@ -1943,11 +2117,38 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
             );
           })}
           <span className={`font-bold truncate ${tampilan.latar === 'putih' ? 'text-zinc-950' : 'text-white'}`}>{ikon && <span className="mr-1">{ikon}</span>}{judul || 'Tanpa judul'}</span>
-          <span className="hidden sm:inline-flex items-center gap-1 text-zinc-500 whitespace-nowrap">{pribadi ? <Lock size={12} /> : <Users size={12} />}{asal}</span>
+          <span className={`hidden sm:inline-flex items-center gap-1 whitespace-nowrap ${rahasia ? 'text-amber-500 font-bold' : 'text-zinc-500'}`}>{pribadi ? <Lock size={12} /> : rahasia ? <ShieldCheck size={12} /> : <Users size={12} />}{asal}</span>
         </nav>
         <span className="ml-auto hidden md:inline text-[11px] text-zinc-500 whitespace-nowrap">{diedit}</span>
         {boleh && <TandaSimpan status={status_} className="hidden sm:inline" />}
         {!boleh && !pribadi && <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 border border-white/20 text-[11px] text-zinc-400 whitespace-nowrap" title="Pembuat memo mengatur memo ini Baca saja"><Eye size={11} /> Hanya baca</span>}
+        {/* Sematkan: memo penting selalu di atas daftar & papan */}
+        <span className="relative">
+          <button
+            type="button"
+            onClick={() => (tim_ && penuh ? setMenuSemat((v) => !v) : void sematkan(pribadi ? 'semua' : 'saya', !(pribadi ? memo.disematkan : memo.sematan_saya)))}
+            className={`btn-ikon !w-9 !h-9 shrink-0 ${tersematIni ? '!bg-lime-600 !text-white' : tampilan.latar === 'putih' ? '!bg-zinc-100 hover:!bg-zinc-200 !text-zinc-800 !border-zinc-300' : 'bg-zinc-800'}`}
+            title={tersematIni ? 'Disematkan — ketuk untuk melepas' : 'Sematkan di atas'}
+            aria-label="Sematkan"
+            aria-pressed={tersematIni}
+          >
+            {tersematIni ? <Pin size={15} className={memo.disematkan && !pribadi ? 'text-red-200' : ''} /> : <Pin size={15} />}
+          </button>
+          {menuSemat && (
+            <>
+              <span className="fixed inset-0 z-20" onClick={() => setMenuSemat(false)} aria-hidden="true" />
+              <div className={`${kotakMenu} right-0 top-full mt-1 w-60 ${tampilan.latar === 'putih' ? '!bg-white !border-zinc-300 text-zinc-900 shadow-xl' : ''}`}>
+                <button type="button" onClick={() => sematkan('saya', !memo.sematan_saya)} className={`flex w-full items-center gap-2 px-2 py-1.5 text-[13px] ${tampilan.latar === 'putih' ? 'hover:bg-zinc-100' : 'hover:bg-white/10'}`}>
+                  {memo.sematan_saya ? <PinOff size={14} /> : <Pin size={14} className="text-lime-400" />} {memo.sematan_saya ? 'Lepas sematan saya' : 'Sematkan untuk saya'}
+                </button>
+                <button type="button" onClick={() => sematkan('semua', !memo.disematkan)} className={`flex w-full items-center gap-2 px-2 py-1.5 text-[13px] ${tampilan.latar === 'putih' ? 'hover:bg-zinc-100' : 'hover:bg-white/10'}`}>
+                  {memo.disematkan ? <PinOff size={14} /> : <Pin size={14} className="text-red-400" />} {memo.disematkan ? 'Lepas sematan untuk semua' : 'Sematkan untuk semua anggota'}
+                </button>
+              </div>
+            </>
+          )}
+        </span>
+        {!pribadi && <SosialMemo memoId={memo.id} idSaya={idSaya} tim={tim} terang={tampilan.latar === 'putih'} notify={notify} />}
         <button
           type="button"
           onClick={() => setKomentarBuka((v) => !v)}
@@ -1959,17 +2160,28 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
           <MessageSquare size={16} />
           {jumlahKomentar > 0 && <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5 bg-amber-400 text-black text-[10px] font-bold flex items-center justify-center">{jumlahKomentar}</span>}
         </button>
-        <BagikanMemo
-          memoId={memo.id}
-          judul={judul}
-          pribadi={pribadi}
-          notify={notify}
-          akses={memo.akses === 'edit' ? 'edit' : 'baca'}
-          bolehAturAkses={penuh}
-          onAkses={(a) => { onUbah({ akses: a }); jadwalkan({ akses: a }, true); }}
-        />
-        <span className="hidden sm:inline-flex"><TombolGambarMemo memo={{ ...memo, judul, ringkasan, isi }} kecil /></span>
-        {boleh && (
+        {rahasia ? (
+          <button
+            type="button"
+            onClick={() => (penuh ? setAturIzin(true) : notify('HANYA PEMBUAT YANG MENGATUR ORANG YANG DITUJU'))}
+            className="flex items-center gap-1.5 px-2 h-9 border-2 border-amber-500/60 bg-amber-500/10 text-[12px] font-bold text-amber-600 shrink-0"
+            title="Orang yang dituju memo rahasia ini (semuanya bisa menyunting)"
+          >
+            <ShieldCheck size={14} /> <AvatarIzin memo={memo} tim={tim} maks={3} />
+          </button>
+        ) : (
+          <BagikanMemo
+            memoId={memo.id}
+            judul={judul}
+            pribadi={pribadi}
+            notify={notify}
+            akses={memo.akses === 'edit' ? 'edit' : 'baca'}
+            bolehAturAkses={penuh}
+            onAkses={(a) => { onUbah({ akses: a }); jadwalkan({ akses: a }, true); }}
+          />
+        )}
+        {!rahasia && <span className="hidden sm:inline-flex"><TombolGambarMemo memo={{ ...memo, judul, ringkasan, isi }} kecil /></span>}
+        {boleh && !rahasia && (
           <button
             type="button"
             onClick={() => setModalAiBuka(true)}
@@ -2057,12 +2269,17 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
                 <button type="button" onClick={() => setTampilan({ ...tampilan, kecil: !tampilan.kecil })} className={`flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[13px] ${tampilan.latar === 'putih' ? 'hover:bg-zinc-100 text-zinc-800' : 'hover:bg-white/10 text-white'}`}>
                   <span className="flex items-center gap-2"><Type size={14} /> Teks kecil</span><span className={`w-8 h-4 border-2 ${tampilan.latar === 'putih' ? 'border-zinc-400' : 'border-white/60'} relative ${tampilan.kecil ? 'bg-lime-600' : ''}`}><span className={`absolute top-0 w-3 h-3 ${tampilan.latar === 'putih' ? 'bg-zinc-900' : 'bg-white'} ${tampilan.kecil ? 'right-0' : 'left-0'}`} /></span>
                 </button>
+                <button type="button" onClick={() => setTampilan({ ...tampilan, word: !tampilan.word })} className={`flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[13px] ${tampilan.latar === 'putih' ? 'hover:bg-zinc-100 text-zinc-800' : 'hover:bg-white/10 text-white'}`} title="Menyunting di atas lembar A4 seperti Microsoft Word">
+                  <span className="flex items-center gap-2"><BookOpen size={14} /> Mode Word (lembar A4)</span><span className={`w-8 h-4 border-2 ${tampilan.latar === 'putih' ? 'border-zinc-400' : 'border-white/60'} relative ${tampilan.word ? 'bg-lime-600' : ''}`}><span className={`absolute top-0 w-3 h-3 ${tampilan.latar === 'putih' ? 'bg-zinc-900' : 'bg-white'} ${tampilan.word ? 'right-0' : 'left-0'}`} /></span>
+                </button>
+                {!rahasia && (
+                  <button type="button" onClick={eksporWord} disabled={mengeksporWord} className={`flex w-full items-center gap-2 px-2 py-1.5 text-[13px] ${tampilan.latar === 'putih' ? 'hover:bg-zinc-100 text-zinc-800' : 'hover:bg-white/10 text-white'}`}>
+                    {mengeksporWord ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} className="text-sky-400" />} Ekspor ke Word (.docx)
+                  </button>
+                )}
                 {pribadi && boleh && (
                   <>
                     <div className={`h-px my-1 ${tampilan.latar === 'putih' ? 'bg-zinc-200' : 'bg-white/15'}`} />
-                    <button type="button" onClick={() => { setMenu(null); onUbah({ disematkan: memo.disematkan ? 0 : 1 }); jadwalkan({ disematkan: memo.disematkan ? 0 : 1 }, true); }} className={`flex w-full items-center gap-2 px-2 py-1.5 text-[13px] ${tampilan.latar === 'putih' ? 'hover:bg-zinc-100 text-zinc-800' : 'hover:bg-white/10'}`}>
-                      {memo.disematkan ? <PinOff size={14} /> : <Pin size={14} />} {memo.disematkan ? 'Lepas sematan' : 'Sematkan di atas'}
-                    </button>
                     <div className="flex items-center gap-1.5 px-2 py-1.5">
                       <span className="text-[12px] text-zinc-400 mr-1">Warna</span>
                       {Object.keys(WARNA_PRIBADI).map((w) => (
@@ -2071,10 +2288,12 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
                     </div>
                   </>
                 )}
-                <div className="sm:hidden">
-                  <div className={`h-px my-1 ${tampilan.latar === 'putih' ? 'bg-zinc-200' : 'bg-white/15'}`} />
-                  <div className={`px-2 py-1.5 flex items-center gap-2 text-[13px] ${tampilan.latar === 'putih' ? 'text-zinc-800' : ''}`}><TombolGambarMemo memo={{ ...memo, judul, ringkasan, isi }} kecil /> Unduh gambar</div>
-                </div>
+                {!rahasia && (
+                  <div className="sm:hidden">
+                    <div className={`h-px my-1 ${tampilan.latar === 'putih' ? 'bg-zinc-200' : 'bg-white/15'}`} />
+                    <div className={`px-2 py-1.5 flex items-center gap-2 text-[13px] ${tampilan.latar === 'putih' ? 'text-zinc-800' : ''}`}><TombolGambarMemo memo={{ ...memo, judul, ringkasan, isi }} kecil /> Unduh gambar</div>
+                  </div>
+                )}
                 {penuh && (
                   <>
                     <div className={`h-px my-1 ${tampilan.latar === 'putih' ? 'bg-zinc-200' : 'bg-white/15'}`} />
@@ -2089,10 +2308,16 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
       </div>
 
       {/* ---------- Halaman ---------- */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        {sampul && <SampulMemo memoId={memo.id} nilai={sampul} y={nilaiProps.sampul_y} boleh={boleh} notify={notify} onUbah={pasangSampul} />}
+      <div className={`flex-1 overflow-y-auto custom-scrollbar ${tampilan.word ? 'bg-zinc-300 py-6 px-2 sm:px-6' : ''}`}>
+        {sampul && !tampilan.word && <SampulMemo memoId={memo.id} nilai={sampul} y={nilaiProps.sampul_y} boleh={boleh} notify={notify} onUbah={pasangSampul} />}
 
-        <div className={`mx-auto px-4 sm:px-12 pb-28 ${tampilan.lebar ? 'max-w-none' : 'max-w-[780px]'} ${tampilan.kecil ? 'text-[13px]' : ''}`}>
+        <div
+          className={tampilan.word
+            ? 'memo-mode-word memo-latar-putih mx-auto bg-white text-zinc-900 shadow-[0_4px_18px_rgba(0,0,0,0.35)] px-6 sm:px-[72px] pt-10 sm:pt-[72px] pb-28 w-full max-w-[794px]'
+            : `mx-auto px-4 sm:px-12 pb-28 ${tampilan.lebar ? 'max-w-none' : 'max-w-[780px]'} ${tampilan.kecil ? 'text-[13px]' : ''}`}
+          // Garis batas tiap 297 mm (lembar A4) agar terasa seperti menyunting di Word.
+          style={tampilan.word ? { minHeight: 1123, backgroundImage: 'repeating-linear-gradient(to bottom, transparent 0, transparent 1121px, #d4d4d8 1121px, #d4d4d8 1123px)', fontFamily: 'Calibri, Carlito, "Segoe UI", Arial, sans-serif' } : undefined}
+        >
           {/* Kepala halaman: ikon, lalu tombol "Tambah ikon / sampul" yang muncul saat diarahkan */}
           <div className={`group relative ${sampul ? '' : 'pt-8 sm:pt-14'}`}>
             {ikon && (
@@ -2159,38 +2384,26 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
             }`}>{judul || 'Tanpa judul'}</h1>
           )}
 
-          {/* Properti — pola Notion: nama abu-abu di kiri, nilai polos di kanan yang jadi isian saat diketuk.
-              Terbuka secara bawaan; bisa dilipat jadi satu baris ringkas (pilihan diingat per perangkat). */}
-          <div className={subHalaman ? 'hidden' : 'mt-4'}>
-            {!pribadi && tampilan.lipatProperti && (
-              <button
-                type="button"
-                onClick={() => setTampilan({ ...tampilan, lipatProperti: false })}
-                className="w-full flex items-center gap-1.5 min-h-[34px] px-1.5 text-left text-[13px] text-zinc-400 hover:text-white hover:bg-white/[0.06]"
-                aria-expanded={false}
-              >
-                <ChevronDown size={14} className="-rotate-90 shrink-0" />
-                <span className="shrink-0">{7 + properti.length + (isi.includes('- [') ? 1 : 0)} properti</span>
-                <span className="truncate text-zinc-500">
-                  {[kategori.find((o) => o.nilai === memo.kategori)?.label ?? memo.kategori, status.find((o) => o.nilai === memo.status)?.label ?? memo.status, tglMemo(memo.tanggal)].filter(Boolean).join(' · ')}
-                </span>
-              </button>
-            )}
-            <div className={!pribadi && tampilan.lipatProperti ? 'hidden' : ''}>
-            {!pribadi && (
-              <>
-                {([['kategori', 'Kategori', kategori, true], ['tipe', 'Tipe', tipe, false], ['status', 'Status', status, true]] as const).map(([kunci, label, opsi, bulat]) => (
-                  <BarisProperti
-                    key={kunci}
-                    label={label}
-                    ikon={kunci === 'kategori' ? <Tags size={14} /> : kunci === 'tipe' ? <FileText size={14} /> : <CircleDot size={14} />}
-                    tampil={(
-                      <PilihanTembus nilai={memo[kunci]} opsi={opsi} boleh={boleh} label={label} onUbah={(v) => { onUbah({ [kunci]: v }); jadwalkan({ [kunci]: v }, true); }}>
-                        {memo[kunci] ? <ChipOpsi nilai={memo[kunci]} opsi={opsi} bulat={bulat} /> : <Kosong />}
-                      </PilihanTembus>
-                    )}
-                  />
-                ))}
+          {/* Properti — halaman baru bersih seperti halaman biasa Notion: properti hanya tampil bila
+              terisi, atau ditambah lewat "/properti" atau "+ Tambah properti" di bawah judul. */}
+          {tim_ && !subHalaman && (
+            <div ref={areaProperti} className="mt-2">
+              {(memo.penulis || diedit) && (
+                <p className="text-[12px] text-zinc-500 px-1.5 mb-1">{memo.penulis ? `Ditulis oleh ${memo.penulis}` : ''}{memo.penulis && diedit ? ' · ' : ''}{diedit}</p>
+              )}
+              {([['kategori', 'Kategori', kategori, true], ['tipe', 'Tipe', tipe, false], ['status', 'Status', status, true]] as const).filter(([kunci]) => tampilProp(kunci)).map(([kunci, label, opsi, bulat]) => (
+                <BarisProperti
+                  key={kunci}
+                  label={label}
+                  ikon={kunci === 'kategori' ? <Tags size={14} /> : kunci === 'tipe' ? <FileText size={14} /> : <CircleDot size={14} />}
+                  tampil={(
+                    <PilihanTembus nilai={memo[kunci]} opsi={opsi} boleh={boleh} label={label} onUbah={(v) => { onUbah({ [kunci]: v }); jadwalkan({ [kunci]: v }, true); }}>
+                      {memo[kunci] ? <ChipOpsi nilai={memo[kunci]} opsi={opsi} bulat={bulat} /> : <Kosong />}
+                    </PilihanTembus>
+                  )}
+                />
+              ))}
+              {tampilProp('tanggal') && (
                 <BarisProperti
                   label="Tanggal"
                   ikon={<CalendarDays size={14} />}
@@ -2200,7 +2413,8 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
                     </TanggalTembus>
                   )}
                 />
-                <BarisProperti label="Penulis" ikon={<User size={14} />} tampil={<NilaiPolos>{memo.penulis ?? <Kosong />}</NilaiPolos>} />
+              )}
+              {tampilProp('pica') && (
                 <BarisProperti
                   label="PICA"
                   ikon={<Target size={14} />}
@@ -2215,83 +2429,105 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
                     />
                   )}
                 />
-              </>
-            )}
-            {isi.includes('- [') && <BarisProperti label="Tugas" ikon={<ListChecks size={14} />} tampil={<NilaiPolos><ChipTugas isi={isi} /></NilaiPolos>} />}
-            {!pribadi && properti.map((p) => {
-              const v = nilaiProps[p.id];
-              const kosong = v === undefined || v === null || v === '';
-              const menuKolom = kelola || boleh ? [{ label: 'Hapus properti', aksi: () => hapusKolomProperti(p), bahaya: true }] : undefined;
-              const ikonKolom = <Hash size={14} />;
-              // Centang dan lokasi (penyunting peta) tetap langsung bisa dipakai; pilihan/orang/tanggal memakai pemilih perangkat.
-              if (p.tipe === 'checkbox' || p.tipe === 'lokasi') {
-                return <BarisProperti key={p.id} label={p.label} ikon={ikonKolom} menu={menuKolom} tampil={<div className="px-1.5 py-1"><EditorProperti p={p} nilai={v} tim={tim} boleh={boleh} onUbah={(x) => ubahProps(p, x)} /></div>} />;
-              }
-              if (p.tipe === 'select' || p.tipe === 'orang') {
-                const opsiKolom = p.tipe === 'orang' ? tim.map((t) => ({ nilai: t.id, label: t.nama })) : opsiProperti(p).map((o) => ({ nilai: o, label: o }));
+              )}
+              {hitungTugas(isi).total > 0 && <BarisProperti label="Tugas" ikon={<ListChecks size={14} />} tampil={<NilaiPolos><ChipTugas isi={isi} /></NilaiPolos>} />}
+              {properti.filter((p) => tampilProp(p.id)).map((p) => {
+                const v = nilaiProps[p.id];
+                const kosong = v === undefined || v === null || v === '';
+                const menuKolom = kelola || boleh ? [{ label: 'Hapus properti', aksi: () => hapusKolomProperti(p), bahaya: true }] : undefined;
+                const ikonKolom = <Hash size={14} />;
+                // Centang dan lokasi (penyunting peta) tetap langsung bisa dipakai; pilihan/orang/tanggal memakai pemilih perangkat.
+                if (p.tipe === 'checkbox' || p.tipe === 'lokasi') {
+                  return <BarisProperti key={p.id} label={p.label} ikon={ikonKolom} menu={menuKolom} tampil={<div className="px-1.5 py-1"><EditorProperti p={p} nilai={v} tim={tim} boleh={boleh} onUbah={(x) => ubahProps(p, x)} /></div>} />;
+                }
+                if (p.tipe === 'select' || p.tipe === 'orang') {
+                  const opsiKolom = p.tipe === 'orang' ? tim.map((x) => ({ nilai: x.id, label: x.nama })) : opsiProperti(p).map((o) => ({ nilai: o, label: o }));
+                  return (
+                    <BarisProperti
+                      key={p.id} label={p.label} ikon={ikonKolom} menu={menuKolom}
+                      tampil={(
+                        <PilihanTembus nilai={kosong ? null : String(v)} opsi={opsiKolom} boleh={boleh} label={p.label} onUbah={(x) => ubahProps(p, x)}>
+                          {kosong ? <Kosong /> : <span className="inline-block px-1.5 py-0.5 text-[12px] font-bold bg-white/10 border border-white/20 text-zinc-200">{teksNilai(p, v, tim)}</span>}
+                        </PilihanTembus>
+                      )}
+                    />
+                  );
+                }
+                if (p.tipe === 'tanggal') {
+                  return (
+                    <BarisProperti
+                      key={p.id} label={p.label} ikon={ikonKolom} menu={menuKolom}
+                      tampil={(
+                        <TanggalTembus nilai={kosong ? null : String(v)} boleh={boleh} label={p.label} onUbah={(x) => ubahProps(p, x)}>
+                          <span className="text-[14px] text-zinc-100">{kosong ? <Kosong /> : teksNilai(p, v, tim)}</span>
+                        </TanggalTembus>
+                      )}
+                    />
+                  );
+                }
                 return (
                   <BarisProperti
-                    key={p.id} label={p.label} ikon={ikonKolom} menu={menuKolom}
-                    tampil={(
-                      <PilihanTembus nilai={kosong ? null : String(v)} opsi={opsiKolom} boleh={boleh} label={p.label} onUbah={(x) => ubahProps(p, x)}>
-                        {kosong ? <Kosong /> : <span className="inline-block px-1.5 py-0.5 text-[12px] font-bold bg-white/10 border border-white/20 text-zinc-200">{teksNilai(p, v, tim)}</span>}
-                      </PilihanTembus>
-                    )}
+                    key={p.id} label={p.label} ikon={ikonKolom} menu={menuKolom} boleh={boleh}
+                    tampil={kosong ? <Kosong /> : <EditorProperti p={p} nilai={v} tim={tim} boleh={false} onUbah={() => undefined} />}
+                    sunting={() => <EditorProperti p={p} nilai={v} tim={tim} boleh onUbah={(x) => ubahProps(p, x)} />}
                   />
                 );
-              }
-              if (p.tipe === 'tanggal') {
-                return (
-                  <BarisProperti
-                    key={p.id} label={p.label} ikon={ikonKolom} menu={menuKolom}
-                    tampil={(
-                      <TanggalTembus nilai={kosong ? null : String(v)} boleh={boleh} label={p.label} onUbah={(x) => ubahProps(p, x)}>
-                        <span className="text-[14px] text-zinc-100">{kosong ? <Kosong /> : teksNilai(p, v, tim)}</span>
-                      </TanggalTembus>
-                    )}
-                  />
-                );
-              }
-              return (
+              })}
+              {tampilProp('ringkasan') && (
                 <BarisProperti
-                  key={p.id} label={p.label} ikon={ikonKolom} menu={menuKolom} boleh={boleh}
-                  tampil={kosong ? <Kosong /> : <EditorProperti p={p} nilai={v} tim={tim} boleh={false} onUbah={() => undefined} />}
-                  sunting={() => <EditorProperti p={p} nilai={v} tim={tim} boleh onUbah={(x) => ubahProps(p, x)} />}
+                  label="Ringkasan"
+                  ikon={<AlignLeft size={14} />}
+                  boleh={boleh}
+                  tampil={ringkasan ? <span className="py-1.5 whitespace-pre-wrap leading-snug">{ringkasan}</span> : <Kosong teks="Kosong — tampil di kartu" />}
+                  sunting={() => (
+                    <textarea
+                      value={ringkasan}
+                      onChange={(e) => { setRingkasan(e.target.value); jadwalkan({ ringkasan: e.target.value }); }}
+                      rows={3}
+                      className="input-retro !py-1.5 !text-[14px] resize-y"
+                      placeholder="Dua–tiga kalimat inti memo (tampil di kartu)…"
+                      aria-label="Ringkasan"
+                    />
+                  )}
                 />
-              );
-            })}
-            {!pribadi && (
-              <BarisProperti
-                label="Ringkasan"
-                ikon={<AlignLeft size={14} />}
-                boleh={boleh}
-                tampil={ringkasan ? <span className="py-1.5 whitespace-pre-wrap leading-snug">{ringkasan}</span> : <Kosong teks="Kosong — tampil di kartu" />}
-                sunting={() => (
-                  <textarea
-                    value={ringkasan}
-                    onChange={(e) => { setRingkasan(e.target.value); jadwalkan({ ringkasan: e.target.value }); }}
-                    rows={3}
-                    className="input-retro !py-1.5 !text-[14px] resize-y"
-                    placeholder="Dua–tiga kalimat inti memo (tampil di kartu)…"
-                    aria-label="Ringkasan"
-                  />
-                )}
-              />
-            )}
-            {!pribadi && kelola && <div className="pl-1.5 pt-1"><TambahPropertiMemo ada={properti} notify={notify} onSelesai={onPropertiBaru} /></div>}
-            {pribadi && <p className="text-[12px] text-zinc-500 flex items-center gap-1.5 py-1"><Lock size={12} /> Catatan pribadi — hanya terlihat oleh Anda{memo.disematkan ? ' · disematkan' : ''}</p>}
-            {!pribadi && (
-              <button
-                type="button"
-                onClick={() => setTampilan({ ...tampilan, lipatProperti: true })}
-                className="flex items-center gap-1.5 px-1.5 py-1 text-[12px] text-zinc-500 hover:text-white"
-                aria-expanded
-              >
-                <ChevronDown size={13} className="rotate-180" /> Sembunyikan properti
-              </button>
-            )}
+              )}
+              {boleh && (
+                <div className="relative pl-1">
+                  <button
+                    type="button"
+                    onClick={() => setPilihProp((v) => !v)}
+                    className={`flex items-center gap-1.5 px-1.5 py-1 text-[12px] text-zinc-500 hover:text-white hover:bg-white/[0.06] ${pilihProp ? 'text-white' : ''}`}
+                    aria-expanded={pilihProp}
+                  >
+                    <Plus size={13} /> Tambah properti <span className="text-zinc-600">· atau ketik /properti</span>
+                  </button>
+                  {pilihProp && (
+                    <>
+                      <span className="fixed inset-0 z-20" onClick={() => setPilihProp(false)} aria-hidden="true" />
+                      <div className={`${kotakMenu} left-0 top-full mt-1 w-64 ${tampilan.latar === 'putih' ? '!bg-white !border-zinc-300 text-zinc-900 shadow-xl' : ''}`}>
+                        <p className="px-2 pt-1 pb-1 text-[11px] uppercase text-zinc-500 font-bold flex items-center gap-1"><SlidersHorizontal size={11} /> Properti halaman</p>
+                        {daftarProp.filter((x) => !tampilProp(x.k)).map((x) => (
+                          <button key={x.k} type="button" onClick={() => { setPropTampil((s) => new Set(s).add(x.k)); setPilihProp(false); }} className={`flex w-full items-center gap-2 px-2 py-1.5 text-[13px] ${tampilan.latar === 'putih' ? 'hover:bg-zinc-100' : 'hover:bg-white/10'}`}>
+                            {x.ikon} {x.label}
+                          </button>
+                        ))}
+                        {daftarProp.every((x) => tampilProp(x.k)) && <p className="px-2 py-1.5 text-[12px] text-zinc-500">Semua properti sudah tampil.</p>}
+                        {kelola && <div className="px-1.5 pt-1 border-t border-white/10 mt-1"><TambahPropertiMemo ada={properti} notify={notify} onSelesai={onPropertiBaru} /></div>}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
-          </div>
+          )}
+          {pribadi && <p className="text-[12px] text-zinc-500 flex items-center gap-1.5 py-1 mt-2"><Lock size={12} /> Catatan pribadi — hanya terlihat oleh Anda{memo.disematkan ? ' · disematkan' : ''}</p>}
+          {rahasia && (
+            <div className="mt-2 px-2 py-1.5 border-2 border-amber-500/50 bg-amber-500/10 text-[12px] flex flex-wrap items-center gap-2">
+              <ShieldCheck size={14} className="text-amber-500 shrink-0" />
+              <span className="flex-1 min-w-[12rem]">Memo rahasia — hanya pembuat dan orang yang dituju; semuanya bisa menyunting. Tidak bisa dibagikan, diunduh, atau diproses AI.{sandiRahasia === false ? ' (Kunci sandi server belum dipasang.)' : ' Isi disandikan di server.'}</span>
+              <AvatarIzin memo={memo} tim={tim} />
+            </div>
+          )}
 
           <div className={subHalaman ? 'mt-4' : `border-t mt-3 pt-4 ${tampilan.latar === 'putih' ? 'border-zinc-200' : tampilan.latar === 'lapangan' ? 'border-zinc-300' : 'border-white/15'}`}>
             <EditorMemo
@@ -2301,20 +2537,22 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
               boleh={boleh}
               tim={tim}
               notify={notify}
-              bolehSebutOrang={!pribadi}
+              bolehSebutOrang={tim_}
               onBukaPica={onBukaPica}
               tinggi={isi.trim() ? 360 : 120}
               kecil={tampilan.kecil}
-              font={tampilan.font}
-              latar={tampilan.latar}
+              font={tampilan.word ? 'sans' : tampilan.font}
+              latar={tampilan.word ? 'putih' : tampilan.latar}
               idSaya={idSaya}
+              onProperti={tim_ && boleh && !subHalaman ? bukaPilihProp : undefined}
+              onPratinjauBerkas={setPratinjau}
               onCentangBaca={!boleh && !pribadi ? centangBaca : undefined}
               // "Tautan ke halaman": memo tim hanya menautkan memo tim, agar judul catatan pribadi tidak terbaca orang lain.
               halaman={daftarHalaman}
               onBukaHalaman={bukaHalaman}
               onBuatHalaman={boleh ? buatSubHalaman : undefined}
               onKomentar={(k) => { setKutipanKomentar(k); setKomentarBuka(true); }}
-              onAi={boleh ? async (q) => {
+              onAi={boleh && !rahasia ? async (q) => {
                 const r = await prosesMemoAi({ mode: q.mode, aksi: q.aksi as AksiPilihanAi | undefined, pilihan: q.pilihan, instruksi_khusus: q.instruksi, memo_id: memo.id, lingkup: pribadi ? 'pribadi' : 'tim', judul, isi });
                 return { teks: (q.mode === 'pilihan' ? r.hasil : r.isi) ?? '', catatan: r.catatan_ai };
               } : undefined}
@@ -2326,14 +2564,16 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
             <div className="mt-6">
               <p className="text-[12px] text-zinc-500 mb-2">Memulai</p>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setModalAiBuka(true)}
-                  className="px-3 py-1.5 border-2 border-purple-500/50 bg-gradient-to-r from-purple-900/40 to-indigo-900/40 hover:border-purple-400 hover:bg-purple-900/60 text-[13px] font-bold text-purple-200 flex items-center gap-1.5 shadow"
-                >
-                  <Sparkles size={14} className="text-yellow-300 animate-pulse" />
-                  <span>Tulis dengan AI</span>
-                </button>
+                {!rahasia && (
+                  <button
+                    type="button"
+                    onClick={() => setModalAiBuka(true)}
+                    className="px-3 py-1.5 border-2 border-purple-500/50 bg-gradient-to-r from-purple-900/40 to-indigo-900/40 hover:border-purple-400 hover:bg-purple-900/60 text-[13px] font-bold text-purple-200 flex items-center gap-1.5 shadow"
+                  >
+                    <Sparkles size={14} className="text-yellow-300 animate-pulse" />
+                    <span>Tulis dengan AI</span>
+                  </button>
+                )}
                 {TEMPLATE.filter((t) => t.isi).map((t) => (
                   <button key={t.nama} type="button" onClick={() => pakaiTemplat(t)} className="px-3 py-1.5 border-2 border-white/15 bg-white/[0.04] hover:border-white/40 hover:bg-white/10 text-[13px] font-bold text-zinc-200 flex items-center gap-1.5">
                     <span>{t.ikon}</span>{t.nama}
@@ -2345,6 +2585,27 @@ Kolom ini akan dihapus dari daftar properti memo.`)) return;
         </div>
       </div>
       </div>
+
+      {rahasia && <WatermarkRahasia nama={namaSaya} />}
+      {pratinjau && <PenampilBerkas berkas={pratinjau} bolehUnduh={!rahasia} onTutup={() => setPratinjau(null)} />}
+      {aturIzin && (
+        <PilihOrangRahasia
+          tim={tim}
+          pengguna={{ id: idSaya } as Pengguna}
+          awal={izinMemo(memo.izin)}
+          judul="Orang yang dituju"
+          tombol="Simpan"
+          onTutup={() => setAturIzin(false)}
+          onSimpan={async (ids) => {
+            setAturIzin(false);
+            try {
+              await api(`/api/memo/${memo.id}`, { method: 'PATCH', body: { izin: ids } });
+              onUbah({ izin: JSON.stringify(ids) });
+              notify(`MEMO RAHASIA KINI UNTUK ${ids.length} ORANG — MEREKA MENERIMA SURAT`);
+            } catch (e) { notify(e instanceof Error ? e.message.toUpperCase() : 'GAGAL MENYIMPAN'); }
+          }}
+        />
+      )}
 
       {urungAi && (
         <div className="fixed z-[120] left-1/2 -translate-x-1/2 bottom-4 flex items-center gap-3 px-3 py-2 retro-box !bg-zinc-900 border-purple-500 text-[13px] text-zinc-100" role="status">

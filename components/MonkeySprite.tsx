@@ -34,6 +34,28 @@ export const MonkeySprite: React.FC<Props> = ({ skin, pose = 'diam', hadap = 'ri
 
   return (
     <div className={`relative inline-block ${className}`} style={{ width: lebarPx, height: ukuran }}>
+      {/* Skin Prestasi: lingkar emas berputar + bintang pelangi — lebih mewah dari skin yang bisa dibeli. */}
+      {skin.prestasi && (
+        <>
+          <div
+            className="absolute pointer-events-none rounded-full animate-spin"
+            style={{
+              left: '50%', top: '55%', width: ukuran * 1.15, height: ukuran * 1.15, marginLeft: -(ukuran * 1.15) / 2, marginTop: -(ukuran * 1.15) / 2,
+              background: 'conic-gradient(from 0deg, #facc15, #f472b6, #60a5fa, #34d399, #facc15)',
+              WebkitMask: 'radial-gradient(circle, transparent 60%, #000 61%, #000 66%, transparent 67%)',
+              mask: 'radial-gradient(circle, transparent 60%, #000 61%, #000 66%, transparent 67%)',
+              animationDuration: '5s', opacity: 0.85,
+            }}
+          />
+          {['#facc15', '#f472b6', '#60a5fa', '#34d399', '#fde047', '#c084fc'].map((w, i) => (
+            <span
+              key={`p${i}`}
+              className="absolute animate-sparkle pointer-events-none"
+              style={{ width: 4, height: 4, background: w, left: `${50 + 52 * Math.cos((i / 6) * Math.PI * 2)}%`, top: `${55 + 46 * Math.sin((i / 6) * Math.PI * 2)}%`, animationDelay: `${i * 0.25}s` }}
+            />
+          ))}
+        </>
+      )}
       {aura && (
         <div
           className="absolute inset-0 rounded-full animate-aura pointer-events-none"

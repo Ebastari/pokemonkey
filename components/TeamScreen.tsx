@@ -1,17 +1,23 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Users, Trophy, BrainCircuit, Globe, RefreshCcw, Wifi, Star, UserPlus, Phone, X, AlertTriangle, KeyRound } from 'lucide-react';
+import { Users, Trophy, BrainCircuit, Globe, RefreshCcw, Wifi, Star, UserPlus, Phone, X, AlertTriangle, KeyRound, Mail } from 'lucide-react';
 import { api, GalatApi } from '../lib/api';
 import type { AnggotaTim, Pengguna } from '../lib/tipe-api';
 import { PanelAnggota } from './PanelAnggota';
 import { PanelHatiMati } from './PanelHatiMati';
 import { hatiAktif } from '../lib/hati';
+import { AvatarAnggota } from './AvatarAnggota';
+import type { AwalPesan } from './KotakSurat';
 
 interface Peringkat { id: string; name: string; xp: number; level: number; totalHa: number; lastActive: string | null }
-interface Props { pengguna: Pengguna; onBootUlang: () => void; notify: (pesan: string) => void }
+interface Props {
+  pengguna: Pengguna; onBootUlang: () => void; notify: (pesan: string) => void;
+  /** Tulis pesan Kotak Surat ke anggota (ikon amplop). */
+  onTulisPesan?: (awal: AwalPesan) => void;
+}
 
 const PERAN_LABEL: Record<string, string> = { admin: 'Admin', supervisor: 'Supervisor', anggota: 'Anggota', pemantau: 'Pemantau' };
 
-export const TeamScreen: React.FC<Props> = ({ pengguna, onBootUlang, notify }) => {
+export const TeamScreen: React.FC<Props> = ({ pengguna, onBootUlang, notify, onTulisPesan }) => {
   const [tim, setTim] = useState<AnggotaTim[]>([]);
   const [peringkat, setPeringkat] = useState<Peringkat[]>([]);
   const [loading, setLoading] = useState(false);
@@ -97,6 +103,9 @@ export const TeamScreen: React.FC<Props> = ({ pengguna, onBootUlang, notify }) =
             <div className="space-y-2">
               {tim.map((t) => (
                 <div key={t.id} className={`flex items-center justify-between p-2.5 border-2 ${t.id === pengguna.id ? 'border-amber-400 bg-amber-400/10' : 'border-white/10 bg-black/40 hover:bg-white/5 transition-colors'}`}>
+                  <button type="button" onClick={() => setAnggotaTerpilih({ id: t.id, nama: t.nama })} className="mr-2.5" aria-label={`Profil ${t.nama}`}>
+                    <AvatarAnggota foto={t.foto} skinId={t.skin_aktif} ukuran={40} />
+                  </button>
                   <div
                     className="min-w-0 flex-1 cursor-pointer"
                     onClick={() => setAnggotaTerpilih({ id: t.id, nama: t.nama })}
@@ -116,6 +125,11 @@ export const TeamScreen: React.FC<Props> = ({ pengguna, onBootUlang, notify }) =
                       <p className="text-[14px] font-bold text-white">{t.pica_terbuka} <span className="text-[10px] text-zinc-400 font-normal">TERBUKA</span></p>
                       {t.pica_telat > 0 && <p className="text-[11px] text-red-400 uppercase font-bold">{t.pica_telat} telat</p>}
                     </div>
+                    {onTulisPesan && t.id !== pengguna.id && (
+                      <button onClick={() => onTulisPesan({ penerima: [t.id] })} title={`Kirim pesan ke ${t.nama}`} aria-label={`Kirim pesan ke ${t.nama}`} className="p-1.5 border-2 border-cyan-500 text-cyan-300 hover:bg-cyan-500/20">
+                        <Mail size={13} />
+                      </button>
+                    )}
                     {admin && t.id !== pengguna.id && (
                       <button onClick={() => resetPassword(t)} title={`Reset password ${t.nama}`} aria-label={`Reset password ${t.nama}`} className="p-1.5 border-2 border-amber-500 text-amber-400 hover:bg-amber-500/20">
                         <KeyRound size={14} />
@@ -147,6 +161,7 @@ export const TeamScreen: React.FC<Props> = ({ pengguna, onBootUlang, notify }) =
               >
                 <div className="flex items-center gap-3">
                   <span className="font-title text-[11px] text-zinc-400 w-6">#{idx + 1}</span>
+                  {(() => { const a = tim.find((x) => x.id === member.id); return <AvatarAnggota foto={a?.foto} skinId={a?.skin_aktif} ukuran={32} />; })()}
                   <div>
                     <p className="text-[14px] font-bold text-white hover:text-yellow-300 transition-colors">{member.name}</p>
                     <p className="text-[11px] text-zinc-400 uppercase">Level {member.level} · {member.lastActive ? 'aktif' : 'belum aktif'}</p>
@@ -173,6 +188,7 @@ export const TeamScreen: React.FC<Props> = ({ pengguna, onBootUlang, notify }) =
           pengguna={pengguna}
           notify={notify}
           onTutup={() => setAnggotaTerpilih(null)}
+          onTulisPesan={onTulisPesan}
         />
       )}
     </div>

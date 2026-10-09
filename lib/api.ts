@@ -12,6 +12,8 @@
 
 import { GalatApi } from './galat';
 import { demoAktif, demoApi, demoBerkas } from './demo';
+import { ambilKabarDemo } from './demo-xp';
+import { bacaHeaderXp, kabarkanXp } from './xp';
 
 export { GalatApi } from './galat';
 export { demoAktif, aktifkanDemo, matikanDemo, adaDataDemo, resetDemoDb, hitungDataDemo } from './demo';
@@ -57,7 +59,11 @@ export async function api<T = any>(jalur: string, opsi: OpsiPermintaan = {}): Pr
   const method = opsi.method ?? (opsi.body !== undefined || opsi.form ? 'POST' : 'GET');
 
   if (demoAktif()) {
-    return (await demoApi(jalur, method, opsi.body, opsi.form)) as T;
+    const hasil = (await demoApi(jalur, method, opsi.body, opsi.form)) as T;
+    // XP yang didapat di mode demo dikabarkan sama seperti header X-XP dari server.
+    const kabar = ambilKabarDemo();
+    if (kabar) kabarkanXp(kabar);
+    return hasil;
   }
 
   const headers: Record<string, string> = {};
@@ -88,6 +94,10 @@ export async function api<T = any>(jalur: string, opsi: OpsiPermintaan = {}): Pr
     }
     throw new GalatApi(String(data.galat ?? `Server menjawab ${res.status}`), res.status, data);
   }
+
+  // XP yang didapat dari aksi ini (dihitung server) → pesan "+N XP" di layar.
+  const kabar = bacaHeaderXp(res);
+  if (kabar) kabarkanXp(kabar);
 
   return data as T;
 }

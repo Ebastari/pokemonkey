@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { TreePine, ChevronRight, ClipboardList, Bell, CalendarDays, AlarmClock, Coins, Flame, Sprout, Trees } from 'lucide-react';
+import { TreePine, ChevronRight, ClipboardList, CalendarDays, AlarmClock, Coins, Sprout, Trees } from 'lucide-react';
+import type { AwalPesan } from './KotakSurat';
 import { GameState, Skin } from '../types';
 import type { Opsi, Pengguna } from '../lib/tipe-api';
 import type { AlarmItem } from '../lib/alarm';
@@ -60,8 +61,11 @@ interface Props {
   daftarAlarm?: AlarmItem[];
   sedangAlarm?: boolean;
   onBukaAlarm?: () => void;
-  /** Widget NOTIF: pintasan ke tab notifikasi */
-  onBukaNotif?: () => void;
+  /** Kotak surat di kebun: pesan anggota & pemberitahuan sistem yang belum dibaca. */
+  jumlahSuratBaru?: number;
+  onBukaSurat?: () => void;
+  /** Kartu anggota → kirim pesan / minta progres lewat Kotak Surat. */
+  onTulisPesan?: (awal: AwalPesan) => void;
   /** Widget MONEY: pintasan ke Money Monkey (Anggaran & RAB) */
   onBukaMoney?: () => void;
   /** Widget FIRE: pintasan ke Fire Monkey (Hotspot & Karhutla) */
@@ -90,7 +94,7 @@ export const Habitat: React.FC<Props> = ({
   jumlahInfoBaru = 0, onBukaInfo, jumlahPicaTerbuka = 0, adaPicaTelat = false, onBukaPica,
   jumlahAcaraHariIni = 0, onBukaJadwal,
   daftarAlarm = [], sedangAlarm = false, onBukaAlarm,
-  onBukaNotif, onBukaMoney, onBukaFire,
+  jumlahSuratBaru = 0, onBukaSurat, onTulisPesan, onBukaMoney, onBukaFire,
 }) => {
   const [others, setOthers] = useState<ActiveUser[]>([]);
   const [reveg, setReveg] = useState<BarisRevegetasi[]>([]);
@@ -312,17 +316,12 @@ export const Habitat: React.FC<Props> = ({
           onBuka={onBukaAlarm}
         />
       )}
-      {onBukaNotif && (
-        <ChipNotif onBuka={onBukaNotif} />
-      )}
-      {onBukaMoney && (
-        <ChipMoney onBuka={onBukaMoney} />
-      )}
-      {onBukaFire && (
-        <ChipFire onBuka={onBukaFire} />
-      )}
-      <ChipNursery onBuka={() => setModalLapangan('nursery')} />
-      <ChipGeotag onBuka={() => setModalLapangan('geotag')} />
+      {/* NOTIF dan FIRE cukup lewat MENU; kolom ini menyusun diri bila MONEY tidak tampil. */}
+      <div className="absolute z-20 right-2 top-[216px] flex flex-col items-end gap-2">
+        {onBukaMoney && <ChipMoney onBuka={onBukaMoney} />}
+        <ChipNursery onBuka={() => setModalLapangan('nursery')} />
+        <ChipGeotag onBuka={() => setModalLapangan('geotag')} />
+      </div>
 
       {/* Papan INFO: pintasan ke pengumuman, dengan lencana yang belum dibaca. */}
       {onBukaInfo && (
@@ -333,6 +332,18 @@ export const Habitat: React.FC<Props> = ({
           title="Buka INFO"
         >
           <PapanInfo baru={jumlahInfoBaru} />
+        </button>
+      )}
+
+      {/* Kotak surat: bendera naik bila ada surat yang belum dibaca. */}
+      {onBukaSurat && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onBukaSurat(); }}
+          className="absolute z-20 left-2 top-[64px] flex flex-col items-center group"
+          aria-label={jumlahSuratBaru > 0 ? `Kotak surat: ${jumlahSuratBaru} surat belum dibaca` : 'Kotak surat'}
+          title="Kotak Surat"
+        >
+          <KotakSurat baru={jumlahSuratBaru} />
         </button>
       )}
 
@@ -440,6 +451,7 @@ export const Habitat: React.FC<Props> = ({
           opsiRoster={opsiRoster}
           notify={notify ?? (() => undefined)}
           onTutup={() => setAnggota(null)}
+          onTulisPesan={onTulisPesan}
         />
       )}
 
@@ -592,6 +604,44 @@ const PapanInfo: React.FC<{ baru: number }> = ({ baru }) => (
   </span>
 );
 
+/** Kotak surat piksel di kebun; benderanya naik bila ada surat baru. */
+const KotakSurat: React.FC<{ baru: number }> = ({ baru }) => (
+  <span className="relative block">
+    <svg viewBox="0 0 24 22" width="56" height="52" shapeRendering="crispEdges" aria-hidden="true" className="drop-shadow-[2px_2px_0_rgba(0,0,0,0.35)] group-hover:-translate-y-0.5 transition-transform">
+      {/* tiang */}
+      <rect x="10" y="12" width="3" height="10" fill="#5b3a1a" />
+      {/* badan kotak */}
+      <rect x="2" y="3" width="18" height="10" fill="#1e3a8a" />
+      <rect x="3" y="4" width="16" height="8" fill="#2563eb" />
+      <rect x="3" y="4" width="16" height="2" fill="#3b82f6" />
+      {/* celah surat */}
+      <rect x="5" y="8" width="9" height="1" fill="#0f172a" />
+      {/* bendera: naik bila ada surat */}
+      {baru > 0 ? (
+        <>
+          <rect x="20" y="0" width="1" height="9" fill="#3f3f46" />
+          <rect x="21" y="0" width="3" height="3" fill="#ef4444" />
+        </>
+      ) : (
+        <>
+          <rect x="20" y="8" width="1" height="4" fill="#3f3f46" />
+          <rect x="20" y="11" width="4" height="1" fill="#ef4444" />
+        </>
+      )}
+      {/* surat menyembul */}
+      {baru > 0 && <rect x="6" y="6" width="6" height="2" fill="#fef9c3" />}
+      {/* rumput */}
+      <rect x="7" y="21" width="9" height="1" fill="#15803d" />
+    </svg>
+    <span className="absolute left-0 right-0 bottom-[11px] text-center font-title text-[7px] text-white [text-shadow:1px_1px_0_#0f172a] pointer-events-none">SURAT</span>
+    {baru > 0 && (
+      <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 bg-red-600 border-2 border-black text-white text-[10px] font-bold flex items-center justify-center animate-bounce teks-atas-warna">
+        {baru > 9 ? '9+' : baru}
+      </span>
+    )}
+  </span>
+);
+
 /** Chip PICA di pojok kebun: jumlah tugas Open dan peringatan telat */
 export const ChipPica: React.FC<{
   jumlah: number;
@@ -670,48 +720,18 @@ export const ChipAlarm: React.FC<{
   );
 };
 
-/** Chip Notifikasi di pojok kebun: status dan pintasan ke menu NOTIF */
-export const ChipNotif: React.FC<{
-  onBuka: () => void;
-}> = ({ onBuka }) => (
-  <button
-    onClick={(e) => { e.stopPropagation(); onBuka(); }}
-    className="absolute z-20 right-2 top-[216px] retro-box !bg-black/70 !border-white/40 !p-1.5 !px-2 flex items-center gap-1.5 leading-tight hover:!bg-zinc-800"
-    title="Pengingat Notifikasi (07.00, 12.00, 17.00 WITA)"
-    aria-label="Buka notifikasi"
-  >
-    <Bell size={16} className="text-yellow-300" />
-    <span className="font-title text-[10px] text-white">NOTIF</span>
-  </button>
-);
-
 /** Chip Money Monkey di pojok kebun: pintasan ke RAB & Anggaran */
 export const ChipMoney: React.FC<{
   onBuka: () => void;
 }> = ({ onBuka }) => (
   <button
     onClick={(e) => { e.stopPropagation(); onBuka(); }}
-    className="absolute z-20 right-2 top-[256px] retro-box !bg-emerald-950/80 !border-emerald-400 !p-1.5 !px-2 flex items-center gap-1.5 leading-tight hover:!bg-emerald-900"
+    className="retro-box !bg-emerald-950/80 !border-emerald-400 !p-1.5 !px-2 flex items-center gap-1.5 leading-tight hover:!bg-emerald-900"
     title="Money Monkey (Anggaran, RAB & Keuangan HCGA)"
     aria-label="Buka Money Monkey"
   >
     <Coins size={16} className="text-yellow-300" />
     <span className="font-title text-[10px] text-emerald-200">MONEY</span>
-  </button>
-);
-
-/** Chip Fire Monkey di pojok kebun: pintasan ke Monitoring Titik Api & Karhutla */
-export const ChipFire: React.FC<{
-  onBuka: () => void;
-}> = ({ onBuka }) => (
-  <button
-    onClick={(e) => { e.stopPropagation(); onBuka(); }}
-    className="absolute z-20 right-2 top-[296px] retro-box !bg-orange-950/80 !border-orange-400 !p-1.5 !px-2 flex items-center gap-1.5 leading-tight hover:!bg-orange-900"
-    title="Fire Monkey (Peta Interaktif Hotspot NASA FIRMS & Karhutla)"
-    aria-label="Buka Fire Monkey"
-  >
-    <Flame size={16} className="text-orange-400" />
-    <span className="font-title text-[10px] text-orange-200">FIRE</span>
   </button>
 );
 
@@ -721,7 +741,7 @@ export const ChipNursery: React.FC<{
 }> = ({ onBuka }) => (
   <button
     onClick={(e) => { e.stopPropagation(); onBuka(); }}
-    className="absolute z-20 right-2 top-[336px] retro-box !bg-lime-950/80 !border-lime-400 !p-1.5 !px-2 flex items-center gap-1.5 leading-tight hover:!bg-lime-900"
+    className="retro-box !bg-lime-950/80 !border-lime-400 !p-1.5 !px-2 flex items-center gap-1.5 leading-tight hover:!bg-lime-900"
     title="Smart Nursery (Stok bibit persemaian & mutasi)"
     aria-label="Buka Smart Nursery"
   >
@@ -736,7 +756,7 @@ export const ChipGeotag: React.FC<{
 }> = ({ onBuka }) => (
   <button
     onClick={(e) => { e.stopPropagation(); onBuka(); }}
-    className="absolute z-20 right-2 top-[376px] retro-box !bg-sky-950/80 !border-sky-400 !p-1.5 !px-2 flex items-center gap-1.5 leading-tight hover:!bg-sky-900"
+    className="retro-box !bg-sky-950/80 !border-sky-400 !p-1.5 !px-2 flex items-center gap-1.5 leading-tight hover:!bg-sky-900"
     title="Geotagging & Karbon (Sensus pohon & cadangan karbon)"
     aria-label="Buka Geotagging"
   >

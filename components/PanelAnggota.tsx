@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  X, Phone, MessageCircle, Loader2, ClipboardList, NotebookPen, Backpack, CalendarRange, Star, Pencil,
+  X, Phone, MessageCircle, Loader2, ClipboardList, NotebookPen, Backpack, CalendarRange, Star, Pencil, Mail, TrendingUp,
 } from 'lucide-react';
+import { SKINS } from '../constants';
+import { LatarSkin, KELANGKAAN, AvatarSkin } from './LatarSkin';
+import type { AwalPesan } from './KotakSurat';
 import { api } from '../lib/api';
 import type { Opsi, Pengguna } from '../lib/tipe-api';
 import { warna } from '../lib/warna';
@@ -28,7 +31,7 @@ interface BarisLaporan { id: string; jenis: string | null; capaian: number | nul
 
 interface DataProfil {
   anggota: { id: string; nama: string; jabatan: string | null; bidang: string | null; peran: string; wa: string | null; foto?: string | null };
-  profil: { xp: number; level: number; luas_tanam: number; stamina: number; terakhir_aktif: string | null } | null;
+  profil: { xp: number; level: number; luas_tanam: number; stamina: number; terakhir_aktif: string | null; skin_aktif?: string | null } | null;
   pica: BarisPica[];
   roster: { tanggal: string; kode: string; catatan: string | null }[];
   memo: BarisMemo[];
@@ -44,6 +47,8 @@ interface Props {
   opsiRoster?: Opsi[];
   notify: (pesan: string) => void;
   onTutup: () => void;
+  /** Kotak Surat: kirim pesan / minta progres ke anggota ini. */
+  onTulisPesan?: (awal: AwalPesan) => void;
 }
 
 const KODE_ROSTER: Record<string, string> = {
@@ -56,7 +61,8 @@ const waTampil = (wa: string) => {
   return n.startsWith('62') ? `+${n.slice(0, 2)} ${n.slice(2, 5)}-${n.slice(5, 9)}-${n.slice(9)}` : n;
 };
 
-export const PanelAnggota: React.FC<Props> = ({ userId, nama, pengguna, opsiRoster, notify, onTutup }) => {
+export const PanelAnggota: React.FC<Props> = ({ userId, nama, pengguna, opsiRoster, notify, onTutup, onTulisPesan }) => {
+  const [pilihProgres, setPilihProgres] = useState(false);
   const [data, setData] = useState<DataProfil | null>(null);
   const [memuat, setMemuat] = useState(true);
   const [pesan, setPesan] = useState('');
@@ -109,12 +115,21 @@ export const PanelAnggota: React.FC<Props> = ({ userId, nama, pengguna, opsiRost
         className="retro-box !bg-zinc-900 border-emerald-500 w-full sm:max-w-lg max-h-[90vh] overflow-auto custom-scrollbar !p-3"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Wallpaper: skin yang sedang dipakai anggota ini */}
+        {(() => {
+          const skin = SKINS.find((s) => s.id === data?.profil?.skin_aktif) ?? SKINS[0];
+          return (
+            <LatarSkin skin={skin} tinggi={128} ukuranMonyet={96} className="-mx-3 -mt-3 mb-3 border-b-4 border-black">
+              <span className={`absolute bottom-1.5 right-2 chip-retro bg-black/70 !text-[10px] ${KELANGKAAN[skin.tier].garis} ${KELANGKAAN[skin.tier].teks}`}>{skin.name}</span>
+            </LatarSkin>
+          );
+        })()}
         {/* ---------- Kepala ---------- */}
         <div className="flex items-start gap-2 border-b-4 border-white pb-2 mb-3">
           <div className="w-11 h-11 shrink-0 border-[3px] border-black bg-emerald-500 overflow-hidden flex items-center justify-center shadow-[3px_3px_0_#000]">
             {fotoAnggota
               ? <img src={fotoAnggota} alt="Foto profil" className="w-full h-full object-cover" />
-              : <span className="font-title text-[13px] text-black">{(a?.nama ?? nama ?? '?').slice(0, 1).toUpperCase()}</span>}
+              : <AvatarSkin skin={SKINS.find((s) => s.id === data?.profil?.skin_aktif) ?? SKINS[0]} ukuran={38} className="!border-0" />}
           </div>
           <div className="min-w-0 flex-1">
             <h2 className="judul-layar truncate flex items-center gap-1.5" title={a?.nama ?? nama ?? ''}>
@@ -251,6 +266,30 @@ export const PanelAnggota: React.FC<Props> = ({ userId, nama, pengguna, opsiRost
                 <p className="text-[11px] text-zinc-400">{rosterHariIni?.catatan ?? 'roster'}</p>
               </div>
             </div>
+
+            {onTulisPesan && userId !== pengguna.id && (
+              <div className="flex gap-2">
+                <button onClick={() => { onTulisPesan({ penerima: [userId] }); onTutup(); }} className="btn-retro btn-retro-sm bg-cyan-700 flex-1 flex items-center justify-center gap-1.5"><Mail size={13} /> Kirim pesan</button>
+                <button onClick={() => setPilihProgres((v) => !v)} disabled={data.pica.length === 0} className="btn-retro btn-retro-sm bg-amber-600 text-black font-bold flex-1 flex items-center justify-center gap-1.5" title={data.pica.length === 0 ? 'Tidak ada PICA terbuka' : 'Pilih PICA lalu kirim permintaan progres'}><TrendingUp size={13} /> Minta progres</button>
+              </div>
+            )}
+            {pilihProgres && onTulisPesan && (
+              <div className="panel-retro !p-2 border-amber-500">
+                <p className="text-[11px] text-amber-200 mb-1.5">Pilih PICA — {namaTampil(a?.nama)} menerima surat; saat ia menulis update, progresnya otomatis kembali ke Kotak Surat Anda.</p>
+                {data.pica.map((p) => (
+                  <button key={p.id} onClick={() => {
+                    onTulisPesan({
+                      penerima: [userId], jenis: 'minta_progres', subjek: `Minta progres: ${p.judul.slice(0, 80)}`,
+                      isi: `Halo ${namaTampil(a?.nama)}, mohon update progres PICA ini${p.due_date ? ` (tenggat ${p.due_date})` : ''}. Terima kasih.`,
+                      tautan: { jenis: 'pica', id: p.id, label: p.judul.slice(0, 120) },
+                    });
+                    onTutup();
+                  }} className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12px] hover:bg-white/10 border-b border-white/10 last:border-0">
+                    <ClipboardList size={12} className="text-amber-300 shrink-0" /><span className="flex-1 truncate text-zinc-100">{p.judul}</span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             <p className="text-[11px] text-zinc-400 -mt-1">
               Terakhir aktif: {data.profil?.terakhir_aktif ? W.formatWaktuIso(data.profil.terakhir_aktif) + ' WITA' : 'belum pernah'}

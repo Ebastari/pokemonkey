@@ -20,6 +20,8 @@
  */
 
 import type { Env, Pengguna } from './tipe';
+import { beriXp } from './xp';
+import { periksaPrestasi } from './prestasi';
 import { ambilPengaturan, antre, prosesAntrean } from './wa';
 import { tanggalWita, utcDariWita } from './waktu';
 import { adalahAdmin } from './auth';
@@ -316,6 +318,7 @@ export async function ruteTitikApi(jalur: string, req: Request, env: Env, penggu
     const id = decodeURIComponent(cocok[1]);
     const b = (await req.json()) as { status?: string; catatan?: string | null; pica_id?: string | null };
     if (b.status !== undefined && !STATUS_SAH.includes(b.status)) return json({ galat: 'Status tidak dikenal.' }, 400);
+    const sebelum = await env.DB.prepare('SELECT dicek_oleh FROM titik_api WHERE id = ?1').bind(id).first<{ dicek_oleh: string | null }>();
     const r = await env.DB.prepare(
       `UPDATE titik_api SET
          status     = COALESCE(?2, status),
@@ -334,6 +337,14 @@ export async function ruteTitikApi(jalur: string, req: Request, env: Env, penggu
       new Date().toISOString(),
     ).run();
     if (!r.meta.changes) return json({ galat: 'Titik api tidak ditemukan.' }, 404);
+    // XP pemeriksaan lapangan: status hasil cek diisi; orang pertama yang memeriksa dapat tambahan.
+    if (b.status && b.status !== 'baru') {
+      await beriXp(env, pengguna, 'titik_cek', id, { pelaku: pengguna });
+      if (!sebelum?.dicek_oleh) {
+        await beriXp(env, pengguna, 'titik_pertama', id, { pelaku: pengguna });
+        await periksaPrestasi(env, pengguna.id, pengguna);
+      }
+    }
     return json({ ok: true });
   }
 

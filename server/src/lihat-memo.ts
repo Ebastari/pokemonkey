@@ -59,10 +59,15 @@ async function tautanAktif(env: Env, memoId: string): Promise<BarisTautan | null
  * Menyalakan/mematikan: penulis memo, atau Supervisor/Admin untuk memo tim.
  */
 export async function ruteBagiMemo(memoId: string, req: Request, env: Env, pengguna: Pengguna): Promise<Response> {
-  const memo = await env.DB.prepare('SELECT id, user_id, lingkup, judul, akses FROM memo WHERE id = ?1 AND dihapus_pada IS NULL')
-    .bind(memoId).first<{ id: string; user_id: string; lingkup: string; judul: string; akses: string | null }>();
+  const memo = await env.DB.prepare('SELECT id, user_id, lingkup, judul, akses, izin FROM memo WHERE id = ?1 AND dihapus_pada IS NULL')
+    .bind(memoId).first<{ id: string; user_id: string; lingkup: string; judul: string; akses: string | null; izin: string | null }>();
   const hak = memo ? hakMemo(memo, pengguna) : null;
   if (!memo || !hak) return galat('Memo tidak ditemukan.', 404);
+  // Memo rahasia tidak pernah dibagikan lewat tautan publik.
+  if (memo.lingkup === 'rahasia') {
+    if (req.method === 'GET') return json({ aktif: false, boleh: false, rahasia: true });
+    return galat('Memo rahasia tidak bisa dibagikan lewat tautan.', 403);
+  }
   // Membagikan ke web = akses penuh (pembuat, Admin, Supervisor), seperti Share di Notion.
   const boleh = hak === 'penuh';
   const asal = new URL(req.url).origin;

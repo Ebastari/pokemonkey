@@ -67,8 +67,13 @@ export interface Skin {
   name: string;
   description: string;
   cost: number;
-  /** 1 seragam · 2 aksesori · 3 aksesori+efek · 4 +jubah/sayap · 5 legenda */
-  tier: 1 | 2 | 3 | 4 | 5;
+  /** 1 seragam · 2 aksesori · 3 aksesori+efek · 4 +jubah/sayap · 5 legenda · 6 prestasi (mitis, tidak dijual) */
+  tier: 1 | 2 | 3 | 4 | 5 | 6;
+  /** Skin Prestasi: terbuka dari kerja (server/src/prestasi-aturan.ts), tidak bisa dibeli. */
+  prestasi?: boolean;
+  /** Kisah singkat skin (layar detail di SHOP). */
+  sejarah?: string;
+  filosofi?: string;
   colors: {
     primary: string;
     secondary: string;
@@ -92,8 +97,12 @@ export interface Memo {
   user_id?: string;
   /** Nama penulis (hasil join dengan tim). */
   penulis?: string | null;
-  /** pribadi = hanya pemiliknya; tim = papan Memo Internal. */
-  lingkup: 'pribadi' | 'tim';
+  /** pribadi = hanya pemiliknya; tim = papan Memo Internal; rahasia = pembuat + orang yang dituju (`izin`). */
+  lingkup: 'pribadi' | 'tim' | 'rahasia';
+  /** Memo rahasia: JSON array id anggota yang dituju (semuanya bisa menyunting). */
+  izin?: string | null;
+  /** 1 = disematkan untuk diri sendiri (memo_sematan). `disematkan` = untuk semua. */
+  sematan_saya?: number | null;
   judul: string;
   isi: string;
   ringkasan: string | null;
@@ -147,6 +156,8 @@ export interface GameState {
   seedlingsTarget: number;
   xp: number;
   level: number;
+  /** XP yang masih bisa dibelanjakan di SHOP (xp − xp_terpakai); opsional untuk simpanan lama. */
+  saldo?: number;
   missions: Mission[];
   reports: FieldReport[];
   memoPlans: WorkPlan[]; 

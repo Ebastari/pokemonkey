@@ -432,6 +432,8 @@ function satuBlok(b: Blok, k: Ktx): HTMLElement {
       return el('div', { margin: '4px 0' }, [chipSebaris(`📎 ${b.nama}`, { garis: t.garis, teks: t.teks, latar: 'transparent' })]);
     case 'kosong':
       return el('div', { height: '8px' });
+    case 'formulir':
+      return el('div', { margin: '4px 0' }, [chipSebaris(`📋 Formulir: ${b.judul || 'Formulir'}`, { garis: t.garis, teks: t.teks, latar: 'transparent' })]);
     default:
       return el('div', { padding: '3px 0' }, sebaris(b.teks, k));
   }

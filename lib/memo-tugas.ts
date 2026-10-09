@@ -31,7 +31,8 @@ export function kumpulkanTugas(memos: readonly Memo[], idTim: ReadonlySet<string
       hasil.push({
         memoId: m.id,
         judulMemo: m.judul,
-        lingkup: m.lingkup,
+        // Tugas memo rahasia diperlakukan seperti catatan pribadi (tidak tampil ke orang lain).
+        lingkup: m.lingkup === 'tim' ? 'tim' : 'pribadi',
         penulisId: m.user_id ?? null,
         indeks: t.indeks,
         selesai: t.selesai,

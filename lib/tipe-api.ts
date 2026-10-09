@@ -171,6 +171,9 @@ export interface AnggotaTim {
   pica_telat: number;
   xp: number;
   foto?: string | null;
+  /** Skin yang sedang dipakai: foto profil bawaan bila belum mengunggah foto sendiri. */
+  skin_aktif?: string | null;
+  level?: number | null;
 }
 
 /** Misi dari server; App mengubahnya ke bentuk `Mission` yang dipakai layar QUEST. */
@@ -205,4 +208,6 @@ export interface ProfilGame {
   luas_tanam: number;
   /** Teks di atas kepala monyet; null = sapaan bawaan. */
   status_teks?: string | null;
+  /** XP yang sudah dibelanjakan untuk skin; saldo = xp − xp_terpakai. */
+  xp_terpakai?: number;
 }

@@ -365,10 +365,12 @@ export async function ruteAiMemo(req: Request, env: Env, pengguna: Pengguna): Pr
   let infoMemo = '';
   if (typeof b.memo_id === 'string' && b.memo_id) {
     const m = await env.DB.prepare(
-      `SELECT m.id, m.user_id, m.lingkup, m.akses, m.kategori, m.tipe, m.status, m.tanggal, m.pica_id, p.judul AS pica_judul
+      `SELECT m.id, m.user_id, m.lingkup, m.akses, m.izin, m.kategori, m.tipe, m.status, m.tanggal, m.pica_id, p.judul AS pica_judul
          FROM memo m LEFT JOIN pica p ON p.id = m.pica_id WHERE m.id = ?1 AND m.dihapus_pada IS NULL`,
-    ).bind(b.memo_id).first<{ id: string; user_id: string; lingkup: string; akses: string | null; kategori: string | null; tipe: string | null; status: string | null; tanggal: string | null; pica_id: string | null; pica_judul: string | null }>();
+    ).bind(b.memo_id).first<{ id: string; user_id: string; lingkup: string; akses: string | null; izin: string | null; kategori: string | null; tipe: string | null; status: string | null; tanggal: string | null; pica_id: string | null; pica_judul: string | null }>();
     if (!m || !hakMemo(m, pengguna)) return galat('Memo tidak ditemukan.', 404);
+    // Isi memo rahasia tidak pernah dikirim ke layanan AI (server Google).
+    if (m.lingkup === 'rahasia') return galat('AI tidak dipakai untuk memo rahasia.', 403);
     lingkup = m.lingkup === 'pribadi' ? 'pribadi' : 'tim';
     const { results: anak } = await env.DB.prepare('SELECT judul FROM memo WHERE induk_id = ?1 AND dihapus_pada IS NULL LIMIT 20').bind(m.id).all<{ judul: string }>();
     infoMemo = [
@@ -548,7 +550,7 @@ export async function ruteTanyaMemo(req: Request, env: Env, pengguna: Pengguna):
   const syarat = kata.map((_, i) => `(m.judul LIKE ?${i + 2} OR m.isi LIKE ?${i + 2} OR COALESCE(m.ringkasan, '') LIKE ?${i + 2})`).join(' OR ');
   const { results } = await env.DB.prepare(
     `SELECT m.id, m.judul, m.isi, m.ringkasan, m.tanggal, m.lingkup, m.dibuat_pada, m.diubah_pada
-       FROM memo m WHERE m.dihapus_pada IS NULL AND (m.lingkup = 'tim' OR m.user_id = ?1) AND (${syarat})
+       FROM memo m WHERE m.dihapus_pada IS NULL AND m.lingkup <> 'rahasia' AND (m.lingkup = 'tim' OR m.user_id = ?1) AND (${syarat})
       ORDER BY COALESCE(m.diubah_pada, m.dibuat_pada) DESC LIMIT 200`,
   ).bind(pengguna.id, ...kata.map((k) => `%${k}%`)).all<{ id: string; judul: string; isi: string; ringkasan: string | null; tanggal: string | null; lingkup: string; dibuat_pada: string; diubah_pada: string | null }>();
 

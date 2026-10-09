@@ -11,6 +11,7 @@
 import type { Env, Pengguna } from './tipe';
 import { sekarangUtcIso } from './waktu';
 import { adalahAdmin, bolehUbahKunci } from './auth';
+import { beriXpSemua, sahkanSkin } from './xp';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -77,6 +78,17 @@ export async function ruteGame(
     // Kolom ini boleh dikosongkan, jadi dibedakan "tidak dikirim" dari "dikirim kosong".
     const ubahStatus = 'status_teks' in b ? 1 : 0;
 
+    // XP dan level dihitung server (docs/sistem-xp.md): angka dari aplikasi diabaikan.
+    // Skin baru (termasuk dari APK lama yang membeli dengan mengurangi XP sendiri) hanya
+    // diterima bila saldo cukup; skin aktif harus skin yang dimiliki.
+    b.xp = undefined;
+    b.level = undefined;
+    const skinSah = b.skin_dimiliki ? await sahkanSkin(env, pengguna.id, b.skin_dimiliki.map(String)) : null;
+    if (b.skin_aktif) {
+      const milik = skinSah ?? (await sahkanSkin(env, pengguna.id, []));
+      if (!milik.includes(b.skin_aktif)) b.skin_aktif = undefined;
+    }
+
     await env.DB.prepare(
       `INSERT INTO profil_game (user_id, xp, level, skin_aktif, skin_dimiliki, luas_tanam, pos_x, pos_y, stamina, terakhir_aktif, status_teks)
        VALUES (?1, COALESCE(?2,0), COALESCE(?3,1), COALESCE(?4,'classic'), COALESCE(?5,'["classic"]'), COALESCE(?6,0), ?7, ?8, ?9, ?10, ?12)
@@ -97,7 +109,7 @@ export async function ruteGame(
         b.xp ?? null,
         b.level ?? null,
         b.skin_aktif ?? null,
-        b.skin_dimiliki ? JSON.stringify(b.skin_dimiliki) : null,
+        skinSah ? JSON.stringify(skinSah) : null,
         b.luas_tanam ?? null,
         b.pos_x ?? null,
         b.pos_y ?? null,
@@ -200,6 +212,7 @@ export async function ruteGame(
     const b = (await req.json()) as { nilai?: number; target?: number; luas?: number; xp?: number };
     const nilai = Number(b.nilai ?? 0);
     const target = Number(b.target ?? 0);
+    const statusSebelum = await env.DB.prepare('SELECT status FROM misi_global WHERE id = ?1').bind(cocokTambah[1]).first<{ status: string }>();
 
     const hasil = await env.DB.prepare(
       `UPDATE misi_global
@@ -212,18 +225,14 @@ export async function ruteGame(
       .bind(cocokTambah[1], nilai, target, sekarangUtcIso())
       .first<{ status: string; current: number }>();
 
-    // XP dan luas tanam juga dijumlah di server.
-    if (b.xp || b.luas) {
-      await env.DB.prepare(
-        `UPDATE profil_game
-            SET xp = xp + ?2,
-                level = ((xp + ?2) / 1000) + 1,
-                luas_tanam = luas_tanam + ?3,
-                terakhir_aktif = ?4
-          WHERE user_id = ?1`,
-      )
-        .bind(pengguna.id, Math.floor(b.xp ?? 0), b.luas ?? 0, sekarangUtcIso())
+    // Luas tanam dijumlah di server. XP laporan sudah dicatat oleh /api/laporan (buku besar XP).
+    if (b.luas) {
+      await env.DB.prepare('UPDATE profil_game SET luas_tanam = luas_tanam + ?2, terakhir_aktif = ?3 WHERE user_id = ?1')
+        .bind(pengguna.id, b.luas, sekarangUtcIso())
         .run();
+    }
+    if (hasil?.status === 'COMPLETED' && statusSebelum?.status !== 'COMPLETED') {
+      await beriXpSemua(env, 'quest_selesai', cocokTambah[1], pengguna);
     }
 
     return json({ ok: true, misi: hasil });

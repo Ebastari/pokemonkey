@@ -16,6 +16,7 @@
 import type { Env, Pengguna } from './tipe';
 import { sekarangUtcIso, tanggalWita, geserHari, tanggalIndonesia } from './waktu';
 import { antre, ambilPengaturan, prosesAntrean } from './wa';
+import { beriXp } from './xp';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -160,7 +161,12 @@ async function kirimKeGrup(env: Env, isi: string, ref: string): Promise<boolean>
 export async function ruteHati(jalur: string, req: Request, env: Env, pengguna: Pengguna, asal: string): Promise<Response | null> {
   if (!jalur.startsWith('/api/hati')) return null;
 
-  if (jalur === '/api/hati' && req.method === 'GET') return json(await periksa(env, pengguna));
+  if (jalur === '/api/hati' && req.method === 'GET') {
+    const status = await periksa(env, pengguna);
+    // Membuka aplikasi dengan hati hidup = hadir (XP kecil, wilayah Hadir di Meter Aktif).
+    if (status.status === 'hidup') await beriXp(env, pengguna, 'hadir', tanggalWita(), { pelaku: pengguna });
+    return json(status);
+  }
 
   // ---------- pemilik hati mati mengirim permohonan ke grup
   if (jalur === '/api/hati/ajukan' && req.method === 'POST') {

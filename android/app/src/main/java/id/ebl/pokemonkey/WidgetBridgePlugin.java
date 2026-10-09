@@ -55,6 +55,24 @@ public class WidgetBridgePlugin extends Plugin {
         }
     }
 
+    /**
+     * Memo Rahasia: blokir tangkapan layar & rekam layar (FLAG_SECURE) selama memo
+     * terbuka; { aktif: false } mengembalikan seperti semula.
+     */
+    @PluginMethod
+    public void layarAman(PluginCall call) {
+        final boolean aktif = Boolean.TRUE.equals(call.getBoolean("aktif", false));
+        if (getActivity() == null) { call.resolve(); return; }
+        getActivity().runOnUiThread(() -> {
+            if (aktif) {
+                getActivity().getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+            } else {
+                getActivity().getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+            }
+            call.resolve();
+        });
+    }
+
     @PluginMethod
     public void bukaPengaturanBaterai(PluginCall call) {
         try {
